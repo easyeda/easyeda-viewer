@@ -1,0 +1,155 @@
+/** Project model helpers: openables collection, lazy doc opening, bbox. */
+import type { ProjectModel, TreeNode, OpenedDoc, DocSegment, Rec } from './types';
+import { RENDERABLE, emptyReport } from './types';
+import { getSegments } from './parse/records';
+import { scalePourItems } from './render/geom';
+
+/** Walk the tree and register every node that can be opened on the canvas. */
+export function collectOpenables(model: ProjectModel): void {
+  model.openables.clear();
+  const walk = (nodes: TreeNode[]) => {
+    for (const n of nodes) {
+      if (n.fileKey && n.uuid && RENDERABLE.has(n.docType ?? '')) model.openables.set(n.id, n);
+      if (n.children) walk(n.children);
+    }
+  };
+  walk(model.tree);
+}
+
+/** open a tree node: returns its segment + sibling lib segments for reference resolution */
+export function openDoc(model: ProjectModel, node: TreeNode): OpenedDoc {
+  if (!node.fileKey || !node.uuid) throw new Error(`node ${node.id} is not openable`);
+  const bytes = model.files.get(node.fileKey);
+  if (!bytes) throw new Error(`missing file ${node.fileKey}`);
+  const segs = getSegments(node.fileKey, bytes);
+  const self = segs.find((s) => s.uuid === node.uuid) ?? segs.find((s) => s.docType === node.docType);
+  if (!self) throw new Error(`segment ${node.uuid} not found in ${node.fileKey}`);
+  const libs = new Map<string, DocSegment>();
+  for (const s of segs) libs.set(s.uuid, s);
+  const report = emptyReport();
+  const bbox = computeBBox(self);
+  return { self, libs, fileKey: node.fileKey, node, bbox, report };
+}
+
+/**
+ * Resolve a lib segment to its drawable counterpart.
+ * Embedded DEVICE segments are metadata-only (no geometry): the graphics live in the
+ * SYMBOL / FOOTPRINT segment named by DEVICE.meta.attributes (uuid match within the file).
+ */
+export function resolveLibGraphics(
+  libs: Map<string, DocSegment>,
+  seg: DocSegment | undefined,
+  kind: 'Symbol' | 'Footprint',
+): DocSegment | undefined {
+  if (!seg) return undefined;
+  if (seg.docType === kind.toUpperCase()) return seg;
+  if (seg.docType !== 'DEVICE') return undefined;
+  const u = seg.meta?.attributes?.[kind];
+  const hit = typeof u === 'string' ? libs.get(u) : undefined;
+  return hit && hit.docType === kind.toUpperCase() ? hit : undefined;
+}
+
+/**
+ * Bounding box (screen coords: y flipped, origin translated) over page-level geometry.
+ * Component-attached symbol extents are small; included via component anchor points.
+ */
+export function computeBBox(seg: DocSegment): { minX: number; minY: number; maxX: number; maxY: number } {
+  const ox = seg.canvas?.originX ?? 0;
+  const oy = seg.canvas?.originY ?? 0;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const add = (x: number, y: number) => {
+    const sx = x - ox, sy = -(y - oy);
+    if (sx < minX) minX = sx;
+    if (sx > maxX) maxX = sx;
+    if (sy < minY) minY = sy;
+    if (sy > maxY) maxY = sy;
+  };
+  for (const r of seg.recs) {
+    const d = r.data;
+    switch (r.type) {
+      case 'LINE': if (num(d.startX)) { add(d.startX, d.startY ?? 0); add(d.endX ?? d.startX, d.endY ?? d.startY ?? 0); } break;
+      case 'ARC': if (num(d.startX)) { add(d.startX, d.startY ?? 0); add(d.endX ?? d.startX, d.endY ?? d.startY ?? 0); } break;
+      case 'COMPONENT': if (num(d.x)) add(d.x, d.y ?? 0); break;
+      case 'TEXT': case 'STRING': if (num(d.x)) add(d.x, d.y ?? 0); break;
+      case 'PIN': if (num(d.x)) { add(d.x, d.y ?? 0); const a = ((d.rotation ?? 0) * Math.PI) / 180; add((d.x ?? 0) + (d.length ?? 0) * Math.cos(a), (d.y ?? 0) + (d.length ?? 0) * Math.sin(a)); } break;
+      case 'RECT': if (num(d.dotX1)) { add(d.dotX1, d.dotY1 ?? 0); add(d.dotX2 ?? d.dotX1, d.dotY2 ?? d.dotY1 ?? 0); } break;
+      case 'POLY': case 'FILL':
+        if (Array.isArray(d.points)) for (const pt of d.points) add(pt.x ?? 0, pt.y ?? 0);
+        else if (Array.isArray(d.path)) addPathPts(d.path, add);
+        else if (Array.isArray(d.ploys) && Array.isArray(d.matrix)) {
+          // panel shapes: rect tokens in unit space (local y-down) placed by row-major 2x3 matrix
+          const m = d.matrix as number[];
+          const my = (x: number, y: number): number => m[5] - m[3] * x - m[4] * y;
+          for (const tk of d.ploys) {
+            if (!Array.isArray(tk)) continue;
+            if (tk[0] === 'R') {
+              const x0 = mtxX(tk[1], tk[2], m), y0 = my(tk[1], tk[2]);
+              const x1 = mtxX(tk[1] + tk[3], tk[2] + tk[4], m), y1 = my(tk[1] + tk[3], tk[2] + tk[4]);
+              add(x0, y0); add(x1, y1);
+            } else add(mtxX(tk[1] ?? 0, tk[2] ?? 0, m), my(tk[1] ?? 0, tk[2] ?? 0));
+          }
+        }
+        break;
+      case 'IMAGE': if (num(d.startX)) { add(d.startX - (d.width ?? 0) / 2, d.startY - (d.height ?? 0) / 2); add(d.startX + (d.width ?? 0) / 2, d.startY + (d.height ?? 0) / 2); } break;
+      case 'VIA': case 'PAD': if (num(d.centerX)) { add(d.centerX, d.centerY ?? 0); } break;
+      case 'POURED': for (const pf of (d.pourFill ?? [])) for (const item of scalePourItems(pf.path)) addPathPts(item, add); break;
+    }
+  }
+  if (!isFinite(minX)) return { minX: 0, minY: 0, maxX: 100, maxY: 100 };
+  const pad = 20;
+  return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+}
+
+function num(v: unknown): v is number {
+  return typeof v === 'number' && isFinite(v);
+}
+
+/** row-major 2x3 affine x-component: x'=a·x+b·y+c (ploys are panel-only; see my() for y) */
+function mtxX(x: number, y: number, m: number[]): number {
+  return m[0] * x + m[1] * y + m[2];
+}
+
+function normPathItems(path: any[]): any[][] {
+  if (path.length && Array.isArray(path[0])) return path;
+  return [path];
+}
+
+/**
+ * Flat path item: [x0,y0, "L", x1,y1, x2,y2, "ARC", deg, ex,ey, "C", x1,y1,x2,y2,x3,y3, ...]
+ * or special sub-arrays ["CIRCLE", cx, cy, r] / ["R", x, y, w, h, rot, ?].
+ */
+function addPathPts(item: any[], add: (x: number, y: number) => void): void {
+  if (!Array.isArray(item) || item.length === 0) return;
+  if (item[0] === 'CIRCLE') { add(Number(item[1]), Number(item[2])); return; }
+  if (item[0] === 'R') {
+    const [x, y, w, h] = [Number(item[1]), Number(item[2]), Number(item[3]), Number(item[4])];
+    add(x, y); add(x + w, y + h);
+    return;
+  }
+  let i = 0;
+  while (i < item.length) {
+    const v = item[i];
+    if (typeof v === 'string') {
+      i += 1;
+      if (v === 'ARC' && typeof item[i] === 'number') i += 1; // leading value is sweep angle
+      continue;
+    }
+    add(Number(v), Number(item[i + 1]));
+    i += 2;
+  }
+}
+
+export function recLabel(r: Rec): string {
+  const d = r.data;
+  switch (r.type) {
+    case 'COMPONENT': {
+      const a = d.attrs && typeof d.attrs === 'object' ? d.attrs : null;
+      const name = a?.['Designator'] ?? a?.['Name'] ?? '';
+      return `COMPONENT ${r.id}${name ? ' (' + name + ')' : ''}`;
+    }
+    case 'TEXT': case 'STRING': return `${r.type} "${String(d.value ?? d.text ?? '').slice(0, 24)}"`;
+    case 'NET': return `NET ${r.id}`;
+    case 'LAYER': return `LAYER ${r.id} ${d.layerName ?? ''}`;
+    default: return `${r.type} ${r.id}`;
+  }
+}

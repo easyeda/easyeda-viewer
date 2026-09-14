@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>QA harness</title>
+<style>html,body{margin:0;height:100%}#app{height:100vh}</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import { createViewer } from '../src/embed';
+const params = new URLSearchParams(location.search);
+const file = params.get('file') || '/samples/RA6E2-eprj3/RA6E2-eprj3.zip';
+const open = params.get('open') || '';
+const opts = {};
+if (params.get('theme')) opts.theme = params.get('theme');
+const chrome = {};
+for (const k of ['toolbar', 'left', 'right', 'status']) {
+  const v = params.get(k);
+  if (v != null) chrome[k] = v === '1' || v === 'true';
+}
+if (Object.keys(chrome).length) opts.chrome = chrome;
+document.documentElement.dataset.theme = opts.theme ?? 'light';
+const v = createViewer(document.getElementById('app'), opts);
+if (file && file !== 'none') {
+  const buf = await fetch(file).then((r) => r.arrayBuffer());
+  await v.loadFiles([new File([buf], file.split('/').pop())]);
+}
+if (open) {
+  const model = v.getModel();
+  let hit = null;
+  for (const [id, n] of model.openables) if (n.title === open || n.docType === open.toUpperCase()) { hit = id; break; }
+  if (hit) v.open(hit);
+  else console.warn('QA: node not found for', open);
+}
+window.__qaReady = true;
+</script>
+</body>
+</html>
