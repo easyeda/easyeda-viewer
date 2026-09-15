@@ -19,10 +19,17 @@ export function resolveAttrRef(
   value: string | undefined,
   depth = 3,
 ): string | undefined {
-  if (value == null || !value.includes('={')) return value;
-  let out = value;
+  if (value == null) return value;
+  // two placeholder forms: `={Key}` (whole/ref inside) and `=text {Key} text` /
+  // bare `{Key}` mixes used by title-block table cells
+  if (!value.includes('{')) return value;
+  const refish = /(\{[^}]+\}|=\{[^}]+\})/.test(value) && (value.startsWith('=') || value.includes('={'));
+  if (!refish) return value;
+  let out = value.startsWith('=') ? value.slice(1) : value;
   for (let i = 0; i < depth; i++) {
-    const next = out.replace(/=\{([^}]+)\}/g, (_, k) => attrs[k] ?? '');
+    const next = out
+      .replace(/=\{([^}]+)\}/g, (_, k) => attrs[k] ?? '')
+      .replace(/\{([^}]+)\}/g, (_, k) => attrs[k] ?? '');
     if (next === out) break;
     out = next;
   }
@@ -184,7 +191,8 @@ function addPathPts(item: any[], add: (x: number, y: number) => void): void {
   if (item[0] === 'CIRCLE') { add(Number(item[1]), Number(item[2])); return; }
   if (item[0] === 'R') {
     const [x, y, w, h] = [Number(item[1]), Number(item[2]), Number(item[3]), Number(item[4])];
-    add(x, y); add(x + w, y + h);
+    // R's y is the top edge (max-y, y-up doc space): rect spans y ∈ [y−h, y]
+    add(x, y); add(x + w, y - h);
     return;
   }
   let i = 0;

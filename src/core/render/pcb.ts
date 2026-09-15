@@ -61,12 +61,34 @@ function layerIdOf(d: any): string {
   return s;
 }
 
-/** skip the auto-generated element-id text EasyEDA puts on the document layer (#9) */
-function isDocIdText(d: any, id?: string): boolean {
+/** Internal-id heuristics used to skip auto-generated element-id text on the document layer (#13). */
+function looksLikeInternalId(t: string): boolean {
+  if (/^e\d+$/i.test(t)) return true;
+  if (/^gge\d+$/i.test(t)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) return true;
+  if (/^[0-9a-f]{32}$/i.test(t)) return true;
+  if (/^[0-9a-f]{16}$/i.test(t)) return true;
+  if (/^\d{8,}$/.test(t)) return true; // long numeric identifiers
+  return false;
+}
+
+/** PAD_NET ids are flattened to `PAD_NET,<componentId>,<padNum>,<elemId>`; pull the two key fields. */
+function padNetIdParts(id: unknown): [string, string] | null {
+  const m = String(id ?? '').match(/^PAD_NET,([^,]*),([^,]*)/);
+  return m ? [m[1], m[2]] : null;
+}
+
+/** Skip auto-generated element-id text on the document layer (#13).
+ *  `ownerId` is the parent component id; `allIds` is every record id in the current scope.
+ *  Net names and pad numbers are preserved because they are semantically useful. */
+function isDocIdText(d: any, ownerId?: string, allIds?: Set<string>, netNames?: Set<string>, padNumbers?: Set<string>): boolean {
   if (layerIdOf(d) !== '13') return false;
   const t = String(d.text ?? d.value ?? '').trim();
-  if (/^e\d+$/i.test(t)) return true;
-  if (id && t.toLowerCase() === id.toLowerCase()) return true;
+  if (!t) return false;
+  if (netNames?.has(t) || padNumbers?.has(t)) return false;
+  if (looksLikeInternalId(t)) return true;
+  if (ownerId && t.toLowerCase() === ownerId.toLowerCase()) return true;
+  if (allIds && allIds.has(t)) return true;
   return false;
 }
 
@@ -77,9 +99,10 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   const g = new Group();
   const padAngle = (Number(d.padAngle ?? 0) * Math.PI) / 180;
   const offX = Number(d.padOffsetX ?? 0), offY = Number(d.padOffsetY ?? 0);
-  // pad copper is offset from the pad center; the drill stays at the center (#13)
-  const rawX = Number(d.centerX ?? 0) + offX * Math.cos(padAngle) - offY * Math.sin(padAngle);
-  const rawY = Number(d.centerY ?? 0) + offX * Math.sin(padAngle) + offY * Math.cos(padAngle);
+  // pad copper is offset from the pad center; the drill stays at the center (#13).
+  // EasyEDA doc angles are clockwise, so rotate clockwise before the Y-flip transform.
+  const rawX = Number(d.centerX ?? 0) + offX * Math.cos(padAngle) + offY * Math.sin(padAngle);
+  const rawY = Number(d.centerY ?? 0) - offX * Math.sin(padAngle) + offY * Math.cos(padAngle);
   const cx = X(Number(d.centerX ?? 0), xf), cy = Y(Number(d.centerY ?? 0), xf);
   const px = X(rawX, xf), py = Y(rawY, xf);
   const dp = d.defaultPad ?? {};
@@ -122,6 +145,26 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
 export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   const seg = opened.self;
   const xf = xfOf(seg.canvas);
+  // auto-generated element-id labels on the document layer reuse record ids (e1, e2… or UUIDs)
+  const allIds = new Set(seg.recs.map((r) => String(r.id ?? '')));
+
+  // collect net names / pad numbers so the document layer keeps useful labels and only hides ids
+  const netNames = new Set<string>();
+  const padNumbers = new Set<string>();
+  for (const r of seg.recs) {
+    const d = r.data;
+    if (d.netName) netNames.add(String(d.netName));
+    if (d.padNet) netNames.add(String(d.padNet));
+    if (r.type === 'NET') {
+      const m = String(r.id ?? '').match(/"NET","([^"]*)"/);
+      if (m) netNames.add(m[1]);
+    }
+    if (r.type === 'PAD_NET') {
+      const p = padNetIdParts(r.id);
+      if (p) padNumbers.add(p[1]);
+    }
+    if (r.type === 'PAD' && d.num != null) padNumbers.add(String(d.num));
+  }
 
   // layers from LAYER records
   const layerMeta = new Map<string, { name: string; color: string; show: boolean }>();
@@ -250,6 +293,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   // ---- footprint geometry ----
   function drawFootprint(target: Group, fp: DocSegment) {
     const fxf = xfOf(fp.canvas); // footprint-local canvas (origin likely 0)
+    const fpAllIds = new Set(fp.recs.map((fr) => String(fr.id ?? '')));
     for (const r of sortZ(fp.recs)) {
       const d = r.data;
       if (HIDDEN_LAYERS.has(String(d.layerId))) continue; // pin-soldering rose discs etc.
@@ -290,7 +334,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           break;
         }
         case 'STRING': case 'TEXT': {
-          if (isDocIdText(d, r.id)) break;
+          if (isDocIdText(d, r.id, fpAllIds, netNames, padNumbers)) break;
           target.add(mkLabel(d, layerColor(d.layerId), fxf, true));
           break;
         }
@@ -344,7 +388,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     // designator / visible attrs (fixed pixel size, same as silk labels)
     for (const a of attrs) {
       const ad = a.data;
-      if (isDocIdText(ad, a.id)) continue;
+      if (isDocIdText(ad, r.id, allIds, netNames, padNumbers)) continue;
       if (ad.valueVisible === true && typeof ad.x === 'number') {
         const t = mkLabel(ad, layerColor(ad.layerId), xf);
         const al = BOTTOM_ALPHA[String(ad.layerId)];
@@ -498,7 +542,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         return;
       }
       case 'STRING': case 'TEXT': {
-        if (silkTwins.has(d) || isDocIdText(d, r.id)) return;
+        if (silkTwins.has(d) || isDocIdText(d, r.id, allIds, netNames, padNumbers)) return;
         const node = new Group();
         // layer color wins over specialColor — matches how EasyEDA shows silk strings;
         // doc-scaled so big silk words grow with the board like the reference export
@@ -542,16 +586,45 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         return;
       }
       case 'DIMENSION': {
+        // LENGTH dimension: coords = [ext1-ref, dim-start, dim-end, ext2-ref];
+        // extension lines run ref→dim point, arrows sit on the measured segment
         const node = new Group();
         const cs = (d.coords ?? []) as number[];
-        const pts: number[] = [];
-        for (let i = 0; i + 1 < cs.length; i += 2) { const [x, y] = P(cs[i], cs[i + 1], xf); pts.push(x, y); }
-        if (pts.length >= 4) node.add(new Line({ points: pts, stroke: '#888888', strokeWidth: widthOf(d, 3) }));
-        const tv = d.text && (d.text.value ?? d.text.text);
-        if (tv) {
-          const t = new Text({ text: String(tv), fontSize: 10, fill: '#888888' } as any);
-          t.x = pts[0] ?? 0; t.y = (pts[1] ?? 0) - 8;
-          node.add(t);
+        if (cs.length >= 8) {
+          const A = P(Number(cs[0]), Number(cs[1]), xf), B = P(Number(cs[2]), Number(cs[3]), xf);
+          const C = P(Number(cs[4]), Number(cs[5]), xf), D = P(Number(cs[6]), Number(cs[7]), xf);
+          // dimensions read as annotation, not copper: keep the gray EasyEDA uses
+          // regardless of the (white) document layer color
+          const col = '#888888';
+          const sw = widthOf(d, 1);
+          node.add(new Line({ points: [A[0], A[1], B[0], B[1]], stroke: col, strokeWidth: sw }));
+          node.add(new Line({ points: [D[0], D[1], C[0], C[1]], stroke: col, strokeWidth: sw }));
+          node.add(new Line({ points: [B[0], B[1], C[0], C[1]], stroke: col, strokeWidth: sw }));
+          // arrowheads: tips on B / C, bases pointing back along the measured segment
+          const len = Math.hypot(C[0] - B[0], C[1] - B[1]) || 1;
+          const ux = (C[0] - B[0]) / len, uy = (C[1] - B[1]) / len;
+          const px = -uy, py = ux, L = 80, W = 26;
+          const arrow = (tip: number[], sgn: number) => new Path({
+            path: `M ${tip[0]} ${tip[1]} L ${tip[0] + sgn * L * ux + W * px} ${tip[1] + sgn * L * uy + W * py} L ${tip[0] + sgn * L * ux - W * px} ${tip[1] + sgn * L * uy - W * py} Z`,
+            fill: col,
+          });
+          node.add(arrow(B, 1));
+          node.add(arrow(C, -1));
+          const td = (d.text ?? {}) as any;
+          const tv = td.text ?? td.value;
+          if (tv != null && tv !== '') {
+            const tp = P(Number(td.x ?? 0), Number(td.y ?? 0), xf);
+            const fs = Number(td.fontSize) || 100;
+            const t = new Text({ text: `${String(tv)}${d.unit ?? ''}`, fontSize: fs, fill: col } as any);
+            const vertical = Math.abs(Number(cs[4]) - Number(cs[2])) < 1e-6;
+            if (vertical) {
+              t.rotation = -90; // read bottom-up alongside a vertical dimension
+              t.x = tp[0] + fs * 0.35; t.y = tp[1];
+            } else {
+              t.x = tp[0]; t.y = tp[1] - fs; // above the dimension line
+            }
+            node.add(t);
+          }
         }
         addToLayer(d, r, node, `标注 ${r.id} ${d.type ?? ''}`);
         return;
@@ -577,6 +650,73 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   });
   for (const r of pours) drawPrim(r);
   for (const r of all) if (r.type !== 'POURED') drawPrim(r);
+  drawRatsnest();
+
+  /** ratsnest for unrouted boards: thin lines connecting same-net pads (MST per
+   *  net), like EasyEDA shows on a fresh layout. Skipped entirely once the board
+   *  carries copper tracks — routed nets must not grow whiskers. */
+  function drawRatsnest(): void {
+    const hasTracks = seg.recs.some((r) => {
+      if (r.type !== 'LINE') return false;
+      const l = layerIdOf(r.data);
+      return l === '1' || l === '2' || l === '11' || l === '12';
+    });
+    if (hasTracks) return;
+    // net per placed pad: PAD_NET id = ["PAD_NET", "<componentId>", "<padNum>", …]
+    const netOfPad = new Map<string, string>();
+    for (const r of seg.recs) {
+      if (r.type !== 'PAD_NET') continue;
+      const p = padNetIdParts(r.id);
+      if (p && r.data.padNet) netOfPad.set(`${p[0]}:${p[1]}`, String(r.data.padNet));
+    }
+    const padsByNet = new Map<string, [number, number][]>();
+    for (const r of seg.recs) {
+      if (r.type !== 'COMPONENT') continue;
+      const d = r.data;
+      const attrs = byParent.get(r.id) ?? [];
+      const fpUuid = attrValue(attrs, 'Footprint');
+      let fp = resolveLibGraphics(opened.libs, fpUuid ? opened.libs.get(fpUuid) : undefined, 'Footprint');
+      if (!fp) {
+        const devUuid = attrValue(attrs, 'Device');
+        if (devUuid && devUuid !== fpUuid) fp = resolveLibGraphics(opened.libs, opened.libs.get(devUuid), 'Footprint');
+      }
+      if (!fp) continue;
+      const fxf = xfOf(fp.canvas);
+      const gx = X(Number(d.x ?? 0), xf), gy = Y(Number(d.y ?? 0), xf);
+      const a = (ang(Number(d.angle ?? 0)) * Math.PI) / 180;
+      for (const pr of fp.recs) {
+        if (pr.type !== 'PAD') continue;
+        const net = netOfPad.get(`${r.id}:${pr.data.num}`);
+        if (!net) continue;
+        const lx = X(Number(pr.data.centerX ?? 0), fxf), ly = Y(Number(pr.data.centerY ?? 0), fxf);
+        const p: [number, number] = [gx + lx * Math.cos(a) - ly * Math.sin(a), gy + lx * Math.sin(a) + ly * Math.cos(a)];
+        (padsByNet.get(net) ?? padsByNet.set(net, []).get(net)!).push(p);
+      }
+    }
+    const ratLayer = api.layer('rats', 'Ratsnest', '#4a57d8', true);
+    for (const pts of padsByNet.values()) {
+      if (pts.length < 2) continue;
+      // Prim MST: connect each pad once, closest first
+      const inTree = new Set<number>([0]);
+      const from = new Array<number>(pts.length).fill(0);
+      const dist = pts.map((p) => Math.hypot(p[0] - pts[0][0], p[1] - pts[0][1]));
+      while (inTree.size < pts.length) {
+        let bi = -1, bd = Infinity;
+        for (let k = 0; k < pts.length; k++) {
+          if (inTree.has(k) || dist[k] >= bd) continue;
+          bd = dist[k]; bi = k;
+        }
+        if (bi < 0) break;
+        ratLayer.add(new Line({ points: [pts[from[bi]][0], pts[from[bi]][1], pts[bi][0], pts[bi][1]], stroke: '#4a57d8', strokeWidth: 2.5 }));
+        inTree.add(bi);
+        for (let k = 0; k < pts.length; k++) {
+          if (inTree.has(k)) continue;
+          const dd = Math.hypot(pts[k][0] - pts[bi][0], pts[k][1] - pts[bi][1]);
+          if (dd < dist[k]) { dist[k] = dd; from[k] = bi; }
+        }
+      }
+    }
+  }
 }
 
 /** world bbox of a component: union of footprint geometry (in fp screen coords) transformed by the group transform */

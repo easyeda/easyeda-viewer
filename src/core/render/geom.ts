@@ -80,6 +80,8 @@ export function pathToSvg(item: any[], xf: Xf, closed: boolean): string {
   if (item[0] === 'R') {
     const x = X(Number(item[1]), xf), y = Y(Number(item[2]), xf);
     const w = Number(item[3]), h = Number(item[4]);
+    // R's y is the TOP edge (max-y in y-up doc space): the rect always extends
+    // downward by h in doc space, so on screen it extends down from the flipped point
     return `M ${x} ${y} h ${w} v ${h} h ${-w} Z`;
   }
   const parts: string[] = [];
@@ -245,7 +247,8 @@ export function objBBox(r: { type: string; data: any }, xf: Xf, local = false): 
 
 function collectPathPts(item: any[], raw: [number, number][]): void {
   if (item[0] === 'CIRCLE') { raw.push([Number(item[1]), Number(item[2])]); raw.push([Number(item[1]) + Number(item[3]), Number(item[2]) + Number(item[3])]); return; }
-  if (item[0] === 'R') { raw.push([Number(item[1]), Number(item[2])], [Number(item[1]) + Number(item[3]), Number(item[2]) + Number(item[4])]); return; }
+  // R's y is the top edge (max-y, y-up doc space): rect spans y ∈ [y−h, y]
+  if (item[0] === 'R') { raw.push([Number(item[1]), Number(item[2])], [Number(item[1]) + Number(item[3]), Number(item[2]) - Number(item[4])]); return; }
   for (let i = 0; i < item.length; i++) {
     const v = item[i];
     if (typeof v === 'string') { if (v === 'ARC' && typeof item[i + 1] === 'number') i += 1; continue; }

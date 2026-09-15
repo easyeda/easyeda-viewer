@@ -89,7 +89,9 @@ export function buildEprj3(
   const orphanSchematics: TreeNode[] = [];
   for (const sch of schematics) {
     const group: TreeNode = { id: nid('sch'), kind: 'schematic', title: sch.name || sch.uuid, children: [] };
-    for (const sh of sheets.filter((s) => s.schematic_uuid === sch.uuid).sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0))) {
+    // Preserve the order sheets appear in the index object (file-format storage order);
+    // zIndex is a draw-order hint, not the tab/display order.
+    for (const sh of sheets.filter((s) => s.schematic_uuid === sch.uuid)) {
       group.children!.push(node('sheet', sh.title || sh.uuid, sh.uuid));
     }
     schematicByUuid.set(sch.uuid, group);

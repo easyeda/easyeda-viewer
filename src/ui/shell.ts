@@ -51,6 +51,8 @@ const FULL_CHROME: ChromeFlags = { toolbar: true, left: true, right: true, statu
 export class Shell {
   readonly el: HTMLElement;
   private canvasHost: HTMLElement;
+  /** user manually zoomed/panned — suspend the resize auto-refit */
+  private userView = false;
   private leafer: Leafer;
   private camera: Camera;
   private overlay: Group;
@@ -170,6 +172,7 @@ export class Shell {
     this.zoomEl = this.el.querySelector('.ev-zoom') as HTMLInputElement;
 
     this.leafer = new Leafer({ view: this.canvasHost, type: 'draw' });
+    (window as any).__ev = { root: this.leafer, shell: this }; // QA dump hook
     this.camera = new Camera(this.canvasHost, this.leafer);
     this.camera.onView = () => {
       if (document.activeElement !== this.zoomEl) this.zoomEl.value = Math.round(this.camera.scale * 100) + '%';
@@ -196,6 +199,15 @@ export class Shell {
     this.applyI18n();
 
     this.canvasHost.addEventListener('pointerup', (e) => this.onCanvasClick(e));
+
+    // any manual navigation (wheel zoom / drag pan) stops the auto re-fit below
+    this.canvasHost.addEventListener('wheel', () => { this.userView = true; }, { passive: true });
+    this.canvasHost.addEventListener('pointerdown', () => { this.userView = true; });
+    // when the canvas resizes (panels opening, window resize) keep the initial
+    // fit valid — otherwise the document gets cropped (#fit-after-layout)
+    new ResizeObserver(() => {
+      if (!this.userView && this.model && this.currentRoot) this.fitCurrent();
+    }).observe(this.canvasHost);
 
     this.dnd = setupDnd(this.el, {
       onFiles: (fs) => void this.loadFiles(fs),
@@ -436,13 +448,15 @@ export class Shell {
       this.select(null);
       this.docTree.highlight(node.id);
 
-      // component tree: only components, naturally sorted by designator (#6/#12)
+      // component tree: only real components, naturally sorted by designator (#6/#12)
       const rows: ObjectRow[] = [];
       for (const o of this.objects) {
         if (o.rec.type !== 'COMPONENT') continue;
         const attrs = collectAttrs(o.rec, opened);
         const map = new Map<string, string>(attrs.map((e) => [e.key, e.value]));
         const des = map.get('Designator') ?? o.title ?? o.id;
+        // Skip sheet borders, power/ground symbols, net labels and similar non-components.
+        if (!map.has('Designator') && isAuxiliarySymbol(String(o.title ?? ''))) continue;
         const extraKey = map.has('Name') ? 'Name' : map.has('Value') ? 'Value' : '';
         const extra = extraKey ? resolveAttrRef(Object.fromEntries(map), map.get(extraKey)) : '';
         rows.push({
@@ -560,10 +574,11 @@ export class Shell {
     this.objList.select(obj?.id ?? null);
     if (obj?.bbox) {
       const b = obj.bbox;
+      const selStroke = (this.docKind === 'pcb' || this.docKind === 'footprint') ? '#ffffff' : '#808080';
       this.selRect = new Rect({
         x: b.minX, y: b.minY,
         width: Math.max(2, b.maxX - b.minX), height: Math.max(2, b.maxY - b.minY),
-        stroke: '#ffffff', strokeWidth: 2 / this.camera.scale,
+        stroke: selStroke, strokeWidth: 2 / this.camera.scale,
         strokeDashArray: [6, 4], fill: null, hittable: false,
       } as any);
       this.overlay.add(this.selRect);
@@ -582,6 +597,7 @@ export class Shell {
     if (this.model && this.currentRoot) {
       const b = this.objBBoxUnion();
       if (b) this.camera.fit(b);
+      this.userView = false; // an explicit fit re-arms the auto re-fit
     }
   }
 
@@ -632,6 +648,16 @@ function canvasBg(kind: 'sch' | 'pcb' | 'panel' | 'footprint' | 'other'): string
   if (kind === 'pcb' || kind === 'footprint') return '#14161a';
   if (kind === 'sch' || kind === 'panel') return '#ffffff';
   return '#f5f6f7';
+}
+
+/** Exclude sheet borders, power/ground symbols, net labels and other non-component symbols
+ *  from the component tree. Real components always have a Designator attribute. */
+function isAuxiliarySymbol(title: string): boolean {
+  const t = title.toLowerCase();
+  if (t.startsWith('图纸') || t.includes('drawing-symbol')) return true;
+  if (/\b(gnd|ground|power|voltage|vcc|vdd|vss|vee)\b/.test(t)) return true;
+  if (/\b(netport|netlabel|netlabel|short-symbol|junction)\b/.test(t)) return true;
+  return false;
 }
 
 /** sort designators alphabetically by prefix then numerically by suffix (#6) */

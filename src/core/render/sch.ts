@@ -15,20 +15,80 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   const byParent = indexAttrs(seg.recs);
   // page-level attributes used by the title-block table (both free attrs and border-component attrs)
   let borderId: string | null = null;
+  let borderAttrs: Rec[] = [];
   for (const r of seg.recs) {
     if (r.type === 'COMPONENT' && isBorderComponent(byParent.get(r.id) ?? [])) {
       borderId = r.id;
+      borderAttrs = byParent.get(r.id) ?? [];
       break;
     }
   }
+  // data-flag gates: the border component carries per-page switches for the
+  // region frame ("Border") and the title-block table ("Title Block")
+  const borderEnabled = attrValue(borderAttrs, 'Border') !== '0';
+  const titleBlockEnabled = attrValue(borderAttrs, 'Title Block') !== '0';
   const pageAttrs = new Map<string, string>();
   for (const r of seg.recs) {
     if (r.type !== 'ATTR') continue;
     const pid = String(r.data.parentId ?? '');
     if (pid !== '' && pid !== borderId) continue;
     const k = String(r.data.key ?? '');
-    if (k && !pageAttrs.has(k)) pageAttrs.set(k, String(r.data.value ?? ''));
+    const v = String(r.data.value ?? '');
+    if (!k) continue;
+    // Border-component attrs carry the real values; free-floating symbol defaults are empty placeholders.
+    const existing = pageAttrs.get(k);
+    if (!existing || (!existing.trim() && v.trim())) pageAttrs.set(k, v);
   }
+  // wire groups for synthesizing junction dots at same-net intersections
+  type WireSeg = { x1: number; y1: number; x2: number; y2: number };
+  const wireGroups = new Map<string, WireSeg[]>();
+
+  function drawJunctions(groups: Map<string, WireSeg[]>) {
+    const eps = 0.5;
+    const nearP = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y) <= eps;
+    const onSeg = (x: number, y: number, s: WireSeg) => {
+      const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+      const len2 = dx * dx + dy * dy;
+      if (!len2) return Math.hypot(x - s.x1, y - s.y1) <= eps;
+      const t = Math.max(0, Math.min(1, ((x - s.x1) * dx + (y - s.y1) * dy) / len2));
+      return Math.hypot(x - (s.x1 + t * dx), y - (s.y1 + t * dy)) <= eps;
+    };
+    const segIntersection = (a: WireSeg, b: WireSeg): { x: number; y: number } | null => {
+      const d = (a.x2 - a.x1) * (b.y2 - b.y1) - (a.y2 - a.y1) * (b.x2 - b.x1);
+      if (Math.abs(d) < 1e-9) return null;
+      const ua = ((b.x2 - b.x1) * (a.y1 - b.y1) - (b.y2 - b.y1) * (a.x1 - b.x1)) / d;
+      const ub = ((a.x2 - a.x1) * (a.y1 - b.y1) - (a.y2 - a.y1) * (a.x1 - b.x1)) / d;
+      if (ua < -eps || ua > 1 + eps || ub < -eps || ub > 1 + eps) return null;
+      return { x: a.x1 + ua * (a.x2 - a.x1), y: a.y1 + ua * (a.y2 - a.y1) };
+    };
+    for (const segs of groups.values()) {
+      if (segs.length < 2) continue;
+      const candidates: { x: number; y: number }[] = [];
+      const addCand = (x: number, y: number) => {
+        const p = { x, y };
+        if (!candidates.some((c) => nearP(c, p))) candidates.push(p);
+      };
+      for (const s of segs) { addCand(s.x1, s.y1); addCand(s.x2, s.y2); }
+      for (let i = 0; i < segs.length; i++) {
+        for (let j = i + 1; j < segs.length; j++) {
+          const p = segIntersection(segs[i], segs[j]);
+          if (p) addCand(p.x, p.y);
+        }
+      }
+      for (const p of candidates) {
+        let count = 0, interior = false;
+        for (const s of segs) {
+          if (!onSeg(p.x, p.y, s)) continue;
+          count++;
+          if (!nearP(p, { x: s.x1, y: s.y1 }) && !nearP(p, { x: s.x2, y: s.y2 })) interior = true;
+        }
+        if (count >= 3 || (count === 2 && interior)) {
+          page.add(new Ellipse({ x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5, fill: '#d40000', hittable: false }));
+        }
+      }
+    }
+  }
+
   // attr index for embedded library segments (pin labels etc.), cached per segment
   const libAttrIdx = new WeakMap<DocSegment, Map<string, Rec[]>>();
   const attrsOf = (libSeg: DocSegment, id: string): Rec[] => {
@@ -54,7 +114,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
 
   // ---- embedded symbol renderer ----
   /** @param antiRot screen-deg to cancel out (component group rotation) so pin text stays upright */
-  function drawSymbolPart(target: Group, sym: DocSegment, partId: string, sx: number, sy: number, rotation: number, mirror: boolean, antiRot = 0): void {
+  function drawSymbolPart(target: Group, sym: DocSegment, partId: string, sx: number, sy: number, rotation: number, mirror: boolean, antiRot = 0, skipTable = false): void {
     const sxf = xfOf(sym.canvas, false);
     const g = new Group({ name: `sym:${sym.uuid}` });
     g.x = sx; g.y = sy;
@@ -167,6 +227,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           break;
         }
         case 'TABLE': {
+          // the border component's symbol embeds the title-block table; the page
+          // flag "Title Block" decides whether it is drawn at all
+          if (skipTable) break;
           drawTable(local, r.data, sxf);
           made = true;
           break;
@@ -191,29 +254,45 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const x0 = Number(d.startX ?? 0), y0 = Number(d.startY ?? 0);
     const xs: number[] = [x0]; for (const c of cols) xs.push(xs[xs.length - 1] + c);
     const ys: number[] = [y0]; for (const r of rows) ys.push(ys[ys.length - 1] + r);
-    const px = (v: number) => X(v, xfc), py = (v: number) => Y(v, xfc);
-    const stroke = strokeOf(d, COLORS.schStroke), sw = widthOf(d, 1);
+    const p0x = X(x0, xfc), p0y = Y(y0, xfc);
+    // local coords relative to the table top-left so rotation pivots correctly
+    const lx = (v: number) => X(v, xfc) - p0x;
+    const ly = (v: number) => Y(v, xfc) - p0y;
+    // EasyEDA draws the title-block grid in the same dark red as the page frame
+    const stroke = strokeOf(d, '#a02020'), sw = widthOf(d, 1);
     const rot = ang(d.rotation ?? 0, xfc);
-    const grid = new Group();
-    if (rot) grid.rotation = rot; // rotation around grid origin approximated at top-left
-    for (const x of xs) grid.add(new Line({ points: [px(x), py(ys[0]), px(x), py(ys[ys.length - 1])], stroke, strokeWidth: sw }));
-    for (const y of ys) grid.add(new Line({ points: [px(xs[0]), py(y), px(xs[xs.length - 1]), py(y)], stroke, strokeWidth: sw }));
+    const grid = new Group({ x: p0x, y: p0y });
+    if (rot) grid.rotation = rot;
+    for (const x of xs) grid.add(new Line({ points: [lx(x), ly(ys[0]), lx(x), ly(ys[ys.length - 1])], stroke, strokeWidth: sw }));
+    for (const y of ys) grid.add(new Line({ points: [lx(xs[0]), ly(y), lx(xs[xs.length - 1]), ly(y)], stroke, strokeWidth: sw }));
     const attrRecord = Object.fromEntries(pageAttrs);
     for (const cell of Array.isArray(d.tableCell) ? d.tableCell : []) {
       const value = resolveAttrRef(attrRecord, String(cell?.value ?? '')) ?? '';
       if (!value) continue;
       const ci = Math.min(Number(cell.columnIndex ?? 0), cols.length - 1);
       const ri = Math.min(Number(cell.rowIndex ?? 0), rows.length - 1);
+      const cspan = Math.max(1, Math.min(Number(cell.colSpan ?? cell.columnSpan ?? 1), cols.length - ci));
+      const rspan = Math.max(1, Math.min(Number(cell.rowSpan ?? cell.rowSpan ?? 1), rows.length - ri));
+      const c1 = ci + cspan, r1 = ri + rspan;
       const fs = cell?.fontStyle ?? {};
+      const ha = alignX(fs.hAlign ?? cell?.align);
+      const va = alignY(fs.vAlign ?? cell?.align);
+      const left = lx(xs[ci]), right = lx(xs[c1]);
+      const top = ly(ys[ri]), bottom = ly(ys[r1]);
+      const pad = 2;
+      let tx = left + pad;
+      if (ha === 'center') tx = (left + right) / 2;
+      else if (ha === 'right') tx = right - pad;
+      let ty = top + pad;
+      if (va === 'middle') ty = (top + bottom) / 2;
+      else if (va === 'bottom') ty = bottom - pad;
       const t = new Text({
         text: value, fontSize: Number(fs.fontSize ?? cell?.fontSize) || 9,
         fill: fs.color ?? COLORS.schText,
-        textAlign: alignX(fs.hAlign ?? cell?.align),
-        yAlign: alignY(fs.vAlign ?? cell?.align),
+        textAlign: ha,
+        yAlign: va,
       } as any);
-      // center the text in its cell (row/col sizes grow downward in doc space)
-      t.x = (px(xs[ci]) + px(xs[ci + 1])) / 2;
-      t.y = (py(ys[ri]) + py(ys[ri + 1])) / 2;
+      t.x = tx; t.y = ty;
       grid.add(t);
     }
     target.add(grid);
@@ -265,6 +344,13 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     return !!attrValue(attrs, 'Page Size') || (attrValue(attrs, 'Width') != null && attrValue(attrs, 'Border') != null);
   }
 
+  /** page rectangle of the border frame (sheet occupies x∈[0,W], y∈[-H,0], y-down) */
+  function borderPageBBox(attrs: Rec[]): BBox {
+    const W = Number(attrValue(attrs, 'Width')) || 1170;
+    const H = Number(attrValue(attrs, 'Height')) || 825;
+    return { minX: 0, minY: -H, maxX: W, maxY: 0 };
+  }
+
   /** power symbols (GND/VCC/…) are authored pointing the wrong way; rotate 180° to match EasyEDA Pro placement (#4) */
   function isPowerSymbol(sym: DocSegment | undefined, attrs: Rec[]): boolean {
     if (!sym) return false;
@@ -294,7 +380,6 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const col = '#a02020';
     // sheet occupies x∈[0,W], y∈[-H,0] (y-down), top-left corner at (0,-H)
     g.add(new Rect({ x: 0, y: -H, width: W, height: H, stroke: col, strokeWidth: 1.2, fill: null }));
-    g.add(new Rect({ x: blade, y: -H + blade, width: W - 2 * blade, height: H - 2 * blade, stroke: col, strokeWidth: 1.2, fill: null }));
     const mk = (x1: number, y1: number, x2: number, y2: number) =>
       g.add(new Line({ points: [x1, y1, x2, y2], stroke: col, strokeWidth: 1, hittable: false }));
     const lbl = (text: string, x: number, y: number) => {
@@ -325,7 +410,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const d = r.data;
     const attrs = byParent.get(r.id) ?? [];
     const isBorder = isBorderComponent(attrs);
-    if (isBorder) drawBorder(attrs); // page frame behind the title-block table
+    if (isBorder && borderEnabled) drawBorder(attrs); // page frame behind the title-block table
     const symUuid = attrValue(attrs, 'Symbol') ?? attrValue(attrs, 'Device');
     // DEVICE segments are metadata-only: graphics come from the SYMBOL they name
     let sym = resolveLibGraphics(opened.libs, symUuid ? opened.libs.get(symUuid) : undefined, 'Symbol');
@@ -340,7 +425,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     if (d.isMirror) g.scaleX = -1;
     page.add(g);
     if (sym) {
-      drawSymbolPart(g, sym, String(d.partId ?? ''), 0, 0, 0, false, Number(g.rotation) || 0);
+      drawSymbolPart(g, sym, String(d.partId ?? ''), 0, 0, 0, false, Number(g.rotation) || 0, isBorder && !titleBlockEnabled);
       drawComponentAttrs(g, attrs, sym, String(d.partId ?? ''));
     } else if (symUuid) {
       // unresolved symbol — fallback marker so user sees something
@@ -353,7 +438,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       title: isBorder
         ? `图纸 ${attrValue(attrs, 'Page Size') ?? ''}`.trim()
         : (attrValue(attrs, 'Designator') ?? String((sym?.meta as any)?.title ?? d.attrs?.Designator ?? d.partId ?? r.id)),
-      bbox: isBorder ? undefined : (componentWorldBBox(g, sym, String(d.partId ?? ''), d) ?? undefined),
+      // the border component contributes the full page rect so camera fit shows the whole sheet
+      bbox: isBorder ? borderPageBBox(attrs) : (componentWorldBBox(g, sym, String(d.partId ?? ''), d) ?? undefined),
     });
   }
 
@@ -390,6 +476,11 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       return [cx + (x - cx) * tc - (y - cy) * ts, cy + (x - cx) * ts + (y - cy) * tc];
     };
     const gx = Number(g.x) || 0, gy = Number(g.y) || 0;
+    const mx = Number(g.scaleX) < 0 ? -1 : 1;
+    const toWorld = (lx: number, ly: number): [number, number] => {
+      const x = lx * mx;
+      return [gx + x * tc - ly * ts, gy + x * ts + ly * tc];
+    };
     // keys the UI actually shows (everything else is library metadata:
     // Symbol/Footprint/Device uuids, manufacturer fields …)
     const SHOW = new Set(['Designator', 'Value', 'Voltage Rated', 'NET', 'Global Net Name', 'Name', 'Pin Name', 'Pin Number']);
@@ -413,9 +504,14 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       const ad = a.data;
       const key = String(ad.key ?? '');
       if (!SHOW.has(key)) continue;
-      // instance value wins; library default, then device description fill nulls
+      // instance value wins; library default, then device description / meta attributes fill nulls
       const def = libDefAttr(partId, key);
-      const fallback = key === 'Value' ? firstToken : key === 'Voltage Rated' ? voltToken : '';
+      const devFallback = (key === 'Global Net Name' || key === 'Name')
+        ? (metaAny?.attributes?.['Global Net Name'] ?? metaAny?.attributes?.['Name'] ?? '')
+        : '';
+      const fallback = key === 'Value' ? firstToken
+        : key === 'Voltage Rated' ? voltToken
+        : devFallback;
       const value = resolveAttrRef(localAttrMap, String(ad.value ?? def?.data.value ?? fallback ?? '')) ?? '';
       if (!value.trim()) continue;
       if ((ad.valueVisible ?? true) === false && ad.keyVisible !== true) continue;
@@ -424,9 +520,17 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         : (ad.keyVisible ? `${key}: ${value}` : value);
       if (!label.trim()) continue;
       let px: number, py: number, rot: number;
+      let align = String(ad.align ?? '');
       if (typeof ad.x === 'number' && typeof ad.y === 'number') {
         px = X(Number(ad.x), xf); py = Y(Number(ad.y), xf);
         rot = typeof ad.rotation === 'number' ? ang(Number(ad.rotation), xf) : 0;
+      } else if (typeof def?.data.x === 'number' && typeof def?.data.y === 'number') {
+        // No instance position: use the library default attribute anchor, transformed by the component rotation/mirror.
+        const lx = X(Number(def.data.x), sxf);
+        const ly = Y(Number(def.data.y), sxf);
+        [px, py] = toWorld(lx, ly);
+        rot = typeof def.data.rotation === 'number' ? ang(Number(def.data.rotation), xf) : 0;
+        align = String(def.data.align ?? align);
       } else if (!lb) {
         continue; // no geometry to anchor to
       } else {
@@ -447,8 +551,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         text: label, fontSize: Number(ad.fontSize ?? def?.data.fontSize) || 8,
         // EasyEDA draws instance labels blue unless the attribute says otherwise
         fill: strokeOf({ strokeColor: ad.color ?? def?.data.color }, '#0000ff'),
-        textAlign: key === 'Global Net Name' && typeof ad.x !== 'number' ? 'center' : alignX(ad.align),
-        yAlign: alignY(ad.align),
+        textAlign: alignX(align),
+        yAlign: alignY(align),
       } as any);
       if (key === 'Value') sawValue = true;
       if (key === 'Designator') desPos = [px, py];
@@ -492,9 +596,17 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
             points: [x1, y1, x2, y2],
             stroke: strokeOf(d, COLORS.net),
             strokeWidth: widthOf(d, 1),
+            strokeLineCap: 'round',
+            strokeLineJoin: 'round',
             strokeDashArray: d.strokeStyle === 'DASHED' ? [6, 4] : undefined,
             hitStroke: 'all',
           }));
+          const gk = String(d.lineGroup ?? '');
+          if (gk) {
+            const arr = wireGroups.get(gk) ?? [];
+            arr.push({ x1, y1, x2, y2 });
+            wireGroups.set(gk, arr);
+          }
         }
         break;
       }
@@ -567,6 +679,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         break;
       }
       case 'TABLE': {
+        if (!titleBlockEnabled) break; // page flag: title block disabled
         node = new Group();
         drawTable(node, d, xf);
         break;
@@ -593,6 +706,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   }
 
   for (const r of sortZ(seg.recs)) drawPrimitive(r);
+  drawJunctions(wireGroups);
   // net labels parented to wires (component-attached ones render with the component)
   const compIds = new Set(seg.recs.filter((r) => r.type === 'COMPONENT').map((r) => r.id));
   for (const r of seg.recs) {
@@ -600,9 +714,10 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const ad = r.data;
     const v = String(ad.value ?? '');
     if (!v.trim() || (ad.valueVisible ?? true) === false || typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
+    const va = alignY(ad.align);
     const t = new Text({
       text: v, fontSize: Number(ad.fontSize) || 8, fill: strokeOf({ strokeColor: ad.color }, '#0000ff'),
-      textAlign: alignX(ad.align), yAlign: alignY(ad.align),
+      textAlign: alignX(ad.align), yAlign: va === 'middle' ? 'bottom' : va,
     } as any);
     t.x = X(Number(ad.x), xf); t.y = Y(Number(ad.y), xf);
     if (typeof ad.rotation === 'number') t.rotation = ang(Number(ad.rotation), xf);
