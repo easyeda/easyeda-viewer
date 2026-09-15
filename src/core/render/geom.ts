@@ -17,8 +17,10 @@ export function X(x: number, xf: Xf): number { return x - xf.ox; }
 export function Y(y: number, xf: Xf): number { return xf.flip ? -(y - xf.oy) : y - xf.oy; }
 export function P(x: number, y: number, xf: Xf): [number, number] { return [x - xf.ox, Y(y, xf)]; }
 
-/** angles negate on Y-flip; pass xf so SCH (no flip) keeps the raw rotation */
-export function ang(a: number, xf?: Xf): number { return (xf?.flip ?? true) ? -a : a; }
+/** EasyEDA doc angles are clockwise; Leafer/screen angles are clockwise too,
+ *  but Math.cos/sin are CCW, so we always negate when converting a doc angle
+ *  to a screen angle for trig and for Leafer's rotation property. */
+export function ang(a: number, _xf?: Xf): number { return -a; }
 
 /** scale numeric coords of a flat path item (keeps tokens, ARC angle degrees, R rotation) */
 export function scalePathItem(item: any[], k: number): any[] {
@@ -192,7 +194,10 @@ export function objBBox(r: { type: string; data: any }, xf: Xf, local = false): 
       } else raw.push(pt(d.startX, d.startY));
       break;
     case 'PIN': {
-      const a = ((d.rotation ?? 0) * Math.PI) / 180;
+      // Schematic angles are clockwise; PCB angles are also clockwise but the Y-flip
+      // already reverses the sense, so keep the raw trig for PCB.
+      const sign = xf.flip ? 1 : -1;
+      const a = sign * ((d.rotation ?? 0) * Math.PI) / 180;
       raw.push(pt(d.x, d.y), pt((d.x ?? 0) + (d.length ?? 10) * Math.cos(a), (d.y ?? 0) + (d.length ?? 10) * Math.sin(a)));
       break;
     }

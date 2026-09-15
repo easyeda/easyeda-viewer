@@ -97,7 +97,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         }
         case 'PIN': {
           const px = r.data.x ?? 0, py = r.data.y ?? 0;
-          const a = ((r.data.rotation ?? 0) * Math.PI) / 180;
+          // EasyEDA schematic angles are clockwise; Math.cos/sin are CCW (#36)
+          const a = -((r.data.rotation ?? 0) * Math.PI) / 180;
           const len = r.data.length ?? 10;
           const [x1, y1] = P(px, py, sxf);
           const [x2, y2] = P(px + len * Math.cos(a), py + len * Math.sin(a), sxf);
@@ -243,11 +244,11 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const gx = Number(g.x) || 0, gy = Number(g.y) || 0;
     const ra = ((Number(g.rotation) || 0) * Math.PI) / 180;
     const c = Math.cos(ra), s = Math.sin(ra);
-    const mx = d.isMirror ? -1 : 1; // EasyEDA mirror = flip about the vertical axis
-    const cx = (box.minX + box.maxX) / 2, cy = (box.minY + box.maxY) / 2;
+    const mx = d.isMirror ? -1 : 1; // EasyEDA mirror = flip about the vertical axis through the component origin
+    // rotate around the component origin (the symbol insertion point), not the bbox center
     const world = [[box.minX, box.minY], [box.maxX, box.minY], [box.maxX, box.maxY], [box.minX, box.maxY]].map(([x, y]) => {
-      const lx = (x - cx) * mx, ly = y - cy;
-      return [gx + cx + lx * c - ly * s, gy + cy + lx * s + ly * c] as [number, number];
+      const lx = x * mx, ly = y;
+      return [gx + lx * c - ly * s, gy + lx * s + ly * c] as [number, number];
     });
     return bboxFromPts(world);
   }
@@ -429,7 +430,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         let ax = lb.minX, ay = lb.minY - 4 + stacked++ * 8; // stack under the designator
         if (key === 'Global Net Name') {
           // hang the net name just beyond the symbol's free (pin) end, always horizontal
-          const pa = ((Number(pin?.data.rotation) || 0) * Math.PI) / 180;
+          const pa = -((Number(pin?.data.rotation) || 0) * Math.PI) / 180;
           const pinY = pin ? Number(pin.data.y ?? 0) - sxf.oy + (Number(pin.data.length ?? 10) + 4) * Math.sin(pa) : 0;
           // label sits on the side away from the pin tip (flags: beyond the bars)
           ay = pinY > (lb.minY + lb.maxY) / 2 ? lb.minY - 6 : lb.maxY + 6;
@@ -542,7 +543,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       }
       case 'PIN': {
         const px = d.x ?? 0, py = d.y ?? 0;
-        const a = ((d.rotation ?? 0) * Math.PI) / 180;
+        // EasyEDA schematic angles are clockwise; Math.cos/sin are CCW (#36)
+        const a = -((d.rotation ?? 0) * Math.PI) / 180;
         const len = d.length ?? 10;
         const [x1, y1] = P(px, py, xf);
         const [x2, y2] = P(px + len * Math.cos(a), py + len * Math.sin(a), xf);
