@@ -161,8 +161,8 @@ export class PropsView {
       used.add('hole');
     }
     const rot = d.rotation ?? d.padAngle ?? d.angle;
-    if (num(rot)) {
-      row(obj.rec.type === 'COMPONENT' || obj.rec.type === 'PAD' ? attrLabel('padAngle') : attrLabel('rotation'), `${fmt(rot)}${t('deg')}`);
+    if (num(rot) && obj.rec.type !== 'COMPONENT') {
+      row(obj.rec.type === 'PAD' ? attrLabel('padAngle') : attrLabel('rotation'), `${fmt(rot)}${t('deg')}`);
       used.add('rotation'); used.add('padAngle'); used.add('angle');
     }
     if (Array.isArray(d.points) && d.points.length) { row(attrLabel('points'), `${d.points.length} × ${t('mil')}`); used.add('points'); }
@@ -191,6 +191,13 @@ export class PropsView {
     this.host.appendChild(table);
   }
 
+  /** look up a library/3D-model uuid and return the segment title if known */
+  private libTitle(uuid: string): string {
+    if (!this.opened || !uuid) return uuid;
+    const seg = this.opened.libs.get(uuid);
+    return seg?.meta?.title ? String(seg.meta.title) : uuid;
+  }
+
   /** component attribute table: merge instance ATTR records + library/device defaults, resolve ={...} refs (#2/#3) */
   private renderComponent(table: HTMLTableElement, rec: RenderObject['rec'], used: Set<string>): void {
     const entries = this.opened ? collectAttrs(rec, this.opened) : [];
@@ -204,11 +211,15 @@ export class PropsView {
       tr.append(tk, tv);
       table.appendChild(tr);
     };
-    const priority = ['Designator', 'Name', 'Value', 'Symbol', 'Footprint', 'Device'];
+    const displayFor = (k: string, raw: string): string => {
+      if (['Symbol', 'Footprint', '3D Model', 'Device'].includes(k)) return this.libTitle(raw);
+      return raw;
+    };
+    const priority = ['Designator', 'Name', 'Value', 'Symbol', 'Footprint', '3D Model', 'Device'];
     const seen = new Set<string>();
     for (const k of priority) {
-      const v = val(k);
-      if (v) { row(attrLabel(k), v); seen.add(k); }
+      const raw = val(k);
+      if (raw) { row(attrLabel(k), displayFor(k, raw)); seen.add(k); }
     }
     // remaining attributes (skip raw geometry/control keys already handled below)
     const skip = new Set(['x', 'y', 'rotation', 'angle', 'padAngle', 'partId', 'groupId', 'isMirror', 'isMirror', 'attrs', 'zIndex', 'locked', 'layerId', 'layer']);

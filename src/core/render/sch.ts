@@ -336,7 +336,6 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     g.y = Y(d.y ?? 0, xf);
     g.rotation = ang(d.rotation ?? 0, xf);
     if (d.isMirror) g.scaleX = -1;
-    if (sym && isPowerSymbol(sym, attrs)) g.rotation = (Number(g.rotation) || 0) + 180;
     page.add(g);
     if (sym) {
       drawSymbolPart(g, sym, String(d.partId ?? ''), 0, 0, 0, false, Number(g.rotation) || 0);

@@ -51,12 +51,23 @@ const FOOTPRINT_STRUCTURAL = new Set([
   'PANELIZE', 'NET', 'LAYER_STACK', 'VIA_TYPE', 'PAD_TYPE', 'DRC_RULE',
 ]);
 
+/** normalize a layer id that may be a number, ["LAYER",13], or "LAYER,13". */
+function layerIdOf(d: any): string {
+  const raw = d.layerId ?? d.layer;
+  if (Array.isArray(raw) && raw.length >= 2) return String(raw[1]);
+  const s = String(raw ?? '');
+  const p = s.split(',');
+  if (p.length >= 2) return p[1];
+  return s;
+}
+
 /** skip the auto-generated element-id text EasyEDA puts on the document layer (#9) */
-function isDocIdText(d: any): boolean {
-  const lid = String(d.layerId ?? '');
-  if (lid !== '13') return false;
+function isDocIdText(d: any, id?: string): boolean {
+  if (layerIdOf(d) !== '13') return false;
   const t = String(d.text ?? d.value ?? '').trim();
-  return /^e\d+$/i.test(t);
+  if (/^e\d+$/i.test(t)) return true;
+  if (id && t.toLowerCase() === id.toLowerCase()) return true;
+  return false;
 }
 
 /** pad shape → leafer node (local footprint coords, center at cx,cy).
@@ -64,24 +75,25 @@ function isDocIdText(d: any): boolean {
  * are not a colored ink layer (EasyEDA shows them as bg-colored holes). */
 function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => string, holeFill: string): Group {
   const g = new Group();
-  // padOffset is applied inside the pad's own rotated coordinate frame (#13)
   const padAngle = (Number(d.padAngle ?? 0) * Math.PI) / 180;
   const offX = Number(d.padOffsetX ?? 0), offY = Number(d.padOffsetY ?? 0);
+  // pad copper is offset from the pad center; the drill stays at the center (#13)
   const rawX = Number(d.centerX ?? 0) + offX * Math.cos(padAngle) - offY * Math.sin(padAngle);
   const rawY = Number(d.centerY ?? 0) + offX * Math.sin(padAngle) + offY * Math.cos(padAngle);
-  const cx = X(rawX, xf), cy = Y(rawY, xf);
+  const cx = X(Number(d.centerX ?? 0), xf), cy = Y(Number(d.centerY ?? 0), xf);
+  const px = X(rawX, xf), py = Y(rawY, xf);
   const dp = d.defaultPad ?? {};
   const w = Number(dp.width ?? 10), h = Number(dp.height ?? 10);
   const color = colorOf(d.layerId ?? LAYER.TOP);
   const shape = String(dp.padType ?? 'RECT').toUpperCase();
   let pad: Group['children'][number] | null = null;
   if (shape === 'ELLIPSE' || shape === 'ROUND' || shape === 'CIRCLE') {
-    pad = new Ellipse({ x: cx - w / 2, y: cy - h / 2, width: w, height: h, fill: color });
+    pad = new Ellipse({ x: px - w / 2, y: py - h / 2, width: w, height: h, fill: color });
   } else if (shape === 'OVAL' || shape === 'SLOT') {
     const cr = Math.min(w, h) / 2;
-    pad = new Rect({ x: cx - w / 2, y: cy - h / 2, width: w, height: h, fill: color, cornerRadius: [cr, cr, cr, cr] });
+    pad = new Rect({ x: px - w / 2, y: py - h / 2, width: w, height: h, fill: color, cornerRadius: [cr, cr, cr, cr] });
   } else {
-    pad = new Rect({ x: cx - w / 2, y: cy - h / 2, width: w, height: h, fill: color, cornerRadius: (Number(dp.radius) || 0) });
+    pad = new Rect({ x: px - w / 2, y: py - h / 2, width: w, height: h, fill: color, cornerRadius: (Number(dp.radius) || 0) });
   }
   pad.rotation = ang(Number(d.padAngle ?? 0));
   g.add(pad);
@@ -278,7 +290,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           break;
         }
         case 'STRING': case 'TEXT': {
-          if (isDocIdText(d)) break;
+          if (isDocIdText(d, r.id)) break;
           target.add(mkLabel(d, layerColor(d.layerId), fxf, true));
           break;
         }
@@ -332,7 +344,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     // designator / visible attrs (fixed pixel size, same as silk labels)
     for (const a of attrs) {
       const ad = a.data;
-      if (isDocIdText(ad)) continue;
+      if (isDocIdText(ad, a.id)) continue;
       if (ad.valueVisible === true && typeof ad.x === 'number') {
         const t = mkLabel(ad, layerColor(ad.layerId), xf);
         const al = BOTTOM_ALPHA[String(ad.layerId)];
@@ -486,7 +498,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         return;
       }
       case 'STRING': case 'TEXT': {
-        if (silkTwins.has(d) || isDocIdText(d)) return;
+        if (silkTwins.has(d) || isDocIdText(d, r.id)) return;
         const node = new Group();
         // layer color wins over specialColor — matches how EasyEDA shows silk strings;
         // doc-scaled so big silk words grow with the board like the reference export
