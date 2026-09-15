@@ -3,7 +3,7 @@ import { Group, Line, Rect, Path, Text, Ellipse } from 'leafer-ui';
 import type { OpenedDoc, Rec, DocSegment } from '../types';
 import type { RenderApi, RenderObject } from './layers';
 import { X, Y, P, ang, strokeOf, fillOf, widthOf, xfOf, objBBox, bboxFromPts, arcSeg, COLORS, type Xf, type BBox } from './geom';
-import { resolveLibGraphics } from '../model';
+import { resolveLibGraphics, resolveAttrRef } from '../model';
 
 /** record types that contribute real graphics (for component bbox sizing) */
 const DRAWABLE_TYPES = ['POLY', 'FILL', 'LINE', 'RECT', 'CIRCLE', 'ELLIPSE', 'OVAL', 'PIN', 'TEXT', 'STRING', 'TABLE'];
@@ -13,6 +13,22 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   const xf = xfOf(seg.canvas, false);
   const page = new Group({ name: 'page' });
   const byParent = indexAttrs(seg.recs);
+  // page-level attributes used by the title-block table (both free attrs and border-component attrs)
+  let borderId: string | null = null;
+  for (const r of seg.recs) {
+    if (r.type === 'COMPONENT' && isBorderComponent(byParent.get(r.id) ?? [])) {
+      borderId = r.id;
+      break;
+    }
+  }
+  const pageAttrs = new Map<string, string>();
+  for (const r of seg.recs) {
+    if (r.type !== 'ATTR') continue;
+    const pid = String(r.data.parentId ?? '');
+    if (pid !== '' && pid !== borderId) continue;
+    const k = String(r.data.key ?? '');
+    if (k && !pageAttrs.has(k)) pageAttrs.set(k, String(r.data.value ?? ''));
+  }
   // attr index for embedded library segments (pin labels etc.), cached per segment
   const libAttrIdx = new WeakMap<DocSegment, Map<string, Rec[]>>();
   const attrsOf = (libSeg: DocSegment, id: string): Rec[] => {
@@ -181,8 +197,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     if (rot) grid.rotation = rot; // rotation around grid origin approximated at top-left
     for (const x of xs) grid.add(new Line({ points: [px(x), py(ys[0]), px(x), py(ys[ys.length - 1])], stroke, strokeWidth: sw }));
     for (const y of ys) grid.add(new Line({ points: [px(xs[0]), py(y), px(xs[xs.length - 1]), py(y)], stroke, strokeWidth: sw }));
+    const attrRecord = Object.fromEntries(pageAttrs);
     for (const cell of Array.isArray(d.tableCell) ? d.tableCell : []) {
-      const value = String(cell?.value ?? '');
+      const value = resolveAttrRef(attrRecord, String(cell?.value ?? '')) ?? '';
       if (!value) continue;
       const ci = Math.min(Number(cell.columnIndex ?? 0), xs.length - 1);
       const ri = Math.min(Number(cell.rowIndex ?? 0), ys.length - 1);
@@ -240,6 +257,20 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     return !!attrValue(attrs, 'Page Size') || (attrValue(attrs, 'Width') != null && attrValue(attrs, 'Border') != null);
   }
 
+  /** power symbols (GND/VCC/…) are authored pointing the wrong way; rotate 180° to match EasyEDA Pro placement (#4) */
+  function isPowerSymbol(sym: DocSegment | undefined, attrs: Rec[]): boolean {
+    if (!sym) return false;
+    const parts = [
+      String(sym.meta?.title ?? ''),
+      String(sym.meta?.name ?? ''),
+      String(sym.meta?.attributes?.['Name'] ?? ''),
+      ...attrs.filter((a) => ['Name', 'Value', 'Symbol'].includes(String(a.data.key ?? ''))).map((a) => String(a.data.value ?? '')),
+    ];
+    const hay = parts.join(' ').toUpperCase();
+    if (/\b(GND|GROUND|VCC|VDD|VSS|VBB|VEE|VPP|VNN|POWER)\b/.test(hay)) return true;
+    return sym.recs.some((r) => r.type === 'PIN' && String(r.data.electric ?? '').toUpperCase() === 'POWER');
+  }
+
   /**
    * A4-style page border (EasyEDA renders it from a cloud OBJ blob we can't
    * decode, so synthesize it from the frame component's attributes:
@@ -251,7 +282,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const H = Number(attrValue(attrs, 'Height')) || 825;
     const xn = Math.max(1, Number(attrValue(attrs, 'X Region Count')) || 6);
     const yn = Math.max(1, Number(attrValue(attrs, 'Y Region Count')) || 4);
-    const blade = 16; // ruler strip
+    const blade = Number(attrValue(attrs, 'Blade Width')) || 16;
     const col = '#a02020';
     // sheet occupies x∈[0,W], y∈[-H,0] (y-down), top-left corner at (0,-H)
     g.add(new Rect({ x: 0, y: -H, width: W, height: H, stroke: col, strokeWidth: 1.2, fill: null }));
@@ -305,6 +336,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     g.y = Y(d.y ?? 0, xf);
     g.rotation = ang(d.rotation ?? 0, xf);
     if (d.isMirror) g.scaleX = -1;
+    if (sym && isPowerSymbol(sym, attrs)) g.rotation = (Number(g.rotation) || 0) + 180;
     page.add(g);
     if (sym) {
       drawSymbolPart(g, sym, String(d.partId ?? ''), 0, 0, 0, false, Number(g.rotation) || 0);
@@ -369,6 +401,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const descTokens = descText.split(/\s+/).filter((t) => tokenRe.test(t));
     const firstToken = descTokens[0] ?? '';
     const voltToken = descTokens.find((t) => /v$/i.test(t)) ?? '';
+    const localAttrMap: Record<string, string> = {};
+    for (const a of attrs) { const k = String(a.data.key ?? ''); if (k) localAttrMap[k] = String(a.data.value ?? ''); }
     let stacked = 0;
     let sawValue = false;
     let desPos: [number, number] | null = null;
@@ -379,7 +413,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       // instance value wins; library default, then device description fill nulls
       const def = libDefAttr(partId, key);
       const fallback = key === 'Value' ? firstToken : key === 'Voltage Rated' ? voltToken : '';
-      const value = String(ad.value ?? def?.data.value ?? fallback ?? '');
+      const value = resolveAttrRef(localAttrMap, String(ad.value ?? def?.data.value ?? fallback ?? '')) ?? '';
       if (!value.trim()) continue;
       if ((ad.valueVisible ?? true) === false && ad.keyVisible !== true) continue;
       let label = key === 'Designator'

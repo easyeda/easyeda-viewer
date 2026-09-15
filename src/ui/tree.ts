@@ -112,7 +112,7 @@ export class DocTreeView {
 
     const label = document.createElement('span');
     label.className = 'ev-tree-label';
-    label.textContent = node.title;
+    label.innerHTML = highlightHtml(node.title, this.query);
     label.title = node.title;
     row.appendChild(label);
     li.appendChild(row);
@@ -159,14 +159,7 @@ export interface ObjectRow {
   color?: string;
 }
 
-/** object order: meaningful first, everything else keeps file order */
-const TYPE_ORDER = [
-  'COMPONENT', 'PAD', 'VIA', 'TRACK', 'WIRE', 'LINE', 'ARC', 'POLY', 'REGION', 'POUR', 'POURED',
-  'TEARDROP', 'FILL', 'RECT', 'CIRCLE', 'ELLIPSE', 'HOLE', 'STRING', 'TEXT', 'IMAGE', 'DIMENSION',
-  'PIN', 'TABLE', 'ATTR',
-];
-
-/** object tree of the current doc, grouped by primitive type (#4/#21) */
+/** flat component list of the current doc, naturally sorted by designator (#6/#12) */
 export class ObjectListView {
   private host: HTMLElement;
   private search: HTMLInputElement;
@@ -198,44 +191,20 @@ export class ObjectListView {
   private render(): void {
     this.listEl.innerHTML = '';
     this.rows.clear();
-    const groups = new Map<string, ObjectRow[]>();
+    let visible = 0;
     for (const it of this.items) {
-      if (this.query && !(it.label.toLowerCase().includes(this.query) || typeLabel(it.type).toLowerCase().includes(this.query))) continue;
-      const g = groups.get(it.type) ?? [];
-      g.push(it);
-      groups.set(it.type, g);
+      if (this.query && !it.label.toLowerCase().includes(this.query)) continue;
+      visible++;
+      const li = document.createElement('li');
+      li.className = 'ev-obj-row';
+      li.innerHTML = highlightHtml(it.label, this.query);
+      li.title = it.label;
+      if (it.color) li.style.borderLeftColor = it.color;
+      li.onclick = () => { this.select(it.id); this.cb.onPick(it.id); };
+      this.rows.set(it.id, li);
+      this.listEl.appendChild(li);
     }
-    const keys = [...groups.keys()].sort((a, b) => {
-      const ia = TYPE_ORDER.indexOf(a), ib = TYPE_ORDER.indexOf(b);
-      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
-    });
-    for (const k of keys) {
-      const rows = groups.get(k)!;
-      const head = document.createElement('li');
-      head.className = 'ev-obj-group';
-      head.innerHTML = `${icon('chevronRight', 12)}<span>${escapeHtml(typeLabel(k))}</span><em>${rows.length}</em>`;
-      const body = document.createElement('ul');
-      body.style.listStyle = 'none'; body.style.margin = '0'; body.style.padding = '0';
-      let open = true;
-      head.onclick = () => {
-        open = !open;
-        body.style.display = open ? '' : 'none';
-        head.classList.toggle('ev-closed', !open);
-      };
-      head.classList.remove('ev-closed');
-      this.listEl.append(head, body);
-      for (const it of rows) {
-        const li = document.createElement('li');
-        li.className = 'ev-obj-row';
-        li.textContent = it.label;
-        li.title = it.label;
-        if (it.color) li.style.borderLeftColor = it.color;
-        li.onclick = () => { this.select(it.id); this.cb.onPick(it.id); };
-        this.rows.set(it.id, li);
-        body.appendChild(li);
-      }
-    }
-    if (!keys.length) {
+    if (!visible) {
       const hint = document.createElement('li');
       hint.className = 'ev-hint';
       hint.textContent = t('noObjects');
@@ -264,7 +233,7 @@ export class LayerListView {
     const rows = items.filter((l) => l.count > 0);
     for (const l of rows) {
       const row = document.createElement('div');
-      row.className = 'ev-layer-row';
+      row.className = 'ev-layer-row' + (l.show ? ' ev-on' : ' ev-off');
       const eye = document.createElement('button');
       eye.className = 'ev-btn ev-btn-icon ev-layer-eye';
       eye.innerHTML = icon(l.show ? 'eye' : 'eyeOff', 14);
@@ -274,6 +243,7 @@ export class LayerListView {
         l.show = next;
         eye.innerHTML = icon(next ? 'eye' : 'eyeOff', 14);
         eye.classList.toggle('ev-off', !next);
+        row.classList.toggle('ev-on', next);
         row.classList.toggle('ev-off', !next);
         this.cb.onToggle(l.id, next);
       };
@@ -299,4 +269,15 @@ export class LayerListView {
 
 export function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Escape `text`, then wrap case-insensitive occurrences of `query` in `<mark>`. */
+export function highlightHtml(text: string, query: string): string {
+  if (!query) return escapeHtml(text);
+  const re = new RegExp(`(${escapeRegExp(query)})`, 'gi');
+  return escapeHtml(text).replace(re, '<mark class="ev-hl">$1</mark>');
 }

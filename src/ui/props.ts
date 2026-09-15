@@ -4,6 +4,8 @@
  * drill, text…) instead of every raw record field. No path data, no raw line.
  */
 import type { RenderObject, RenderLayer } from '../core/render/layers';
+import type { OpenedDoc, TreeNode } from '../core/types';
+import { collectAttrs, resolveAttrRef, resolveLibGraphics } from '../core/model';
 import { t, typeLabel, attrLabel, valueLabel } from './i18n';
 
 const FLAG_KEYS = new Set(['lock', 'ratelock', 'bold', 'reverse', 'mirror', 'closed', 'displayFill', 'displayStroke', 'pourFill', 'valueVisible']);
@@ -19,6 +21,9 @@ export class PropsView {
   private host: HTMLElement;
   private layerNames = new Map<string, string>();
   private current: RenderObject | null = null;
+  private opened: OpenedDoc | null = null;
+  private deviceNode: TreeNode | null = null;
+  private deviceOpened: OpenedDoc | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -31,6 +36,11 @@ export class PropsView {
     this.layerNames = new Map(layers.map((l) => [l.id, l.name]));
   }
 
+  /** context of the currently opened document (needed to resolve component attributes) */
+  setOpened(opened: OpenedDoc | null): void {
+    this.opened = opened;
+  }
+
   clear(): void {
     this.host.innerHTML = '';
     const hint = document.createElement('div');
@@ -41,12 +51,23 @@ export class PropsView {
 
   show(obj: RenderObject | null): void {
     this.current = obj;
+    this.deviceNode = null;
+    this.deviceOpened = null;
     this.render();
+  }
+
+  /** show library DEVICE metadata when its tree node is clicked (#11) */
+  showDevice(node: TreeNode, opened: OpenedDoc): void {
+    this.current = null;
+    this.deviceNode = node;
+    this.deviceOpened = opened;
+    this.renderDevice();
   }
 
   /** re-render after language change */
   refresh(): void {
-    this.render();
+    if (this.deviceNode && this.deviceOpened) this.renderDevice();
+    else this.render();
   }
 
   private render(): void {
@@ -87,18 +108,22 @@ export class PropsView {
     const used = new Set<string>();
 
     // ---------- identity ----------
-    if (obj.title && obj.rec.type === 'COMPONENT') row(attrLabel('designator'), obj.title);
-    const compAttrs = d.attrs;
-    if (compAttrs && typeof compAttrs === 'object') {
-      for (const [k, v] of Object.entries(compAttrs)) {
-        if (typeof v === 'string' && v && k !== 'Designator') row(attrLabel(k) !== k ? attrLabel(k) : k, v);
+    if (obj.rec.type === 'COMPONENT' && this.opened) {
+      this.renderComponent(table, obj.rec, used);
+    } else {
+      if (obj.title) row(attrLabel('designator'), obj.title);
+      const compAttrs = d.attrs;
+      if (compAttrs && typeof compAttrs === 'object') {
+        for (const [k, v] of Object.entries(compAttrs)) {
+          if (typeof v === 'string' && v && k !== 'Designator') row(attrLabel(k) !== k ? attrLabel(k) : k, v);
+        }
+        used.add('attrs');
       }
-      used.add('attrs');
+      if (typeof d.text === 'string' && d.text) { row(attrLabel('text'), d.text); used.add('text'); }
+      if (d.value != null && String(d.value) !== '') { row(attrLabel('value'), valueLabel(d.value)); used.add('value'); }
+      if (d.num != null && String(d.num) !== '') { row(attrLabel('num'), String(d.num)); used.add('num'); }
+      if (typeof d.name === 'string' && d.name) { row(attrLabel('name'), d.name); used.add('name'); }
     }
-    if (typeof d.text === 'string' && d.text) { row(attrLabel('text'), d.text); used.add('text'); }
-    if (d.value != null && String(d.value) !== '') { row(attrLabel('value'), valueLabel(d.value)); used.add('value'); }
-    if (d.num != null && String(d.num) !== '') { row(attrLabel('num'), String(d.num)); used.add('num'); }
-    if (typeof d.name === 'string' && d.name) { row(attrLabel('name'), d.name); used.add('name'); }
 
     // ---------- geometry ----------
     if (num(d.x) && num(d.y)) {
@@ -163,6 +188,72 @@ export class PropsView {
     }
     if (typeof d.origin === 'string') { row(attrLabel('origin'), valueLabel(d.origin.toUpperCase())); used.add('origin'); }
 
+    this.host.appendChild(table);
+  }
+
+  /** component attribute table: merge instance ATTR records + library/device defaults, resolve ={...} refs (#2/#3) */
+  private renderComponent(table: HTMLTableElement, rec: RenderObject['rec'], used: Set<string>): void {
+    const entries = this.opened ? collectAttrs(rec, this.opened) : [];
+    const map: Record<string, string> = {};
+    for (const e of entries) if (!map[e.key] || e.source === 'instance') map[e.key] = e.value;
+    const val = (k: string): string => resolveAttrRef(map, map[k]) ?? '';
+    const row = (k: string, v: string): void => {
+      const tr = document.createElement('tr');
+      const tk = document.createElement('td'); tk.className = 'ev-k'; tk.textContent = k;
+      const tv = document.createElement('td'); tv.className = 'ev-v'; tv.textContent = v;
+      tr.append(tk, tv);
+      table.appendChild(tr);
+    };
+    const priority = ['Designator', 'Name', 'Value', 'Symbol', 'Footprint', 'Device'];
+    const seen = new Set<string>();
+    for (const k of priority) {
+      const v = val(k);
+      if (v) { row(attrLabel(k), v); seen.add(k); }
+    }
+    // remaining attributes (skip raw geometry/control keys already handled below)
+    const skip = new Set(['x', 'y', 'rotation', 'angle', 'padAngle', 'partId', 'groupId', 'isMirror', 'isMirror', 'attrs', 'zIndex', 'locked', 'layerId', 'layer']);
+    for (const e of entries) {
+      if (seen.has(e.key) || skip.has(e.key)) continue;
+      const v = resolveAttrRef(map, e.value);
+      if (v) row(attrLabel(e.key), v);
+    }
+    used.add('attrs');
+    used.add('Designator'); used.add('Name'); used.add('Value');
+  }
+
+  private renderDevice(): void {
+    const node = this.deviceNode;
+    const opened = this.deviceOpened;
+    this.host.innerHTML = '';
+    if (!node || !opened) return this.clear();
+
+    const head = document.createElement('div');
+    head.className = 'ev-props-head';
+    head.textContent = node.title;
+    this.host.appendChild(head);
+
+    const table = document.createElement('table');
+    table.className = 'ev-props-table';
+    const row = (k: string, v: string): void => {
+      const tr = document.createElement('tr');
+      const tk = document.createElement('td'); tk.className = 'ev-k'; tk.textContent = k;
+      const tv = document.createElement('td'); tv.className = 'ev-v'; tv.textContent = v;
+      tr.append(tk, tv);
+      table.appendChild(tr);
+    };
+    const metaAny = opened.self.meta as any;
+    if (metaAny?.title) row(attrLabel('name'), String(metaAny.title));
+    const attrs = metaAny?.attributes;
+    if (attrs && typeof attrs === 'object') {
+      for (const [k, v] of Object.entries(attrs)) {
+        const s = v == null ? '' : String(v);
+        if (s) row(attrLabel(k), s);
+      }
+    }
+    const sym = resolveLibGraphics(opened.libs, opened.self, 'Symbol');
+    const fp = resolveLibGraphics(opened.libs, opened.self, 'Footprint');
+    if (sym) row(attrLabel('symbol'), String(sym.meta?.title ?? sym.uuid));
+    if (fp) row(attrLabel('footprint'), String(fp.meta?.title ?? fp.uuid));
     this.host.appendChild(table);
   }
 }

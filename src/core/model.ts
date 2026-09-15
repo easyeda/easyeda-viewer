@@ -4,6 +4,67 @@ import { RENDERABLE, emptyReport } from './types';
 import { getSegments } from './parse/records';
 import { scalePourItems } from './render/geom';
 
+export interface AttrEntry {
+  key: string;
+  value: string;
+  source: 'instance' | 'lib';
+}
+
+/**
+ * Resolve `={Key}` placeholders inside attribute values.
+ * Recurses up to `depth` times to avoid cycles; missing keys become empty strings.
+ */
+export function resolveAttrRef(
+  attrs: Record<string, string | undefined>,
+  value: string | undefined,
+  depth = 3,
+): string | undefined {
+  if (value == null || !value.includes('={')) return value;
+  let out = value;
+  for (let i = 0; i < depth; i++) {
+    const next = out.replace(/=\{([^}]+)\}/g, (_, k) => attrs[k] ?? '');
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
+/** Collect instance ATTR records (and inline `attrs`) for a record, then merge library/device defaults. */
+export function collectAttrs(rec: Rec, opened: OpenedDoc): AttrEntry[] {
+  const map = new Map<string, AttrEntry>();
+  const set = (key: string, value: unknown, source: AttrEntry['source']) => {
+    if (value == null) return;
+    const s = String(value);
+    if (!s && source === 'lib') return; // don't let empty lib defaults wipe instance values
+    if (!map.has(key)) map.set(key, { key, value: s, source });
+  };
+  // instance ATTR records parented to this object
+  for (const r of opened.self.recs) {
+    if (r.type === 'ATTR' && r.data.parentId === rec.id && typeof r.data.key === 'string' && r.data.key) {
+      set(r.data.key, r.data.value, 'instance');
+    }
+  }
+  // inline attrs object (used by some COMPONENT records)
+  const inline = rec.data.attrs;
+  if (inline && typeof inline === 'object') {
+    for (const [k, v] of Object.entries(inline)) set(k, v, 'instance');
+  }
+  // library/device defaults for components
+  if (rec.type === 'COMPONENT') {
+    const devUuid = map.get('Device')?.value ?? rec.data.attrs?.Device;
+    const symUuid = map.get('Symbol')?.value ?? rec.data.attrs?.Symbol;
+    const fillDefaults = (seg: DocSegment | undefined) => {
+      const defs = seg?.meta?.attributes;
+      if (defs && typeof defs === 'object') {
+        for (const [k, v] of Object.entries(defs)) set(k, v, 'lib');
+      }
+    };
+    if (typeof devUuid === 'string' && devUuid) fillDefaults(opened.libs.get(devUuid));
+    else if (typeof symUuid === 'string' && symUuid) fillDefaults(opened.libs.get(symUuid));
+  }
+  return [...map.values()];
+}
+
 /** Walk the tree and register every node that can be opened on the canvas. */
 export function collectOpenables(model: ProjectModel): void {
   model.openables.clear();

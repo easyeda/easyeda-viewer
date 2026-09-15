@@ -21,8 +21,26 @@ const BOTTOM_ALPHA: Record<string, number> = { '2': 0.7, '4': 0.5, '6': 0.5, '8'
 
 /** used only when a LAYER record is missing; files carry the real names+colors */
 const LAYER_FALLBACK: Record<number, string> = {
-  1: '#ff0000', 2: '#0000ff', 3: '#ffcc00', 4: '#66cc33', 5: '#800080', 6: '#aa00ff',
-  7: '#808080', 11: '#ff00ff', 12: '#c0c0c0', 13: '#ffffff', 19: '#00a000', 47: '#555555',
+  1: '#ff0000',      // Top copper
+  2: '#0000ff',      // Bottom copper
+  3: '#ffffff',      // Top silk
+  4: '#ffffff',      // Bottom silk
+  5: '#800000',      // Top solder mask
+  6: '#000080',      // Bottom solder mask
+  7: '#c0c0c0',      // Top paste
+  8: '#c0c0c0',      // Bottom paste
+  9: '#ff9900',      // Top adhesive / glue
+  10: '#ff9900',     // Bottom adhesive
+  11: '#e0e0e0',     // Board outline
+  12: '#c0c0c0',     // Multi-layer / pads
+  13: '#7f7f7f',     // Document
+  14: '#008000',     // Inner1
+  15: '#008000',     // Inner2
+  16: '#008000',     // Inner3
+  17: '#008000',     // Inner4
+  18: '#008000',     // Inner5
+  19: '#00a000',     // Keep-out
+  47: '#c8a400',     // Drill / hole
 };
 
 /** records embedded at the head of each FOOTPRINT sub-segment (its own doc boilerplate) */
@@ -33,12 +51,25 @@ const FOOTPRINT_STRUCTURAL = new Set([
   'PANELIZE', 'NET', 'LAYER_STACK', 'VIA_TYPE', 'PAD_TYPE', 'DRC_RULE',
 ]);
 
+/** skip the auto-generated element-id text EasyEDA puts on the document layer (#9) */
+function isDocIdText(d: any): boolean {
+  const lid = String(d.layerId ?? '');
+  if (lid !== '13') return false;
+  const t = String(d.text ?? d.value ?? '').trim();
+  return /^e\d+$/i.test(t);
+}
+
 /** pad shape → leafer node (local footprint coords, center at cx,cy).
  * `holeFill` is the canvas background: drills punch through the board, they
  * are not a colored ink layer (EasyEDA shows them as bg-colored holes). */
 function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => string, holeFill: string): Group {
   const g = new Group();
-  const cx = X(Number(d.centerX ?? 0), xf), cy = Y(Number(d.centerY ?? 0), xf);
+  // padOffset is applied inside the pad's own rotated coordinate frame (#13)
+  const padAngle = (Number(d.padAngle ?? 0) * Math.PI) / 180;
+  const offX = Number(d.padOffsetX ?? 0), offY = Number(d.padOffsetY ?? 0);
+  const rawX = Number(d.centerX ?? 0) + offX * Math.cos(padAngle) - offY * Math.sin(padAngle);
+  const rawY = Number(d.centerY ?? 0) + offX * Math.sin(padAngle) + offY * Math.cos(padAngle);
+  const cx = X(rawX, xf), cy = Y(rawY, xf);
   const dp = d.defaultPad ?? {};
   const w = Number(dp.width ?? 10), h = Number(dp.height ?? 10);
   const color = colorOf(d.layerId ?? LAYER.TOP);
@@ -247,6 +278,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           break;
         }
         case 'STRING': case 'TEXT': {
+          if (isDocIdText(d)) break;
           target.add(mkLabel(d, layerColor(d.layerId), fxf, true));
           break;
         }
@@ -300,6 +332,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     // designator / visible attrs (fixed pixel size, same as silk labels)
     for (const a of attrs) {
       const ad = a.data;
+      if (isDocIdText(ad)) continue;
       if (ad.valueVisible === true && typeof ad.x === 'number') {
         const t = mkLabel(ad, layerColor(ad.layerId), xf);
         const al = BOTTOM_ALPHA[String(ad.layerId)];
@@ -453,7 +486,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         return;
       }
       case 'STRING': case 'TEXT': {
-        if (silkTwins.has(d)) return; // hidden mirror copy of a top-silk string
+        if (silkTwins.has(d) || isDocIdText(d)) return;
         const node = new Group();
         // layer color wins over specialColor — matches how EasyEDA shows silk strings;
         // doc-scaled so big silk words grow with the board like the reference export

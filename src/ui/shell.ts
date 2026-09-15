@@ -8,9 +8,9 @@
  */
 import { Leafer, Group, Rect } from 'leafer-ui';
 import '../styles.css';
-import type { ProjectModel, TreeNode } from '../core/types';
+import type { ProjectModel, TreeNode, OpenedDoc } from '../core/types';
 import { loadFromFiles, loadFromMap } from '../core/parse/container';
-import { openDoc } from '../core/model';
+import { openDoc, collectAttrs, resolveAttrRef, resolveLibGraphics } from '../core/model';
 import { renderDoc, type RenderObject, type RenderLayer } from '../core/render/layers';
 import type { Text as LeaferText } from 'leafer-ui';
 import { Camera } from './camera';
@@ -90,7 +90,7 @@ export class Shell {
   private destroyed = false;
 
   private docLoaded = false;
-  private docKind: 'sch' | 'pcb' | 'panel' | 'other' = 'other';
+  private docKind: 'sch' | 'pcb' | 'panel' | 'footprint' | 'other' = 'other';
   private curNode: TreeNode | null = null;
   private lastTree: TreeNode[] | null = null;
   private lastOpenables: Set<string> | null = null;
@@ -358,7 +358,7 @@ export class Shell {
     this.rightEl.classList.toggle('ev-hidden', !this.rightVisible());
     (this.el.querySelector('.ev-resize[data-side="right"]') as HTMLElement).classList.toggle('ev-hidden', !this.rightVisible());
     this.statusEl.classList.toggle('ev-hidden', !this.flags.status);
-    const hasLayers = this.layers.length > 0 && (this.docKind === 'pcb' || this.docKind === 'panel');
+    const hasLayers = this.layers.length > 0 && (this.docKind === 'pcb' || this.docKind === 'panel' || this.docKind === 'footprint');
     this.layerPane.hidden = !hasLayers;
     this.layerSplit.hidden = !hasLayers;
     (this.el.querySelector('[data-act="panelL"]') as HTMLElement).classList.toggle('ev-on', this.leftVisible());
@@ -436,17 +436,28 @@ export class Shell {
       this.select(null);
       this.docTree.highlight(node.id);
 
-      // rows: components are listed by designator, everything else by id (#21)
-      const rows: ObjectRow[] = this.objects.map((o) => ({
-        id: o.id,
-        type: o.rec.type,
-        label: o.rec.type === 'COMPONENT' ? (o.title ?? o.id) : o.id,
-      }));
+      // component tree: only components, naturally sorted by designator (#6/#12)
+      const rows: ObjectRow[] = [];
+      for (const o of this.objects) {
+        if (o.rec.type !== 'COMPONENT') continue;
+        const attrs = collectAttrs(o.rec, opened);
+        const map = new Map<string, string>(attrs.map((e) => [e.key, e.value]));
+        const des = map.get('Designator') ?? o.title ?? o.id;
+        const extraKey = map.has('Name') ? 'Name' : map.has('Value') ? 'Value' : '';
+        const extra = extraKey ? resolveAttrRef(Object.fromEntries(map), map.get(extraKey)) : '';
+        rows.push({
+          id: o.id,
+          type: o.rec.type,
+          label: extra ? `${des} (${extra})` : String(des),
+        });
+      }
+      rows.sort((a, b) => naturalDesignator(a.label, b.label));
       this.lastObjRows = rows;
       this.objList.setObjects(rows);
       this.lastLayerItems = this.layers.map((l) => ({ id: l.id, name: l.name, color: l.color, show: l.show, count: l.count }));
       this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
       this.props.setLayerNames(this.layers);
+      this.props.setOpened(opened);
       this.announceOpened(result, node);
       this.applyChrome();
     } catch (err) {
@@ -477,7 +488,21 @@ export class Shell {
   }
 
   private onTreeNode(node: TreeNode): void {
-    if (this.model?.openables.has(node.id)) this.openNode(node);
+    if (!this.model) return;
+    if (this.model.openables.has(node.id)) {
+      this.openNode(node);
+      return;
+    }
+    if (node.docType === 'DEVICE' && node.fileKey && node.uuid) {
+      try {
+        const opened = openDoc(this.model, node);
+        this.props.showDevice(node, opened);
+        this.rightForced = true;
+        this.applyChrome();
+      } catch (err) {
+        this.fail(err);
+      }
+    }
   }
 
   /** open a doc node by id (also used by the postMessage bridge) */
@@ -590,16 +615,33 @@ export class Shell {
 }
 
 /** canvas background family for a document type */
-function docKind(docType: string): 'sch' | 'pcb' | 'panel' | 'other' {
+function docKind(docType: string): 'sch' | 'pcb' | 'panel' | 'footprint' | 'other' {
   if (docType === 'PCB') return 'pcb';
   if (docType === 'PANEL') return 'panel';
+  if (docType === 'FOOTPRINT') return 'footprint';
   if (docType.startsWith('SCH') || docType.startsWith('SIM')) return 'sch';
   return 'other';
 }
 
 /** canvas bg color passed to the renderer so drill holes match it (#27) */
-function canvasBg(kind: 'sch' | 'pcb' | 'panel' | 'other'): string {
-  if (kind === 'pcb') return '#14161a';
+function canvasBg(kind: 'sch' | 'pcb' | 'panel' | 'footprint' | 'other'): string {
+  if (kind === 'pcb' || kind === 'footprint') return '#14161a';
   if (kind === 'sch' || kind === 'panel') return '#ffffff';
   return '#f5f6f7';
+}
+
+/** sort designators alphabetically by prefix then numerically by suffix (#6) */
+function naturalDesignator(a: string, b: string): number {
+  const parse = (s: string) => {
+    const m = s.match(/^([A-Za-z]+)(\d+(\.\d+)?)?/);
+    return {
+      prefix: (m?.[1] ?? s).toUpperCase(),
+      num: m?.[2] ? Number(m[2]) : 0,
+      raw: s,
+    };
+  };
+  const aa = parse(a), bb = parse(b);
+  if (aa.prefix !== bb.prefix) return aa.prefix.localeCompare(bb.prefix);
+  if (aa.num !== bb.num) return aa.num - bb.num;
+  return aa.raw.localeCompare(bb.raw);
 }
