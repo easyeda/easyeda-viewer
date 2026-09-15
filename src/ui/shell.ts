@@ -563,7 +563,7 @@ export class Shell {
       this.selRect = new Rect({
         x: b.minX, y: b.minY,
         width: Math.max(2, b.maxX - b.minX), height: Math.max(2, b.maxY - b.minY),
-        stroke: '#ff3366', strokeWidth: 2 / this.camera.scale,
+        stroke: '#ffffff', strokeWidth: 2 / this.camera.scale,
         strokeDashArray: [6, 4], fill: null, hittable: false,
       } as any);
       this.overlay.add(this.selRect);
