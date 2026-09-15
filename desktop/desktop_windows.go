@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"runtime"
 	"strings"
@@ -16,12 +17,10 @@ var (
 	kernel32  = syscall.NewLazyDLL("kernel32.dll")
 	ole32     = syscall.NewLazyDLL("ole32.dll")
 	comdlg32  = syscall.NewLazyDLL("comdlg32.dll")
-	shell32   = syscall.NewLazyDLL("shell32.dll")
 	procCoInitializeEx      = ole32.NewProc("CoInitializeEx")
+	procCoCreateInstance    = ole32.NewProc("CoCreateInstance")
 	procCoTaskMemFree       = ole32.NewProc("CoTaskMemFree")
 	procGetOpenFileNameW    = comdlg32.NewProc("GetOpenFileNameW")
-	procSHBrowseForFolderW  = shell32.NewProc("SHBrowseForFolderW")
-	procSHGetPathFromIDList = shell32.NewProc("SHGetPathFromIDListW")
 
 	procRegisterClassExW         = user32.NewProc("RegisterClassExW")
 	procCreateWindowExW          = user32.NewProc("CreateWindowExW")
@@ -63,6 +62,12 @@ const (
 	swpNoActivate   = 0x0010
 	swpShowWindow   = 0x0040
 	coInitApartmentThreaded = 0x2
+
+	// Common Item Dialog (Vista+) for modern folder picker
+	clsctxInprocServer   = 1
+	fosPickFolders       = 0x00000020
+	sigdnFileSysPath     = 0x80058000
+	hresultErrorCancelled = 0x800704C7
 )
 
 func init() {
@@ -306,40 +311,137 @@ func openFileDialogWindows() (string, error) {
 	return syscall.UTF16ToString(buf), nil
 }
 
-type browseInfo struct {
-	hwndOwner      uintptr
-	pidlRoot       uintptr
-	pszDisplayName *uint16
-	lpszTitle      *uint16
-	ulFlags        uint32
-	lpfn           uintptr
-	lParam         uintptr
-	iImage         int32
+// ---------- modern folder picker (Vista+ Common Item Dialog) ----------
+
+type guid struct {
+	Data1 uint32
+	Data2 uint16
+	Data3 uint16
+	Data4 [8]byte
 }
 
-const (
-	bifReturnOnlyFSDirs = 0x00000001
-	bifNewDialogStyle   = 0x00000040
-	bifEditBox          = 0x00000010
+var (
+	clsidFileOpenDialog = guid{0xDC1C5A9C, 0xE88A, 0x4DDE, [8]byte{0xA5, 0xA1, 0x60, 0xF8, 0x2A, 0x20, 0xAE, 0xF7}}
+	iidIFileDialog      = guid{0x42F85136, 0xDB7E, 0x439C, [8]byte{0x85, 0xF1, 0xE4, 0x07, 0x5D, 0x13, 0x5F, 0xC8}}
+	iidIShellItem       = guid{0x43826D1E, 0xE718, 0x42EE, [8]byte{0xBC, 0x55, 0xA1, 0xE2, 0x61, 0xC3, 0x7B, 0xFE}}
 )
 
-func openFolderDialogWindows() (string, error) {
-	title, _ := syscall.UTF16PtrFromString("选择 EasyEDA 工程文件夹(.eprj3 目录)")
-	var bi browseInfo
-	bi.hwndOwner = mainHwnd
-	bi.lpszTitle = title
-	bi.ulFlags = bifReturnOnlyFSDirs | bifNewDialogStyle | bifEditBox
+type iFileDialog struct{ vtbl *iFileDialogVtbl }
+type iFileDialogVtbl struct {
+	queryInterface        uintptr
+	addRef                uintptr
+	release               uintptr
+	show                  uintptr
+	setFileTypes          uintptr
+	setFileTypeIndex      uintptr
+	getFileTypeIndex      uintptr
+	advise                uintptr
+	unadvise              uintptr
+	setOptions            uintptr
+	getOptions            uintptr
+	setDefaultFolder      uintptr
+	setFileName           uintptr
+	setTitle              uintptr
+	setOkButtonLabel      uintptr
+	setFileNameLabel      uintptr
+	getResult             uintptr
+	addPlace              uintptr
+	setDefaultExtension   uintptr
+	close                 uintptr
+	setClientGuid         uintptr
+	clearClientData       uintptr
+	setFilter             uintptr
+	getResults            uintptr
+	getSelectedItems      uintptr
+}
 
-	pidl, _, _ := procSHBrowseForFolderW.Call(uintptr(unsafe.Pointer(&bi)))
-	if pidl == 0 {
-		return "", nil // cancelled
+func (d *iFileDialog) Show(hwnd uintptr) uintptr {
+	ret, _, _ := syscall.SyscallN(d.vtbl.show, uintptr(unsafe.Pointer(d)), hwnd)
+	return ret
+}
+func (d *iFileDialog) SetTitle(title *uint16) uintptr {
+	ret, _, _ := syscall.SyscallN(d.vtbl.setTitle, uintptr(unsafe.Pointer(d)), uintptr(unsafe.Pointer(title)))
+	return ret
+}
+func (d *iFileDialog) SetOptions(opts uint32) uintptr {
+	ret, _, _ := syscall.SyscallN(d.vtbl.setOptions, uintptr(unsafe.Pointer(d)), uintptr(opts))
+	return ret
+}
+func (d *iFileDialog) GetResult(item **iShellItem) uintptr {
+	ret, _, _ := syscall.SyscallN(d.vtbl.getResult, uintptr(unsafe.Pointer(d)), uintptr(unsafe.Pointer(item)))
+	return ret
+}
+func (d *iFileDialog) Release() {
+	if d != nil && d.vtbl != nil {
+		syscall.SyscallN(d.vtbl.release, uintptr(unsafe.Pointer(d)))
 	}
-	defer procCoTaskMemFree.Call(pidl)
+}
 
-	buf := make([]uint16, syscall.MAX_PATH)
-	ok, _, _ := procSHGetPathFromIDList.Call(pidl, uintptr(unsafe.Pointer(&buf[0])))
-	if ok == 0 {
+type iShellItem struct{ vtbl *iShellItemVtbl }
+type iShellItemVtbl struct {
+	queryInterface  uintptr
+	addRef          uintptr
+	release         uintptr
+	getDisplayName  uintptr
+	getAttributes   uintptr
+	compare         uintptr
+}
+
+func (si *iShellItem) GetDisplayName(sigdn uint32, ppsz **uint16) uintptr {
+	ret, _, _ := syscall.SyscallN(si.vtbl.getDisplayName, uintptr(unsafe.Pointer(si)), uintptr(sigdn), uintptr(unsafe.Pointer(ppsz)))
+	return ret
+}
+func (si *iShellItem) Release() {
+	if si != nil && si.vtbl != nil {
+		syscall.SyscallN(si.vtbl.release, uintptr(unsafe.Pointer(si)))
+	}
+}
+
+func openFolderDialogWindows() (string, error) {
+	// COM must be initialized on this thread; ignore S_FALSE (already initialized).
+	hr, _, _ := procCoInitializeEx.Call(0, uintptr(coInitApartmentThreaded))
+	if int32(hr) < 0 {
+		return "", fmt.Errorf("CoInitializeEx failed 0x%X", hr)
+	}
+
+	var dlg *iFileDialog
+	hr, _, _ = procCoCreateInstance.Call(
+		uintptr(unsafe.Pointer(&clsidFileOpenDialog)),
+		0,
+		uintptr(clsctxInprocServer),
+		uintptr(unsafe.Pointer(&iidIFileDialog)),
+		uintptr(unsafe.Pointer(&dlg)),
+	)
+	if int32(hr) < 0 || dlg == nil {
+		return "", fmt.Errorf("CoCreateInstance IFileDialog failed 0x%X", hr)
+	}
+	defer dlg.Release()
+
+	title, _ := syscall.UTF16PtrFromString("选择 EasyEDA 工程文件夹(.eprj3 目录)")
+	dlg.SetTitle(title)
+	dlg.SetOptions(fosPickFolders)
+
+	hr = dlg.Show(mainHwnd)
+	if hr == hresultErrorCancelled {
 		return "", nil
 	}
-	return syscall.UTF16ToString(buf), nil
+	if int32(hr) < 0 {
+		return "", fmt.Errorf("IFileDialog.Show failed 0x%X", hr)
+	}
+
+	var item *iShellItem
+	hr = dlg.GetResult(&item)
+	if int32(hr) < 0 || item == nil {
+		return "", fmt.Errorf("IFileDialog.GetResult failed 0x%X", hr)
+	}
+	defer item.Release()
+
+	var path *uint16
+	hr = item.GetDisplayName(sigdnFileSysPath, &path)
+	if int32(hr) < 0 || path == nil {
+		return "", fmt.Errorf("IShellItem.GetDisplayName failed 0x%X", hr)
+	}
+	defer procCoTaskMemFree.Call(uintptr(unsafe.Pointer(path)))
+
+	return syscall.UTF16ToString((*[1 << 20]uint16)(unsafe.Pointer(path))[:]), nil
 }

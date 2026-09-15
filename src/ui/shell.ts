@@ -291,8 +291,8 @@ export class Shell {
     if (this.lastTree && this.lastOpenables) this.docTree.setTree(this.lastTree, this.lastOpenables);
     if (this.curNode) this.docTree.highlight(this.curNode.id);
     this.objList.setObjects(this.lastObjRows);
-    if (this.layers.length || this.docKind === 'sch' || this.docKind === 'other') {
-      this.layerList.setLayers(this.lastLayerItems, !this.layers.length);
+    if (this.layers.length) {
+      this.layerList.setLayers(this.lastLayerItems, false);
     }
     this.props.refresh();
     this.setStatus(this.docLoaded ? t('statusInit') : t('statusInit'), false);
@@ -454,9 +454,13 @@ export class Shell {
       rows.sort((a, b) => naturalDesignator(a.label, b.label));
       this.lastObjRows = rows;
       this.objList.setObjects(rows);
-      this.lastLayerItems = this.layers.map((l) => ({ id: l.id, name: l.name, color: l.color, show: l.show, count: l.count }));
-      this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
-      this.props.setLayerNames(this.layers);
+      if (this.docKind === 'pcb' || this.docKind === 'panel' || this.docKind === 'footprint') {
+        this.lastLayerItems = this.layers.map((l) => ({ id: l.id, name: l.name, color: l.color, show: l.show, count: l.count }));
+        this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
+        this.props.setLayerNames(this.layers);
+      } else {
+        this.lastLayerItems = [];
+      }
       this.props.setOpened(opened);
       this.announceOpened(result, node);
       this.applyChrome();
