@@ -202,11 +202,18 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     for (const cell of Array.isArray(d.tableCell) ? d.tableCell : []) {
       const value = resolveAttrRef(attrRecord, String(cell?.value ?? '')) ?? '';
       if (!value) continue;
-      const ci = Math.min(Number(cell.columnIndex ?? 0), xs.length - 1);
-      const ri = Math.min(Number(cell.rowIndex ?? 0), ys.length - 1);
-      const t = new Text({ text: value, fontSize: Number(cell.fontSize) || 9, fill: COLORS.schText } as any);
-      // top-left of cell in math coords → screen y flips (row grows downward in doc space)
-      t.x = px(xs[ci]) + 2; t.y = py(ys[ri + 1]) + 1;
+      const ci = Math.min(Number(cell.columnIndex ?? 0), cols.length - 1);
+      const ri = Math.min(Number(cell.rowIndex ?? 0), rows.length - 1);
+      const fs = cell?.fontStyle ?? {};
+      const t = new Text({
+        text: value, fontSize: Number(fs.fontSize ?? cell?.fontSize) || 9,
+        fill: fs.color ?? COLORS.schText,
+        textAlign: alignX(fs.hAlign ?? cell?.align),
+        yAlign: alignY(fs.vAlign ?? cell?.align),
+      } as any);
+      // center the text in its cell (row/col sizes grow downward in doc space)
+      t.x = (px(xs[ci]) + px(xs[ci + 1])) / 2;
+      t.y = (py(ys[ri]) + py(ys[ri + 1])) / 2;
       grid.add(t);
     }
     target.add(grid);
@@ -317,14 +324,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   function drawComponent(r: Rec) {
     const d = r.data;
     const attrs = byParent.get(r.id) ?? [];
-    if (isBorderComponent(attrs)) {
-      drawBorder(attrs);
-      api.addObject({
-        id: r.id, rec: r, node: new Group(), label: `元件 ${r.id}`, kind: 'component',
-        title: `图纸 ${attrValue(attrs, 'Page Size') ?? ''}`.trim(),
-      });
-      return;
-    }
+    const isBorder = isBorderComponent(attrs);
+    if (isBorder) drawBorder(attrs); // page frame behind the title-block table
     const symUuid = attrValue(attrs, 'Symbol') ?? attrValue(attrs, 'Device');
     // DEVICE segments are metadata-only: graphics come from the SYMBOL they name
     let sym = resolveLibGraphics(opened.libs, symUuid ? opened.libs.get(symUuid) : undefined, 'Symbol');
@@ -349,8 +350,10 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     }
     api.addObject({
       id: r.id, rec: r, node: g, label: `元件 ${r.id}`, kind: 'component',
-      title: attrValue(attrs, 'Designator') ?? String((sym?.meta as any)?.title ?? d.attrs?.Designator ?? d.partId ?? r.id),
-      bbox: componentWorldBBox(g, sym, String(d.partId ?? ''), d) ?? undefined,
+      title: isBorder
+        ? `图纸 ${attrValue(attrs, 'Page Size') ?? ''}`.trim()
+        : (attrValue(attrs, 'Designator') ?? String((sym?.meta as any)?.title ?? d.attrs?.Designator ?? d.partId ?? r.id)),
+      bbox: isBorder ? undefined : (componentWorldBBox(g, sym, String(d.partId ?? ''), d) ?? undefined),
     });
   }
 
