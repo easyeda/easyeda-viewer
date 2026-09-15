@@ -75,9 +75,11 @@ export class Camera {
       this.zoomAt(e.clientX - r.left, e.clientY - r.top, factor);
     }, { passive: false });
 
+    // right-drag pans too; the browser menu never appears over the canvas
+    this.el.addEventListener('contextmenu', (e) => e.preventDefault());
     let down: { x: number; y: number } | null = null;
     this.el.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 && e.button !== 1) return;
+      if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
       down = { x: e.clientX, y: e.clientY };
       this.panMoved = false;
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);

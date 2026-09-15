@@ -4,19 +4,21 @@ import type { CanvasInfo } from '../types';
 export interface Xf {
   ox: number;
   oy: number;
+  /** true = doc space is Y-UP (PCB records) → mirror to screen; false = already Y-DOWN (SCH sheets & symbols) */
+  flip: boolean;
 }
 
-export function xfOf(canvas: CanvasInfo | null): Xf {
-  return { ox: canvas?.originX ?? 0, oy: canvas?.originY ?? 0 };
+export function xfOf(canvas: CanvasInfo | null, flip = true): Xf {
+  return { ox: canvas?.originX ?? 0, oy: canvas?.originY ?? 0, flip };
 }
 
-/** doc coord → screen coord (Y flipped, origin translated) */
+/** doc coord → screen coord */
 export function X(x: number, xf: Xf): number { return x - xf.ox; }
-export function Y(y: number, xf: Xf): number { return -(y - xf.oy); }
-export function P(x: number, y: number, xf: Xf): [number, number] { return [x - xf.ox, -(y - xf.oy)]; }
+export function Y(y: number, xf: Xf): number { return xf.flip ? -(y - xf.oy) : y - xf.oy; }
+export function P(x: number, y: number, xf: Xf): [number, number] { return [x - xf.ox, Y(y, xf)]; }
 
-/** angles negate on Y-flip */
-export function ang(a: number): number { return -a; }
+/** angles negate on Y-flip; pass xf so SCH (no flip) keeps the raw rotation */
+export function ang(a: number, xf?: Xf): number { return (xf?.flip ?? true) ? -a : a; }
 
 /** scale numeric coords of a flat path item (keeps tokens, ARC angle degrees, R rotation) */
 export function scalePathItem(item: any[], k: number): any[] {
@@ -40,15 +42,23 @@ export function scalePourItems(path: any[] | undefined): any[][] {
   return items.map((it) => scalePathItem(it, 10));
 }
 
-const normColor = (c: unknown, fallback: string): string =>
-  typeof c === 'string' && c ? (c.startsWith('#') ? c : '#' + c.replace(/[^0-9a-fA-F]/g, '') || fallback) : fallback;
+const normColor = (c: unknown, fallback: string): string => {
+  if (typeof c !== 'string' || !c) return fallback;
+  if (/^(none|transparent)$/i.test(c)) return fallback;
+  if (c.startsWith('#')) return /^#[0-9a-fA-F]{3,}$/.test(c) ? c : fallback;
+  const hex = '#' + c.replace(/[^0-9a-fA-F]/g, '');
+  return hex.length >= 4 ? hex : fallback;
+};
 
 export function strokeOf(d: any, fb: string): string {
   return normColor(d.strokeColor ?? d.color ?? d.specialColor, fb);
 }
+/** solid fill color or null; never falls back to opaque black (empty string) */
 export function fillOf(d: any, fb: string | null): string | null {
+  if (d.fill === false) return null;
   if (d.fillStyle != null && d.fillStyle !== 'SOLID' && d.fill !== true) return null;
-  return normColor(d.fillColor, fb ?? '');
+  const c = normColor(d.fillColor, '');
+  return c || fb;
 }
 export function widthOf(d: any, fb: number): number {
   const w = Number(d.strokeWidth ?? d.width ?? d.lineWidth);
@@ -85,7 +95,7 @@ export function pathToSvg(item: any[], xf: Xf, closed: boolean): string {
         i += 2;
         const [sx, sy] = firstPt ?? [0, 0];
         const [ex, ey] = P(x, y, xf);
-        parts.push(arcSeg(sx, sy, ex, ey, deg));
+        parts.push(arcSeg(sx, sy, ex, ey, deg, xf.flip));
         firstPt = [ex, ey];
         continue;
       }
@@ -131,13 +141,13 @@ export function multiPathToSvg(path: any[], xf: Xf, closed: boolean): string[] {
 }
 
 /** start → end arc with sweep angle deg (EasyEDA convention, tuned for Y-flip). */
-export function arcSeg(sx: number, sy: number, ex: number, ey: number, deg: number): string {
+export function arcSeg(sx: number, sy: number, ex: number, ey: number, deg: number, flip = true): string {
   const dx = ex - sx, dy = ey - sy;
   const chord = Math.hypot(dx, dy);
   const a = Math.abs(deg) > 359.9 ? 359.9 : Math.abs(deg);
   const rad = chord / (2 * Math.sin((a * Math.PI) / 360));
   const large = a > 180 ? 1 : 0;
-  const sweep = deg > 0 ? 0 : 1; // flip because of Y inversion
+  const sweep = flip ? (deg > 0 ? 0 : 1) : (deg > 0 ? 1 : 0); // Y inversion flips the sweep sense
   return `A ${rad} ${rad} 0 ${large} ${sweep} ${ex} ${ey}`;
 }
 
@@ -239,10 +249,6 @@ function collectPathPts(item: any[], raw: [number, number][]): void {
   }
 }
 
-function toScreen(b: BBox, xf: Xf): BBox {
-  return { minX: b.minX - xf.ox, minY: -(b.maxY - xf.oy), maxX: b.maxX - xf.ox, maxY: -(b.minY - xf.oy) };
-}
-
 /** AABB of a box rotated about its own center (padAngle is doc-degrees) */
 function rotateBox(b: BBox, deg: number): BBox {
   const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
@@ -263,7 +269,7 @@ export const COLORS = {
   schPin: '#127fca',
   schBody: '#333333',
   schText: '#000000',
-  schComponent: '#c00000',
+  schComponent: '#a00000', // EasyEDA default symbol stroke
   net: '#3b9b2c',
   pad: '#c8a400',
   hole: '#f5f5dc',

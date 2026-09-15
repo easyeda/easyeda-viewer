@@ -5,6 +5,9 @@
  * the canvas itself is theme-independent and keeps the document's native
  * background (schematic/panel = white, PCB = dark board view) so primitives
  * always show with the colors stored in the source file.
+ *
+ * Columns: left = doc tree over object tree, right = properties over layers.
+ * `.ev-resize` handles adjust column width, `.ev-split-h` the in-column divider.
  */
 
 :root {
@@ -53,14 +56,14 @@ html, body { margin: 0; height: 100%; background: var(--ev-bg, #eef0f3); color: 
 .ev-shell { display: flex; flex-direction: column; height: 100%; position: relative; background: var(--ev-bg); color: var(--ev-text); }
 .ev-hidden { display: none !important; }
 
-/* ---------- toolbar ---------- */
+/* ---------- toolbar (icon-only) ---------- */
 .ev-toolbar {
-  display: flex; align-items: center; gap: 4px; padding: 6px 10px; min-height: 44px;
+  display: flex; align-items: center; gap: 3px; padding: 6px 10px; min-height: 44px;
   background: var(--ev-panel); border-bottom: 1px solid var(--ev-border); user-select: none;
 }
-.ev-brand { display: flex; align-items: center; gap: 8px; margin-right: 8px; font-weight: 600; font-size: 13px; }
-.ev-brand-logo { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px;
-  background: linear-gradient(135deg, var(--ev-accent), #7c3aed); color: #fff; }
+.ev-brand { display: flex; align-items: center; gap: 8px; margin-right: 10px; font-weight: 600; font-size: 13px; }
+.ev-brand-logo { display: inline-flex; align-items: center; }
+.ev-brand-logo svg { display: block; }
 .ev-btn {
   display: inline-flex; align-items: center; gap: 6px; background: transparent; color: var(--ev-text);
   border: 1px solid transparent; border-radius: var(--ev-radius-sm); padding: 6px 9px; cursor: pointer;
@@ -70,30 +73,56 @@ html, body { margin: 0; height: 100%; background: var(--ev-bg, #eef0f3); color: 
 .ev-btn:active { transform: translateY(1px); }
 .ev-btn svg { opacity: 0.85; flex: none; }
 .ev-btn.ev-on { background: var(--ev-accent-weak); color: var(--ev-accent); border-color: transparent; }
-.ev-btn-primary { background: var(--ev-accent); color: var(--ev-accent-text); border-radius: var(--ev-radius-sm); padding: 8px 14px; font-weight: 600; }
+.ev-btn-icon { padding: 7px; }
+.ev-btn-primary { background: var(--ev-accent); color: var(--ev-accent-text); border-radius: var(--ev-radius-sm); padding: 9px 16px; font-weight: 600; }
 .ev-btn-primary:hover { filter: brightness(1.08); background: var(--ev-accent); }
+.ev-btn-primary svg { opacity: 1; }
 .ev-sep { width: 1px; height: 20px; background: var(--ev-border); margin: 0 6px; flex: none; }
-.ev-zoom { min-width: 48px; text-align: center; color: var(--ev-dim); font-variant-numeric: tabular-nums; }
-.ev-title { margin-left: auto; color: var(--ev-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 12px; }
+
+/* editable zoom percentage */
+input.ev-zoom {
+  width: 58px; height: 27px; text-align: center; color: var(--ev-text); font-size: 12px;
+  font-variant-numeric: tabular-nums; font-family: inherit;
+  background: var(--ev-panel-2); border: 1px solid var(--ev-border); border-radius: var(--ev-radius-sm);
+}
+input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background: var(--ev-panel); }
+.ev-lang-code { font-size: 10px; font-weight: 700; opacity: 0.8; }
+.ev-title { margin-left: auto; color: var(--ev-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 12px; }
 .ev-title b { color: var(--ev-text); font-weight: 600; }
 
 /* ---------- body / panels ---------- */
 .ev-body { display: flex; flex: 1; min-height: 0; }
 
 .ev-left {
-  width: 252px; min-width: 180px; display: flex; flex-direction: column;
+  width: var(--ev-left-w, 252px); flex: none; display: flex; flex-direction: column; min-width: 0;
   background: var(--ev-panel); border-right: 1px solid var(--ev-border);
 }
-.ev-tabs { display: flex; gap: 2px; padding: 6px 6px 0; }
-.ev-tab {
-  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-  background: none; border: none; border-radius: var(--ev-radius-sm) var(--ev-radius-sm) 0 0;
-  color: var(--ev-dim); padding: 7px 2px; cursor: pointer; font-size: 12px; font-family: inherit;
-  border-bottom: 2px solid transparent;
+.ev-right {
+  width: var(--ev-right-w, 296px); flex: none; display: flex; flex-direction: column; min-width: 0;
+  background: var(--ev-panel); border-left: 1px solid var(--ev-border);
 }
-.ev-tab:hover { background: var(--ev-hover); color: var(--ev-text); }
-.ev-tab.ev-active { color: var(--ev-accent); border-bottom-color: var(--ev-accent); background: var(--ev-accent-weak); font-weight: 600; }
-.ev-pane { flex: 1; overflow: auto; padding: 6px; }
+
+/* vertical drag handles that resize the columns (#30) */
+.ev-resize { flex: none; width: 5px; margin: 0 -2px; cursor: col-resize; z-index: 5; touch-action: none; }
+.ev-resize:hover, .ev-resize.ev-split-active { background: var(--ev-accent-weak); }
+
+/* stacked panes + horizontal divider (#5/#6) */
+.ev-pane { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.ev-pane-tree { flex: 1 1 55%; }
+.ev-pane-objects { flex: 1 1 45%; border-top: 1px solid transparent; }
+.ev-pane-cap {
+  flex: none; padding: 7px 10px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--ev-dim); text-transform: uppercase; user-select: none;
+}
+.ev-pane-inner { flex: 1; overflow: auto; min-height: 0; padding: 0 6px 6px; }
+.ev-split { flex: none; height: 5px; margin: -2px 0; cursor: row-resize; background: var(--ev-border); opacity: 0.6; touch-action: none; }
+.ev-split:hover, .ev-split.ev-split-active { background: var(--ev-accent); opacity: 1; }
+
+.ev-search {
+  width: 100%; height: 26px; margin: 2px 0 6px; padding: 0 8px; font-family: inherit; font-size: 12px;
+  color: var(--ev-text); background: var(--ev-panel-2); border: 1px solid var(--ev-border); border-radius: var(--ev-radius-sm);
+}
+.ev-search:focus { outline: none; border-color: var(--ev-accent); background: var(--ev-panel); }
 
 /* ---------- document tree ---------- */
 .ev-tree, .ev-tree ul { list-style: none; margin: 0; padding: 0; }
@@ -121,26 +150,41 @@ html, body { margin: 0; height: 100%; background: var(--ev-bg, #eef0f3); color: 
 .ev-tree-ico.ev-tint-lib { color: #64748b; }
 .ev-tree-row.ev-active .ev-tree-ico { color: inherit; }
 
-/* ---------- object list / layers ---------- */
+/* ---------- object tree (grouped by type, #4/#21) ---------- */
 .ev-objlist { list-style: none; margin: 0; padding: 0; }
-.ev-objlist li {
-  padding: 4px 8px; border-left: 3px solid transparent; cursor: pointer; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; border-radius: 0 var(--ev-radius-sm) var(--ev-radius-sm) 0;
+.ev-obj-group {
+  display: flex; align-items: center; gap: 5px; padding: 5px 6px; cursor: pointer; user-select: none;
+  color: var(--ev-dim); font-size: 11.5px; font-weight: 700; border-radius: var(--ev-radius-sm);
 }
-.ev-objlist li:hover { background: var(--ev-hover); }
-.ev-objlist li.ev-active { background: var(--ev-accent-weak); border-left-color: var(--ev-accent); color: var(--ev-accent); }
+.ev-obj-group:hover { background: var(--ev-hover); color: var(--ev-text); }
+.ev-obj-group svg { transition: transform 0.12s ease; }
+.ev-obj-group:not(.ev-closed) svg { transform: rotate(90deg); }
+.ev-obj-group em { margin-left: auto; font-style: normal; font-weight: 500; opacity: 0.7; font-size: 11px; }
+.ev-objlist .ev-obj-row {
+  padding: 3px 8px 3px 24px; border-left: 3px solid transparent; cursor: pointer; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; border-radius: 0 var(--ev-radius-sm) var(--ev-radius-sm) 0;
+  font-variant-numeric: tabular-nums;
+}
+.ev-obj-row:hover { background: var(--ev-hover); }
+.ev-obj-row.ev-active { background: var(--ev-accent-weak); border-left-color: var(--ev-accent); color: var(--ev-accent); }
 
-.ev-layer-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; cursor: pointer; border-radius: var(--ev-radius-sm); }
+/* ---------- layer list (eye toggles, #19) ---------- */
+.ev-layer-row { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: var(--ev-radius-sm); }
 .ev-layer-row:hover { background: var(--ev-hover); }
-.ev-layer-row input { accent-color: var(--ev-accent); }
+.ev-layer-row.ev-off { opacity: 0.5; }
+.ev-layer-eye { padding: 3px; }
+.ev-layer-eye svg { color: var(--ev-text); }
+.ev-layer-eye.ev-off svg { color: var(--ev-dim); }
 .ev-layer-swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, 0.25); flex: none; }
+.ev-layer-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-layer-row em { font-style: normal; color: var(--ev-dim); font-size: 11px; }
 
 /* ---------- canvas ---------- */
 .ev-canvas { flex: 1; min-width: 0; background: #f5f6f7; position: relative; touch-action: none; }
 .ev-canvas[data-kind="sch"], .ev-canvas[data-kind="panel"] { background: #ffffff; }
 .ev-canvas[data-kind="pcb"] { background: #14161a; }
 
-/* ---------- welcome / drop zone ---------- */
+/* ---------- welcome / drop zone (#16) ---------- */
 .ev-welcome {
   position: absolute; inset: 0; z-index: 6; display: flex; align-items: center; justify-content: center;
   background: var(--ev-bg); padding: 24px; overflow: auto;
@@ -148,15 +192,12 @@ html, body { margin: 0; height: 100%; background: var(--ev-bg, #eef0f3); color: 
 .ev-wz {
   width: min(560px, 92%); display: flex; flex-direction: column; align-items: center; text-align: center;
   background: var(--ev-panel); border: 2px dashed var(--ev-border); border-radius: 16px;
-  padding: 44px 36px 40px; box-shadow: var(--ev-shadow); transition: border-color 0.15s ease, background 0.15s ease;
+  padding: 42px 36px 38px; box-shadow: var(--ev-shadow); transition: border-color 0.15s ease, background 0.15s ease;
 }
 .ev-wz.ev-dragover { border-color: var(--ev-accent); background: var(--ev-accent-weak); }
 .ev-wz.ev-dragover .ev-wz-ico { transform: translateY(-4px) scale(1.06); }
-.ev-wz-ico {
-  display: grid; place-items: center; width: 76px; height: 76px; border-radius: 22px; color: #fff;
-  background: linear-gradient(135deg, var(--ev-accent), #7c3aed); box-shadow: var(--ev-shadow);
-  transition: transform 0.18s ease; margin-bottom: 18px;
-}
+.ev-wz-ico { display: grid; place-items: center; margin-bottom: 12px; transition: transform 0.18s ease; }
+.ev-wz-ico svg { filter: drop-shadow(0 6px 16px rgba(85, 136, 255, 0.35)); }
 .ev-wz h2 { margin: 0 0 6px; font-size: 18px; font-weight: 650; }
 .ev-wz p { margin: 0 0 4px; color: var(--ev-dim); font-size: 13px; line-height: 1.7; }
 .ev-wz-ext { font-size: 12px !important; color: var(--ev-dim); opacity: 0.8; margin-bottom: 22px !important; }
@@ -177,19 +218,13 @@ html, body { margin: 0; height: 100%; background: var(--ev-bg, #eef0f3); color: 
 .ev-drop-pill svg { color: var(--ev-accent); }
 
 /* ---------- properties ---------- */
-.ev-right { width: 296px; min-width: 210px; background: var(--ev-panel); border-left: 1px solid var(--ev-border); overflow: auto; }
-.ev-props { padding: 12px; }
-.ev-props-head { font-weight: 650; font-size: 14px; margin-bottom: 2px; word-break: break-all; }
-.ev-props-meta { color: var(--ev-dim); margin-bottom: 10px; font-size: 12px; }
+.ev-props { flex: 1 1 auto; overflow: auto; min-height: 0; padding: 12px; }
+.ev-props-head { font-weight: 650; font-size: 14px; margin-bottom: 8px; word-break: break-all; }
 .ev-props-table { width: 100%; border-collapse: collapse; }
 .ev-props-table td { padding: 3px 6px; border-bottom: 1px solid var(--ev-border); vertical-align: top; word-break: break-all; }
 .ev-props-table tr:hover td { background: var(--ev-hover); }
 .ev-props-table .ev-k { color: var(--ev-dim); width: 38%; white-space: nowrap; }
 .ev-props-color { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.2); }
-.ev-props-raw { margin-top: 10px; }
-.ev-props-raw summary { cursor: pointer; color: var(--ev-dim); }
-.ev-props-raw pre { max-height: 240px; overflow: auto; background: var(--ev-code-bg); border: 1px solid var(--ev-border);
-  border-radius: var(--ev-radius-sm); padding: 8px; font-size: 11px; white-space: pre-wrap; word-break: break-all; }
 
 /* ---------- status bar ---------- */
 .ev-status {

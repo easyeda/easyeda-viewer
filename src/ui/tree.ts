@@ -1,12 +1,28 @@
-/** Left-side document tree + object list renderers (plain DOM, virtual enough for MVP). */
+/**
+ * Panel widgets: document tree (top-left), grouped object tree (bottom-left),
+ * layer list with eye toggles (bottom-right). All plain DOM.
+ */
 import type { TreeNode } from '../core/types';
-import { icon } from './icons';
+import { icon, edaIcon } from './icons';
+import { t, typeLabel } from './i18n';
 
-const KIND_ICON: Record<string, string> = {
-  board: 'packageOpen', schematic: 'layoutTemplate', sheet: 'fileText', pcb: 'circuitBoard',
-  panel: 'box', simGroup: 'activity', simPage: 'activity', libGroup: 'library', lib: 'library',
-};
-/** tint classes for doc-kind icons (see styles.css) */
+/** icon for a tree node — official EasyEDA glyphs where they fit (#28) */
+function nodeIcon(node: TreeNode): string {
+  switch (node.kind) {
+    case 'board': return edaIcon('project', 14);
+    case 'schematic': case 'sheet': return edaIcon('schematic', 14);
+    case 'pcb': return edaIcon('pcb', 14);
+    case 'panel': return edaIcon('panel', 14);
+    case 'simGroup': case 'simPage': return icon('activity', 14);
+    case 'libGroup': return edaIcon('library', 14);
+    case 'lib':
+      // footprint vs symbol library gets its matching glyph
+      if ((node.docType ?? '').includes('FOOTPRINT')) return edaIcon('footprint', 14);
+      if ((node.docType ?? '').includes('SYMBOL')) return edaIcon('symbol', 14);
+      return edaIcon('device', 14);
+    default: return icon('file', 14);
+  }
+}
 const KIND_TINT: Record<string, string> = {
   schematic: 'ev-tint-sch', sheet: 'ev-tint-sch', pcb: 'ev-tint-pcb',
   panel: 'ev-tint-panel', simGroup: 'ev-tint-sim', simPage: 'ev-tint-sim',
@@ -19,29 +35,60 @@ export interface TreeCallbacks {
 }
 
 export class DocTreeView {
+  private host: HTMLElement;
+  private search: HTMLInputElement;
   private ul: HTMLUListElement;
   private cb: TreeCallbacks;
   private rows = new Map<string, HTMLLIElement>();
+  private nodes: TreeNode[] = [];
+  private openables = new Set<string>();
+  private query = '';
 
   constructor(host: HTMLElement, cb: TreeCallbacks) {
     this.cb = cb;
+    this.host = host;
+    this.host.innerHTML = '';
+    this.search = document.createElement('input');
+    this.search.type = 'search';
+    this.search.className = 'ev-search';
+    this.search.placeholder = t('searchPh');
+    this.search.addEventListener('input', () => {
+      this.query = this.search.value.trim().toLowerCase();
+      this.render();
+    });
     this.ul = document.createElement('ul');
     this.ul.className = 'ev-tree';
-    host.appendChild(this.ul);
+    this.host.append(this.search, this.ul);
   }
 
   setTree(nodes: TreeNode[], openables: Set<string>): void {
-    this.ul.innerHTML = '';
-    this.rows.clear();
-    for (const n of nodes) this.ul.appendChild(this.buildRow(n, openables));
+    this.nodes = nodes;
+    this.openables = openables;
+    this.render();
   }
 
-  private buildRow(node: TreeNode, openables: Set<string>): HTMLLIElement {
+  private render(): void {
+    this.ul.innerHTML = '';
+    this.rows.clear();
+    for (const n of this.nodes) {
+      const li = this.buildRow(n, true);
+      if (li) this.ul.appendChild(li);
+    }
+  }
+
+  private matches(node: TreeNode): boolean {
+    if (!this.query) return true;
+    if (node.title.toLowerCase().includes(this.query)) return true;
+    return (node.children ?? []).some((c) => this.matches(c));
+  }
+
+  private buildRow(node: TreeNode, forceOpen: boolean): HTMLLIElement | null {
+    if (!this.matches(node)) return null;
     const li = document.createElement('li');
     this.rows.set(node.id, li);
     const row = document.createElement('div');
     row.className = 'ev-tree-row';
-    if (openables.has(node.id)) row.classList.add('ev-openable');
+    if (this.openables.has(node.id)) row.classList.add('ev-openable');
 
     const kids = node.children ?? [];
     let tw: HTMLSpanElement | null = null;
@@ -60,7 +107,7 @@ export class DocTreeView {
 
     const ico = document.createElement('span');
     ico.className = 'ev-tree-ico' + (KIND_TINT[node.kind] ? ' ' + KIND_TINT[node.kind] : '');
-    ico.innerHTML = icon(KIND_ICON[node.kind] ?? 'file', 14);
+    ico.innerHTML = nodeIcon(node);
     row.appendChild(ico);
 
     const label = document.createElement('span');
@@ -76,14 +123,18 @@ export class DocTreeView {
         tw!.classList.toggle('ev-open', open);
         ul!.style.display = open ? '' : 'none';
       };
-      let open = kids.length <= 3 || node.kind === 'schematic';
+      // searching auto-expands; otherwise keep the previous light heuristics
+      let open = !!this.query || kids.length <= 3 || node.kind === 'schematic' || forceOpen && node.kind === 'board';
       setOpen(open);
       tw!.onclick = (e) => {
         e.stopPropagation();
         open = !open;
         setOpen(open);
       };
-      for (const c of kids) ul.appendChild(this.buildRow(c, openables));
+      for (const c of kids) {
+        const cl = this.buildRow(c, false);
+        if (cl) ul.appendChild(cl);
+      }
       li.appendChild(ul);
     }
     return li;
@@ -101,33 +152,94 @@ export class DocTreeView {
 
 export interface ObjectRow {
   id: string;
+  /** record type — used for grouping (translated headers) */
+  type: string;
+  /** display text: designator for components, id for everything else */
   label: string;
   color?: string;
 }
 
-/** flat object list of the currently rendered doc */
+/** object order: meaningful first, everything else keeps file order */
+const TYPE_ORDER = [
+  'COMPONENT', 'PAD', 'VIA', 'TRACK', 'WIRE', 'LINE', 'ARC', 'POLY', 'REGION', 'POUR', 'POURED',
+  'TEARDROP', 'FILL', 'RECT', 'CIRCLE', 'ELLIPSE', 'HOLE', 'STRING', 'TEXT', 'IMAGE', 'DIMENSION',
+  'PIN', 'TABLE', 'ATTR',
+];
+
+/** object tree of the current doc, grouped by primitive type (#4/#21) */
 export class ObjectListView {
   private host: HTMLElement;
+  private search: HTMLInputElement;
   private listEl = document.createElement('ul');
   private rows = new Map<string, HTMLLIElement>();
+  private items: ObjectRow[] = [];
+  private query = '';
 
   constructor(host: HTMLElement, private cb: { onPick(id: string): void }) {
     this.host = host;
+    this.host.innerHTML = '';
+    this.search = document.createElement('input');
+    this.search.type = 'search';
+    this.search.className = 'ev-search';
+    this.search.placeholder = t('searchPh');
+    this.search.addEventListener('input', () => {
+      this.query = this.search.value.trim().toLowerCase();
+      this.render();
+    });
     this.listEl.className = 'ev-objlist';
-    host.appendChild(this.listEl);
+    this.host.append(this.search, this.listEl);
   }
 
-
   setObjects(items: ObjectRow[]): void {
+    this.items = items;
+    this.render();
+  }
+
+  private render(): void {
     this.listEl.innerHTML = '';
     this.rows.clear();
-    for (const it of items) {
-      const li = document.createElement('li');
-      li.textContent = it.label;
-      if (it.color) li.style.borderLeftColor = it.color;
-      li.onclick = () => { this.select(it.id); this.cb.onPick(it.id); };
-      this.rows.set(it.id, li);
-      this.listEl.appendChild(li);
+    const groups = new Map<string, ObjectRow[]>();
+    for (const it of this.items) {
+      if (this.query && !(it.label.toLowerCase().includes(this.query) || typeLabel(it.type).toLowerCase().includes(this.query))) continue;
+      const g = groups.get(it.type) ?? [];
+      g.push(it);
+      groups.set(it.type, g);
+    }
+    const keys = [...groups.keys()].sort((a, b) => {
+      const ia = TYPE_ORDER.indexOf(a), ib = TYPE_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+    });
+    for (const k of keys) {
+      const rows = groups.get(k)!;
+      const head = document.createElement('li');
+      head.className = 'ev-obj-group';
+      head.innerHTML = `${icon('chevronRight', 12)}<span>${escapeHtml(typeLabel(k))}</span><em>${rows.length}</em>`;
+      const body = document.createElement('ul');
+      body.style.listStyle = 'none'; body.style.margin = '0'; body.style.padding = '0';
+      let open = true;
+      head.onclick = () => {
+        open = !open;
+        body.style.display = open ? '' : 'none';
+        head.classList.toggle('ev-closed', !open);
+      };
+      head.classList.remove('ev-closed');
+      this.listEl.append(head, body);
+      for (const it of rows) {
+        const li = document.createElement('li');
+        li.className = 'ev-obj-row';
+        li.textContent = it.label;
+        li.title = it.label;
+        if (it.color) li.style.borderLeftColor = it.color;
+        li.onclick = () => { this.select(it.id); this.cb.onPick(it.id); };
+        this.rows.set(it.id, li);
+        body.appendChild(li);
+      }
+    }
+    if (!keys.length) {
+      const hint = document.createElement('li');
+      hint.className = 'ev-hint';
+      hint.textContent = t('noObjects');
+      this.listEl.appendChild(hint);
     }
   }
 
@@ -141,34 +253,50 @@ export class ObjectListView {
   }
 }
 
-/** layer toggle list (PCB) */
+/** layer toggles — eye icons, only layers that actually contain objects (#19) */
 export class LayerListView {
   private host: HTMLElement;
   constructor(host: HTMLElement, private cb: { onToggle(id: string, show: boolean): void }) {
     this.host = host;
   }
-  setLayers(items: { id: string; name: string; color: string; show: boolean; count: number }[]): void {
+  setLayers(items: { id: string; name: string; color: string; show: boolean; count: number }[], isSch = false): void {
     this.host.innerHTML = '';
-    for (const l of items) {
-      const row = document.createElement('label');
+    const rows = items.filter((l) => l.count > 0);
+    for (const l of rows) {
+      const row = document.createElement('div');
       row.className = 'ev-layer-row';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = l.show;
-      cb.onchange = () => this.cb.onToggle(l.id, cb.checked);
+      const eye = document.createElement('button');
+      eye.className = 'ev-btn ev-btn-icon ev-layer-eye';
+      eye.innerHTML = icon(l.show ? 'eye' : 'eyeOff', 14);
+      if (!l.show) eye.classList.add('ev-off');
+      eye.onclick = () => {
+        const next = !l.show;
+        l.show = next;
+        eye.innerHTML = icon(next ? 'eye' : 'eyeOff', 14);
+        eye.classList.toggle('ev-off', !next);
+        row.classList.toggle('ev-off', !next);
+        this.cb.onToggle(l.id, next);
+      };
       const sw = document.createElement('span');
       sw.className = 'ev-layer-swatch';
       sw.style.background = l.color;
       const name = document.createElement('span');
-      name.textContent = `${l.name} (${l.count})`;
-      row.append(cb, sw, name);
+      name.className = 'ev-layer-name';
+      name.textContent = l.name;
+      const cnt = document.createElement('em');
+      cnt.textContent = String(l.count);
+      row.append(eye, sw, name, cnt);
       this.host.appendChild(row);
     }
-    if (!items.length) {
+    if (!rows.length) {
       const hint = document.createElement('div');
       hint.className = 'ev-hint';
-      hint.textContent = '当前文档无图层（原理图文档）';
+      hint.textContent = isSch ? t('layerEmptyDoc') : t('noLayers');
       this.host.appendChild(hint);
     }
   }
+}
+
+export function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }

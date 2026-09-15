@@ -1,7 +1,10 @@
 /**
  * Viewer shell: DOM layout + Leafer canvas + camera + panels wiring.
- * The single stateful component used by both main.ts (standalone page)
- * and embed.ts (programmatic API).
+ *
+ * Left column: document tree over object tree (draggable divider).
+ * Right column: properties over layer list (PCB/PANEL only, draggable divider);
+ * hidden until a primitive is selected or layers exist. Both columns resize.
+ * The single stateful component used by main.ts (standalone) and embed.ts.
  */
 import { Leafer, Group, Rect } from 'leafer-ui';
 import '../styles.css';
@@ -9,11 +12,13 @@ import type { ProjectModel, TreeNode } from '../core/types';
 import { loadFromFiles, loadFromMap } from '../core/parse/container';
 import { openDoc } from '../core/model';
 import { renderDoc, type RenderObject, type RenderLayer } from '../core/render/layers';
+import type { Text as LeaferText } from 'leafer-ui';
 import { Camera } from './camera';
 import { setupDnd, pickFiles, pickFolder, type DndController } from './dnd';
-import { DocTreeView, ObjectListView, LayerListView, type ObjectRow } from './tree';
+import { DocTreeView, ObjectListView, LayerListView, escapeHtml, type ObjectRow } from './tree';
 import { PropsView } from './props';
-import { icon } from './icons';
+import { icon, easyedaMark } from './icons';
+import { t, setLang as setI18nLang, getLang, type Lang } from './i18n';
 
 export interface ShellEvents {
   onReady?(): void;
@@ -35,8 +40,10 @@ export interface ChromeFlags {
 export interface ShellOptions extends ShellEvents {
   /** UI theme for the chrome; default 'light'. The canvas always keeps document colors. */
   theme?: Theme;
-  /** show/hide toolbar & side panels; default all true */
+  /** pin toolbar & side panels; left/right default to auto (hidden until useful) */
   chrome?: Partial<ChromeFlags>;
+  /** UI language; default 'zh' */
+  lang?: Lang;
 }
 
 const FULL_CHROME: ChromeFlags = { toolbar: true, left: true, right: true, status: true };
@@ -53,30 +60,51 @@ export class Shell {
   private layerList: LayerListView;
   private props: PropsView;
   private statusEl: HTMLElement;
-  private zoomEl: HTMLElement;
+  private zoomEl!: HTMLInputElement;
   private titleEl: HTMLElement;
   private welcomeEl: HTMLElement;
   private dnd: DndController;
-
-  private theme: Theme;
-  private flags: ChromeFlags;
-  private toolbarEl: HTMLElement;
   private leftEl: HTMLElement;
   private rightEl: HTMLElement;
+  private layerPane: HTMLElement;
+  private layerSplit: HTMLElement;
+
+  private theme: Theme;
+  private lang: Lang;
+  private flags: ChromeFlags;
+  private toolbarEl: HTMLElement;
   private themeBtn!: HTMLButtonElement;
+  private langBtn!: HTMLButtonElement;
+  /** null = auto behavior (hidden on welcome / until selection) */
+  private leftForced: boolean | null = null;
+  private rightForced: boolean | null = null;
 
   private model: ProjectModel | null = null;
   private currentRoot: Group | null = null;
   private objects: RenderObject[] = [];
   private layers: RenderLayer[] = [];
+  private constantTexts: { node: LeaferText; basePx: number }[] = [];
   private layerVisible = new Map<string, boolean>();
   private selected: RenderObject | null = null;
   private selRect: Rect | null = null;
   private destroyed = false;
 
+  private docLoaded = false;
+  private docKind: 'sch' | 'pcb' | 'panel' | 'other' = 'other';
+  private curNode: TreeNode | null = null;
+  private lastTree: TreeNode[] | null = null;
+  private lastOpenables: Set<string> | null = null;
+  private lastObjRows: ObjectRow[] = [];
+  private lastLayerItems: { id: string; name: string; color: string; show: boolean; count: number }[] = [];
+
   constructor(host: HTMLElement, private events: ShellOptions = {}) {
     this.theme = events.theme === 'dark' ? 'dark' : 'light';
     this.flags = { ...FULL_CHROME, ...events.chrome };
+    this.lang = events.lang === 'en' ? 'en' : 'zh';
+    setI18nLang(this.lang);
+    // explicit ?left=/?right= pin the panels; otherwise they appear on demand
+    if (events.chrome && 'left' in events.chrome) this.leftForced = !!events.chrome.left;
+    if (events.chrome && 'right' in events.chrome) this.rightForced = !!events.chrome.right;
 
     this.el = document.createElement('div');
     this.el.className = 'ev-shell';
@@ -84,104 +112,88 @@ export class Shell {
 
     this.el.innerHTML = `
       <div class="ev-toolbar">
-        <span class="ev-brand"><span class="ev-brand-logo">${icon('waypoints', 16)}</span>EasyEDA 查看器</span>
-        <button class="ev-btn" data-act="files" title="打开工程文件">${icon('folderOpen')}<span>打开文件</span></button>
-        <button class="ev-btn" data-act="folder" title="打开工程文件夹">${icon('folderTree')}<span>打开文件夹</span></button>
+        <span class="ev-brand"><span class="ev-brand-logo">${easyedaMark(22)}</span><span data-i18n="appTitle"></span></span>
+        <button class="ev-btn ev-btn-icon" data-act="files" data-tip="tipFiles">${icon('folderOpen')}</button>
+        <button class="ev-btn ev-btn-icon" data-act="folder" data-tip="tipFolder">${icon('folderTree')}</button>
         <span class="ev-sep"></span>
-        <button class="ev-btn ev-btn-icon" data-act="zoomout" title="缩小">${icon('zoomOut')}</button>
-        <span class="ev-zoom">100%</span>
-        <button class="ev-btn ev-btn-icon" data-act="zoomin" title="放大">${icon('zoomIn')}</button>
-        <button class="ev-btn" data-act="fit" title="缩放到全部内容">${icon('fit')}<span>适配</span></button>
+        <button class="ev-btn ev-btn-icon" data-act="zoomout" data-tip="tipZoomOut">${icon('zoomOut')}</button>
+        <input class="ev-zoom" type="text" inputmode="decimal" spellcheck="false" data-tip="zoomPh"/>
+        <button class="ev-btn ev-btn-icon" data-act="zoomin" data-tip="tipZoomIn">${icon('zoomIn')}</button>
+        <button class="ev-btn ev-btn-icon" data-act="fit" data-tip="tipFit">${icon('fit')}</button>
         <span class="ev-title"></span>
-        <button class="ev-btn ev-btn-icon" data-act="theme" title="切换明暗主题">${icon('moon')}</button>
-        <button class="ev-btn ev-btn-icon" data-act="panelL" title="显示/隐藏左侧面板">${icon('panelLeft')}</button>
-        <button class="ev-btn ev-btn-icon" data-act="panelR" title="显示/隐藏右侧面板">${icon('panelRight')}</button>
+        <button class="ev-btn ev-btn-icon ev-btn-lang" data-act="lang" data-tip="tipLang">${icon('globe')}<span class="ev-lang-code"></span></button>
+        <button class="ev-btn ev-btn-icon" data-act="theme" data-tip="tipTheme">${icon('moon')}</button>
+        <button class="ev-btn ev-btn-icon" data-act="panelL" data-tip="tipPanelL">${icon('panelLeft')}</button>
+        <button class="ev-btn ev-btn-icon" data-act="panelR" data-tip="tipPanelR">${icon('panelRight')}</button>
       </div>
       <div class="ev-body">
         <aside class="ev-left">
-          <div class="ev-tabs">
-            <button class="ev-tab ev-active" data-tab="tree">${icon('list', 14)}<span>文档树</span></button>
-            <button class="ev-tab" data-tab="objects">${icon('box', 14)}<span>对象树</span></button>
-            <button class="ev-tab" data-tab="layers">${icon('layers', 14)}<span>图层</span></button>
-          </div>
-          <div class="ev-pane ev-pane-tree"></div>
-          <div class="ev-pane ev-pane-objects" hidden></div>
-          <div class="ev-pane ev-pane-layers" hidden></div>
+          <div class="ev-pane ev-pane-tree"><div class="ev-pane-cap" data-i18n="paneTree"></div><div class="ev-pane-inner"></div></div>
+          <div class="ev-split ev-split-h" data-sp="left" title=""></div>
+          <div class="ev-pane ev-pane-objects"><div class="ev-pane-cap" data-i18n="paneObjects"></div><div class="ev-pane-inner"></div></div>
         </aside>
+        <div class="ev-resize" data-side="left"></div>
         <div class="ev-canvas">
           <div class="ev-welcome">
             <div class="ev-wz">
-              <div class="ev-wz-ico">${icon('uploadCloud', 38)}</div>
-              <h2>拖放 EasyEDA 工程到此处</h2>
-              <p class="ev-wz-ext">.eprj3 / .epro2 工程包,或单个 .esch2 / .epcb2 / .epan2 文档</p>
+              <div class="ev-wz-ico">${easyedaMark(64)}</div>
+              <h2 data-i18n="welcomeTitle"></h2>
+              <p class="ev-wz-ext" data-i18n="welcomeExt"></p>
               <div class="ev-wz-btns">
-                <button class="ev-btn ev-btn-primary" data-wz="files">${icon('folderOpen', 15)}<span>打开文件…</span></button>
-                <button class="ev-btn" data-wz="folder">${icon('folderTree', 15)}<span>打开文件夹…</span></button>
+                <button class="ev-btn ev-btn-primary" data-wz="files">${icon('folderOpen', 15)}<span data-i18n="btnOpenFiles"></span></button>
+                <button class="ev-btn" data-wz="folder">${icon('folderTree', 15)}<span data-i18n="btnOpenFolder"></span></button>
               </div>
-              <p class="ev-wz-or">解析与渲染全部在本地完成,文件不会离开这台设备</p>
+              <p class="ev-wz-or" data-i18n="welcomeLocal"></p>
             </div>
           </div>
         </div>
-        <aside class="ev-right"></aside>
+        <div class="ev-resize" data-side="right"></div>
+        <aside class="ev-right">
+          <div class="ev-props-host"></div>
+          <div class="ev-split ev-split-h" data-sp="right" hidden></div>
+          <div class="ev-pane ev-pane-layers" hidden><div class="ev-pane-cap" data-i18n="paneLayers"></div><div class="ev-pane-inner"></div></div>
+        </aside>
       </div>
-      <div class="ev-status">拖入 .eprj3 / .epro2 工程或单个文档文件开始</div>`;
+      <div class="ev-status"></div>`;
 
     this.canvasHost = this.el.querySelector('.ev-canvas') as HTMLElement;
     this.statusEl = this.el.querySelector('.ev-status') as HTMLElement;
-    this.zoomEl = this.el.querySelector('.ev-zoom') as HTMLElement;
     this.titleEl = this.el.querySelector('.ev-title') as HTMLElement;
     this.welcomeEl = this.el.querySelector('.ev-welcome') as HTMLElement;
     this.toolbarEl = this.el.querySelector('.ev-toolbar') as HTMLElement;
     this.leftEl = this.el.querySelector('.ev-left') as HTMLElement;
     this.rightEl = this.el.querySelector('.ev-right') as HTMLElement;
+    this.layerPane = this.el.querySelector('.ev-pane-layers') as HTMLElement;
+    this.layerSplit = this.el.querySelector('[data-sp="right"]') as HTMLElement;
     this.themeBtn = this.el.querySelector('[data-act="theme"]') as HTMLButtonElement;
+    this.langBtn = this.el.querySelector('[data-act="lang"]') as HTMLButtonElement;
+    this.zoomEl = this.el.querySelector('.ev-zoom') as HTMLInputElement;
 
     this.leafer = new Leafer({ view: this.canvasHost, type: 'draw' });
     this.camera = new Camera(this.canvasHost, this.leafer);
     this.camera.onView = () => {
-      this.zoomEl.textContent = Math.round(this.camera.scale * 100) + '%';
+      if (document.activeElement !== this.zoomEl) this.zoomEl.value = Math.round(this.camera.scale * 100) + '%';
       this.updateSelStroke();
+      // keep net/pad labels at a constant pixel size at any zoom (#11)
+      for (const ct of this.constantTexts) (ct.node as unknown as { fontSize: number }).fontSize = ct.basePx / this.camera.scale;
     };
     this.overlay = new Group({ hittable: false });
     this.camera.world.add(this.overlay);
 
-    const treePane = this.el.querySelector('.ev-pane-tree') as HTMLElement;
-    const objPane = this.el.querySelector('.ev-pane-objects') as HTMLElement;
-    const layerPane = this.el.querySelector('.ev-pane-layers') as HTMLElement;
-
-    this.docTree = new DocTreeView(treePane, { onNode: (n) => this.onTreeNode(n) });
-    this.objList = new ObjectListView(objPane, { onPick: (id) => this.pickObject(id, true) });
-    this.layerList = new LayerListView(layerPane, {
+    this.docTree = new DocTreeView(this.el.querySelector('.ev-pane-tree .ev-pane-inner') as HTMLElement, { onNode: (n) => this.onTreeNode(n) });
+    this.objList = new ObjectListView(this.el.querySelector('.ev-pane-objects .ev-pane-inner') as HTMLElement, { onPick: (id) => this.pickObject(id, true) });
+    this.layerList = new LayerListView(this.layerPane.querySelector('.ev-pane-inner') as HTMLElement, {
       onToggle: (id, show) => {
         this.layerVisible.set(id, show);
         const l = this.layers.find((x) => x.id === id);
         if (l) l.group.visible = show;
       },
     });
-    this.props = new PropsView(this.rightEl);
+    this.props = new PropsView(this.el.querySelector('.ev-props-host') as HTMLElement);
 
-    this.el.querySelectorAll('.ev-tab').forEach((tab) => {
-      tab.addEventListener('click', () => {
-        this.el.querySelectorAll('.ev-tab').forEach((t) => t.classList.remove('ev-active'));
-        tab.classList.add('ev-active');
-        const which = (tab as HTMLElement).dataset.tab;
-        for (const p of ['tree', 'objects', 'layers']) {
-          (this.el.querySelector(`.ev-pane-${p}`) as HTMLElement).hidden = p !== which;
-        }
-      });
-    });
-
-    const openFiles = async (files: File[]) => { if (files.length) await this.loadFiles(files); };
-    this.el.querySelectorAll('[data-act="files"],[data-wz="files"]').forEach((b) =>
-      b.addEventListener('click', () => void pickFiles().then(openFiles)));
-    this.el.querySelectorAll('[data-act="folder"],[data-wz="folder"]').forEach((b) =>
-      b.addEventListener('click', () => void pickFolder().then(openFiles)));
-    this.el.querySelector('[data-act="zoomin"]')!.addEventListener('click', () => this.zoomStep(1.25));
-    this.el.querySelector('[data-act="zoomout"]')!.addEventListener('click', () => this.zoomStep(0.8));
-    this.el.querySelector('[data-act="fit"]')!.addEventListener('click', () => this.fitCurrent());
-    this.themeBtn.addEventListener('click', () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark'));
-    this.el.querySelector('[data-act="panelL"]')!.addEventListener('click', () => this.setChrome({ left: !this.flags.left }));
-    this.el.querySelector('[data-act="panelR"]')!.addEventListener('click', () => this.setChrome({ right: !this.flags.right }));
+    this.bindToolbar();
+    this.bindSplitters();
+    this.applyI18n();
 
     this.canvasHost.addEventListener('pointerup', (e) => this.onCanvasClick(e));
 
@@ -193,6 +205,114 @@ export class Shell {
     this.applyTheme();
     this.applyChrome();
     this.events.onReady?.();
+  }
+
+  private bindToolbar(): void {
+    const openFiles = async (files: File[]) => { if (files.length) await this.loadFiles(files); };
+    this.el.querySelectorAll('[data-act="files"],[data-wz="files"]').forEach((b) =>
+      b.addEventListener('click', () => void pickFiles().then(openFiles)));
+    this.el.querySelectorAll('[data-act="folder"],[data-wz="folder"]').forEach((b) =>
+      b.addEventListener('click', () => void pickFolder().then(openFiles)));
+    this.el.querySelector('[data-act="zoomin"]')!.addEventListener('click', () => this.zoomStep(1.25));
+    this.el.querySelector('[data-act="zoomout"]')!.addEventListener('click', () => this.zoomStep(0.8));
+    this.el.querySelector('[data-act="fit"]')!.addEventListener('click', () => this.fitCurrent());
+    this.el.querySelector('[data-act="lang"]')!.addEventListener('click', () => this.setLang(this.lang === 'zh' ? 'en' : 'zh'));
+    this.themeBtn.addEventListener('click', () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark'));
+    this.el.querySelector('[data-act="panelL"]')!.addEventListener('click', () => { this.leftForced = !this.leftVisible(); this.applyChrome(); });
+    this.el.querySelector('[data-act="panelR"]')!.addEventListener('click', () => { this.rightForced = !this.rightVisible(); this.applyChrome(); });
+
+    // typed zoom percentage (#33)
+    const commit = (): void => {
+      const v = parseFloat(this.zoomEl.value.replace(',', '.'));
+      if (Number.isFinite(v) && v > 0) {
+        const w = this.canvasHost.clientWidth || 800, h = this.canvasHost.clientHeight || 600;
+        this.camera.zoomAt(w / 2, h / 2, (v / 100) / this.camera.scale);
+      }
+      this.zoomEl.value = Math.round(this.camera.scale * 100) + '%';
+    };
+    this.zoomEl.addEventListener('change', commit);
+    this.zoomEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur(); }
+      e.stopPropagation(); // don't trigger canvas shortcuts while typing
+    });
+  }
+
+  /** drag-resize: column widths + the in-column dividers (#5/#6/#30) */
+  private bindSplitters(): void {
+    const drag = (el: HTMLElement, onMove: (e: PointerEvent) => void): void => {
+      el.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        el.setPointerCapture(e.pointerId);
+        el.classList.add('ev-split-active');
+        const mv = (ev: PointerEvent) => onMove(ev);
+        const up = (): void => {
+          el.classList.remove('ev-split-active');
+          el.removeEventListener('pointermove', mv);
+          el.removeEventListener('pointerup', up);
+        };
+        el.addEventListener('pointermove', mv);
+        el.addEventListener('pointerup', up);
+      });
+    };
+    for (const h of this.el.querySelectorAll('.ev-resize')) {
+      const side = (h as HTMLElement).dataset.side;
+      drag(h as HTMLElement, (e) => {
+        const r = this.el.getBoundingClientRect();
+        if (side === 'left') {
+          const w = Math.min(Math.max(e.clientX - r.left, 170), Math.min(560, r.width * 0.5));
+          this.el.style.setProperty('--ev-left-w', w + 'px');
+        } else {
+          const w = Math.min(Math.max(r.right - e.clientX, 200), Math.min(640, r.width * 0.55));
+          this.el.style.setProperty('--ev-right-w', w + 'px');
+        }
+      });
+    }
+    for (const sp of this.el.querySelectorAll('.ev-split-h')) {
+      const col = (sp as HTMLElement).parentElement as HTMLElement;
+      // first child = tree pane (left) / props host (right; its class is rewritten by PropsView)
+      const top = col.children[0] as HTMLElement;
+      drag(sp as HTMLElement, (e) => {
+        const r = col.getBoundingClientRect();
+        const hgt = Math.min(Math.max(e.clientY - r.top, 60), r.height - 60);
+        top.style.flex = 'none';
+        top.style.height = hgt + 'px';
+      });
+    }
+  }
+
+  // ---------- i18n ----------
+
+  setLang(lang: Lang): void {
+    this.lang = lang === 'en' ? 'en' : 'zh';
+    setI18nLang(this.lang);
+    this.el.dataset.lang = this.lang;
+    this.applyI18n();
+    // data-driven panels need a rebuild to pick up new labels
+    if (this.lastTree && this.lastOpenables) this.docTree.setTree(this.lastTree, this.lastOpenables);
+    if (this.curNode) this.docTree.highlight(this.curNode.id);
+    this.objList.setObjects(this.lastObjRows);
+    if (this.layers.length || this.docKind === 'sch' || this.docKind === 'other') {
+      this.layerList.setLayers(this.lastLayerItems, !this.layers.length);
+    }
+    this.props.refresh();
+    this.setStatus(this.docLoaded ? t('statusInit') : t('statusInit'), false);
+    if (this.model) this.announceLoaded();
+    else if (this.curNode) this.announceOpened();
+  }
+
+  getLang(): Lang {
+    return this.lang;
+  }
+
+  private applyI18n(): void {
+    this.el.querySelectorAll('[data-i18n]').forEach((n) => {
+      n.textContent = t((n as HTMLElement).dataset.i18n as string);
+    });
+    this.el.querySelectorAll('[data-tip]').forEach((n) => {
+      n.setAttribute('title', t((n as HTMLElement).dataset.tip as string));
+    });
+    this.el.querySelector('.ev-lang-code')!.textContent = this.lang === 'zh' ? 'EN' : '中';
+    if (!this.model && !this.curNode) this.statusEl.textContent = t('statusInit');
   }
 
   // ---------- theme & chrome ----------
@@ -208,11 +328,22 @@ export class Shell {
 
   setChrome(partial: Partial<ChromeFlags>): void {
     this.flags = { ...this.flags, ...partial };
+    if ('left' in partial) this.leftForced = !!partial.left;
+    if ('right' in partial) this.rightForced = !!partial.right;
     this.applyChrome();
   }
 
   getChrome(): ChromeFlags {
-    return { ...this.flags };
+    return { ...this.flags, left: this.leftVisible(), right: this.rightVisible() };
+  }
+
+  private leftVisible(): boolean {
+    return this.leftForced !== null ? this.leftForced && this.docLoaded : this.docLoaded;
+  }
+
+  private rightVisible(): boolean {
+    const useful = !!this.selected || this.layers.length > 0;
+    return this.rightForced !== null ? this.rightForced && this.docLoaded : this.docLoaded && useful;
   }
 
   private applyTheme(): void {
@@ -222,11 +353,16 @@ export class Shell {
 
   private applyChrome(): void {
     this.toolbarEl.classList.toggle('ev-hidden', !this.flags.toolbar);
-    this.leftEl.classList.toggle('ev-hidden', !this.flags.left);
-    this.rightEl.classList.toggle('ev-hidden', !this.flags.right);
+    this.leftEl.classList.toggle('ev-hidden', !this.leftVisible());
+    (this.el.querySelector('.ev-resize[data-side="left"]') as HTMLElement).classList.toggle('ev-hidden', !this.leftVisible());
+    this.rightEl.classList.toggle('ev-hidden', !this.rightVisible());
+    (this.el.querySelector('.ev-resize[data-side="right"]') as HTMLElement).classList.toggle('ev-hidden', !this.rightVisible());
     this.statusEl.classList.toggle('ev-hidden', !this.flags.status);
-    (this.el.querySelector('[data-act="panelL"]') as HTMLElement).classList.toggle('ev-on', this.flags.left);
-    (this.el.querySelector('[data-act="panelR"]') as HTMLElement).classList.toggle('ev-on', this.flags.right);
+    const hasLayers = this.layers.length > 0 && (this.docKind === 'pcb' || this.docKind === 'panel');
+    this.layerPane.hidden = !hasLayers;
+    this.layerSplit.hidden = !hasLayers;
+    (this.el.querySelector('[data-act="panelL"]') as HTMLElement).classList.toggle('ev-on', this.leftVisible());
+    (this.el.querySelector('[data-act="panelR"]') as HTMLElement).classList.toggle('ev-on', this.rightVisible());
   }
 
   // ---------- loading ----------
@@ -250,20 +386,27 @@ export class Shell {
 
   private fail(err: unknown): void {
     const e = err instanceof Error ? err : new Error(String(err));
-    this.setStatus('加载失败:' + e.message, true);
+    this.setStatus(t('statusFail') + e.message, true);
     this.events.onError?.(e);
+  }
+
+  private announceLoaded(): void {
+    const m = this.model!;
+    this.setStatus(t('statusLoaded', { fmt: m.format.toUpperCase(), docs: m.openables.size, files: m.files.size }));
   }
 
   private setModel(model: ProjectModel): void {
     this.model = model;
+    this.docLoaded = true;
     this.welcomeEl.classList.add('ev-hidden');
     this.titleEl.innerHTML = `<b>${escapeHtml(model.name)}</b> · ${model.format}`;
     const openables = new Set(model.openables.keys());
+    this.lastTree = model.tree;
+    this.lastOpenables = openables;
     this.docTree.setTree(model.tree, openables);
-    this.setStatus(
-      `已加载 ${model.format} 工程:${model.openables.size} 个可打开文档,${model.files.size} 个文件。点击左侧文档树打开。`,
-    );
+    this.announceLoaded();
     this.events.onLoaded?.(model);
+    this.applyChrome();
     // auto-open the first openable node (usually first sheet / pcb)
     const first = model.openables.values().next().value;
     if (first) this.openNode(first);
@@ -271,44 +414,78 @@ export class Shell {
 
   // ---------- doc rendering ----------
 
-  openNode(node: TreeNode): void {
+  private openNode(node: TreeNode): void {
     if (!this.model || !node.fileKey || !node.uuid) return;
     try {
       const opened = openDoc(this.model, node);
-      const result = renderDoc(opened);
+      const kind = docKind(node.docType ?? '');
+      const result = renderDoc(opened, canvasBg(kind));
       this.currentRoot?.remove();
       this.camera.world.add(result.root);
       this.currentRoot = result.root;
       this.objects = result.objects;
       this.layers = result.layers;
+      this.constantTexts = result.constantTexts as { node: LeaferText; basePx: number }[];
       this.layerVisible = new Map(this.layers.map((l) => [l.id, l.show]));
+      this.curNode = node;
+      this.docKind = kind;
       // canvas keeps the document's native background regardless of UI theme
-      this.canvasHost.dataset.kind = docKind(node.docType ?? '');
+      this.canvasHost.dataset.kind = kind;
       // prefer what actually rendered (panel outline etc. are not data records)
       this.camera.fit(this.objBBoxUnion() ?? opened.bbox);
       this.select(null);
       this.docTree.highlight(node.id);
 
+      // rows: components are listed by designator, everything else by id (#21)
       const rows: ObjectRow[] = this.objects.map((o) => ({
         id: o.id,
-        label: o.title && o.title !== o.id ? `${o.label} — ${o.title}` : o.label,
+        type: o.rec.type,
+        label: o.rec.type === 'COMPONENT' ? (o.title ?? o.id) : o.id,
       }));
+      this.lastObjRows = rows;
       this.objList.setObjects(rows);
-      this.layerList.setLayers(this.layers.map((l) => ({ id: l.id, name: l.name, color: l.color, show: l.show, count: l.count })));
-
-      const notes: string[] = [];
-      if (result.diagnostics.length) notes.push(result.diagnostics.slice(0, 3).join(';') + (result.diagnostics.length > 3 ? '…' : ''));
-      if (result.report.badLines.length) notes.push(`${result.report.badLines.length} 行解析失败`);
-      if (result.report.placeholders) notes.push(`${result.report.placeholders} 个占位符`);
-      if (result.report.unknownTypes.length) notes.push(`未支持类型: ${result.report.unknownTypes.slice(0, 6).join(', ')}`);
-      this.setStatus(`${node.title}:${this.objects.length} 个对象,${this.layers.length} 个图层${notes.length ? ' — ' + notes.join(' | ') : ''}`);
+      this.lastLayerItems = this.layers.map((l) => ({ id: l.id, name: l.name, color: l.color, show: l.show, count: l.count }));
+      this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
+      this.props.setLayerNames(this.layers);
+      this.announceOpened(result, node);
+      this.applyChrome();
     } catch (err) {
       this.fail(err);
     }
   }
 
+  private openResult: { diagnostics: string[]; bad: number; placeholders: number; unknown: string[] } | null = null;
+  private announceOpened(result?: { diagnostics: string[]; report: { badLines: unknown[]; placeholders: number; unknownTypes: string[] } }, node?: TreeNode): void {
+    if (result) {
+      this.openResult = {
+        diagnostics: result.diagnostics,
+        bad: result.report.badLines.length,
+        placeholders: result.report.placeholders,
+        unknown: result.report.unknownTypes,
+      };
+    }
+    const r = this.openResult;
+    const title = node ? node.title : this.curNode?.title ?? '';
+    if (!r) return;
+    const notes: string[] = [];
+    if (r.diagnostics.length) notes.push(r.diagnostics.slice(0, 3).join(';') + (r.diagnostics.length > 3 ? '…' : ''));
+    if (r.bad) notes.push(t('statusBadLines', { n: r.bad }));
+    if (r.placeholders) notes.push(t('statusPlaceholders', { n: r.placeholders }));
+    if (r.unknown.length) notes.push(t('statusUnknownTypes', { types: r.unknown.slice(0, 6).join(', ') }));
+    const nonEmpty = this.layers.filter((l) => l.count > 0).length;
+    this.setStatus(`${t('statusOpened', { title, n: this.objects.length, m: nonEmpty })}${notes.length ? ' — ' + notes.join(' | ') : ''}`);
+  }
+
   private onTreeNode(node: TreeNode): void {
     if (this.model?.openables.has(node.id)) this.openNode(node);
+  }
+
+  /** open a doc node by id (also used by the postMessage bridge) */
+  openNodeId(nodeId: string): boolean {
+    const node = this.model?.openables.get(nodeId);
+    if (!node) return false;
+    this.openNode(node);
+    return true;
   }
 
   // ---------- selection ----------
@@ -323,11 +500,13 @@ export class Shell {
   }
 
   private onCanvasClick(e: PointerEvent): void {
+    if (e.button !== 0) return; // right/middle drag only pans (#8)
     if (this.camera.didPan) return;
     const r = this.canvasHost.getBoundingClientRect();
     const px = e.clientX - r.left, py = e.clientY - r.top;
     const wx = (px - this.camera.tx) / this.camera.scale;
     const wy = (py - this.camera.ty) / this.camera.scale;
+    const tol = 6 / this.camera.scale;
     let best: RenderObject | null = null;
     let bestArea = Infinity;
     for (const o of this.objects) {
@@ -337,6 +516,7 @@ export class Shell {
       if (lid != null && this.layerVisible.get(String(lid)) === false) continue;
       const b = o.bbox;
       if (wx >= b.minX && wx <= b.maxX && wy >= b.minY && wy <= b.maxY) {
+        if (o.hit && !o.hit(wx, wy, tol)) continue; // stroke-only pick (#23)
         const area = (b.maxX - b.minX) * (b.maxY - b.minY);
         if (area < bestArea) { bestArea = area; best = o; }
       }
@@ -355,10 +535,11 @@ export class Shell {
         x: b.minX, y: b.minY,
         width: Math.max(2, b.maxX - b.minX), height: Math.max(2, b.maxY - b.minY),
         stroke: '#ff3366', strokeWidth: 2 / this.camera.scale,
-        strokeDashArray: [6, 4], fill: 'none', hittable: false,
+        strokeDashArray: [6, 4], fill: null, hittable: false,
       } as any);
       this.overlay.add(this.selRect);
     }
+    this.applyChrome(); // properties panel appears on first pick (#1)
     this.events.onSelect?.(obj);
   }
 
@@ -416,6 +597,9 @@ function docKind(docType: string): 'sch' | 'pcb' | 'panel' | 'other' {
   return 'other';
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+/** canvas bg color passed to the renderer so drill holes match it (#27) */
+function canvasBg(kind: 'sch' | 'pcb' | 'panel' | 'other'): string {
+  if (kind === 'pcb') return '#14161a';
+  if (kind === 'sch' || kind === 'panel') return '#ffffff';
+  return '#f5f6f7';
 }

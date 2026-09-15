@@ -24,11 +24,17 @@ const EPRJ = '/samples/RA6E2-eprj3/RA6E2-eprj3.zip';
 const shots_list = [
   { name: 'welcome-light', url: `${base}?file=none` },
   { name: 'welcome-dark', url: `${base}?file=none&theme=dark` },
+  { name: 'welcome-en', url: `${base}?file=none&lang=en` },
   { name: 'sch-light', url: `${base}?file=${encodeURIComponent(EPRJ)}` },
-  { name: 'sch-dark', url: `${base}?file=${encodeURIComponent(EPRJ)}&theme=dark` },
-  { name: 'pcb', url: `${base}?file=${encodeURIComponent(EPRJ)}&open=PCB` },
-  { name: 'canvas-only', url: `${base}?file=${encodeURIComponent(EPRJ)}&toolbar=0&left=0&right=0&status=0` },
+  { name: 'sch-sel', url: `${base}?file=${encodeURIComponent(EPRJ)}&click=0.55,0.5` },
+  { name: 'pcb', url: `${base}?file=${encodeURIComponent(EPRJ)}&open=PCB1` },
+  { name: 'pcb-sel', url: `${base}?file=${encodeURIComponent(EPRJ)}&open=PCB1&click=0.5,0.5` },
+  { name: 'pcb-dark', url: `${base}?file=${encodeURIComponent(EPRJ)}&open=PCB1&theme=dark` },
+  { name: 'pcb-en', url: `${base}?file=${encodeURIComponent(EPRJ)}&open=PCB1&lang=en` },
+  { name: 'canvas-only', url: `${base}?file=${encodeURIComponent(EPRJ)}&open=PCB1&toolbar=0&left=0&right=0&status=0` },
   { name: 'epro2-light', url: `${base}?file=${encodeURIComponent(SCH)}` },
+  { name: 'panel', url: `${base}?file=${encodeURIComponent(EPRJ)}&open=PANEL` },
+  { name: 'drop-proj', url: `${base}?file=none&drop=${encodeURIComponent(SCH)}` },
 ];
 const filter = process.argv[2];
 

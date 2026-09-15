@@ -3,14 +3,14 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | easyeda-viewer(嘉立创EDA专业版工程轻量查看器) |
-| 文档版本 | v0.1(草案) |
-| 日期 | 2026-09-14 |
-| 状态 | 待评审 |
+| 文档版本 | v0.2(与代码同步) |
+| 日期 | 2026-09-15 |
+| 状态 | 核心 P0 已实现,持续打磨 |
 | 格式参考 | [easyeda/easyeda-eprj3-skill](https://github.com/easyeda/easyeda-eprj3-skill)(本地 `easyeda-pro-eprj3-format/`)、[easyeda/easyeda-pro-format-skill](https://github.com/easyeda/easyeda-pro-format-skill)(本地 `easyeda-pro-format-skill/`) |
 
 ## Abstract (for English readers)
 
-A lightweight, **single-HTML-file** viewer for EasyEDA Pro project formats (`.epro2` and folder-based `.eprj3`). Written in TypeScript, rendered with LeaferJS. Parse and render are 100% local — no server, no upload. It can be opened by double-clicking the HTML file, or embedded into any web page via a JS API / postMessage interface. Features: document tree + object tree (left), properties panel (right), canvas pan/zoom (wheel/drag), click-to-locate between tree and canvas, multi-page schematics, PCB preview and panel preview.
+A lightweight, **single-HTML-file** viewer for EasyEDA Pro project formats (`.epro2` and folder-based `.eprj3`). Written in TypeScript, rendered with LeaferJS. Parse and render are 100% local — no server, no upload. It can be opened by double-clicking the HTML file, or embedded into any web page via a JS API / postMessage interface. Features: document tree + object tree (left, resizable split, both searchable), properties panel (right, click-to-reveal, translated key attributes only, with a file-named layer list for PCB/panel), canvas pan/zoom (wheel zoom, right-button or middle-button pan), click-to-locate between tree and canvas, bilingual UI (zh/en) with dark/light themes, resizable/hideable panels, icon-only toolbar with an editable zoom percentage, multi-page schematics, PCB preview and panel preview. An optional install-free **Windows desktop exe** (Go + WebView2, ~4 MB) ships the same single-file viewer with native file dialogs, drag-and-drop, an app icon and proper version metadata.
 
 ---
 
@@ -38,7 +38,7 @@ A lightweight, **single-HTML-file** viewer for EasyEDA Pro project formats (`.ep
 - ❌ 电气功能:不做 ERC/DRC、网络表导出、仿真(仅把仿真图作为普通原理图文档渲染)。
 - ❌ 库管理、BOM、3D 视图、Gerber 导出。
 - ❌ 旧版 `eprj`/`.eprj2`(SQLite 单文件)查看 —— 列为 P2 可选扩展,不在 v1 验收范围。
-- ❌ 独立桌面/移动原生应用(桌面版客户端形态由浏览器承担)。
+- ❌ 移动原生应用;桌面形态提供**免安装单 exe**(Go + WebView2 壳,内嵌同一单文件查看器,见 FR-9),非重客户端。
 
 ### 1.4 目标用户与场景
 
@@ -59,9 +59,9 @@ A lightweight, **single-HTML-file** viewer for EasyEDA Pro project formats (`.ep
 | 文档(Doc) | 一个可独立渲染的图页文件:`.esch2`(原理图页/仿真页)、`.epcb2`(PCB)、`.epan2`(面板) |
 | 行记录(Record) | 文档文件中的基本数据单元:`{type,id,ticket}||{属性对象}`,每行一条 |
 | 图元(Primitive) | 一行记录对应的可渲染对象(LINE/PAD/VIA/COMPONENT/ATTR…) |
-| 文档树 | 左侧上层树:工程 → Board → 原理图(含图页)/ PCB / 面板 / 仿真 |
-| 对象树 | 左侧下层树:当前文档的图元层级(容器/分组/父子 parentId) |
-| 属性面板 | 右侧面板:显示当前选中图元的解析后属性与原始 JSON |
+| 文档树 | 左侧上层树:工程 → Board → 原理图(含图页)/ PCB / 面板 / 仿真 / Library;带搜索过滤 |
+| 对象树 | 左侧下层树:当前文档图元**按类型分组**(元件列位号、其余列 id);带搜索过滤与眼睛开关 |
+| 属性面板 | 右侧面板(点选图元后展开):展示解码后的关键属性(名称中英翻译);PCB/PANEL 文档底部带图层列表 |
 | 中间模型(DocModel) | 解析器输出的与格式无关的统一文档模型,渲染层只消费它 |
 
 ---
@@ -114,10 +114,10 @@ MyProject/
 ### 3.4 输入通道(全部 P0,除非注明)
 
 1. **拖放**:拖文件进画布;拖**文件夹**(eprj3 目录,经 `webkitGetAsEntry` 递归读取)——`file://` 双击打开场景的核心通道。
-2. **文件选择器**:按钮/点击空画布,`<input type=file>`;支持选择整个文件夹(`<input webkitdirectory>`)。
+2. **文件选择器**:按钮/点击空画布,`<input type=file>`(过滤器只列受支持后缀:`.eprj3/.epro2/.esch2/.epcb2/.epan2/.elib2/.epru/.esym2/.zip`,不含 `.efp2`);支持选择整个文件夹(`<input webkitdirectory>`)。
 3. **ZIP 工程包**:拖入打包成 zip 的工程目录(fflate 解压,`file://` 可用)。
 4. **嵌入 API**:宿主页面通过 JS API 传 `File`/`Blob`/`ArrayBuffer`/文件名(iframe 场域用 postMessage 传 `Blob` 副本或分块 ArrayBuffer)。
-5. URL 参数 `?file=<url>` 拉取同源/CORS 允许的文档(P1,仅 http(s) 环境)。
+5. URL 参数 `?file=<url>` 拉取同源/CORS 允许的文档(**已实现**,仅 http(s) 环境;桌面壳与 QA 均使用)。
 
 > 安全与隐私承诺:任何通道读到的数据只在当前页面内存中处理,永不发起网络请求(演示样例外,默认关闭)。
 
@@ -142,17 +142,17 @@ MyProject/
 | FR-1.1 | 打开 epro2/eprj3 后,左侧显示文档树:工程 → 各 Board → 原理图(含全部图页,按 `zIndex` 排序)/ PCB / 面板 / 仿真 | P0 |
 | FR-1.2 | 树节点显示图标(区分 SCH/PCB/PANEL/SIM)、名称;工程级显示名称、图页/文档计数 | P0 |
 | FR-1.3 | 单击树中文档节点 → 主画布切换到该文档并渲染;当前文档节点高亮 | P0 |
-| FR-1.4 | 多页原理图:文档树展开图页 + 画布顶部提供图页 Tab 条,两种方式均可切换 | P0 |
-| FR-1.5 | 树支持键盘上下导航与搜索过滤(按名称) | P2 |
+| FR-1.4 | 多页原理图:图页作为原理图节点的子项在文档树中展开切换;**画布顶部图页 Tab 条为 P1 计划**(RA6E2 样本每原理图仅 1 页,暂以树切换覆盖) | P0(树)/P1(Tab) |
+| FR-1.5 | 文档树与对象树均带搜索过滤框(按名称/id 即时过滤) | P0 |
 | FR-1.6 | 加载失败给出明确诊断面板:文件类型判定结果、缺失文件、损坏行号 | P0 |
 
 ### 4.2 FR-2 对象树与定位联动
 
 | ID | 需求 | 优先级 |
 | --- | --- | --- |
-| FR-2.1 | 左侧面板上下分栏:上=文档树,下=当前文档对象树 | P0 |
+| FR-2.1 | 左侧面板上下分栏:上=文档树,下=当前文档对象树;分隔线可拖拽调整两区高度占比 | P0 |
 | FR-2.2 | 对象树按图元层级组织:分组/容器 → 成员(依据 `parentId`、`lineGroup`、组引用等关联字段);未知归属图元平铺在"其他"下 | P0 |
-| FR-2.3 | 对象树节点显示:类型中文名 + 关键标识(元件位号 R1、网络名、文本内容摘要),超长省略 | P0 |
+| FR-2.3 | 对象树**按图元类型分组**(元件/文本/焊盘/走线…),组头显示类型中文名与计数;元件组内只列位号(可重复位号各自独立),其余类型列图元 id | P0 |
 | FR-2.4 | 点击对象树节点 → 画布**定位**:视口居中该图元并缩放至合适级别,播放高亮闪烁动画,同步选中(属性面板更新) | P0 |
 | FR-2.5 | 点击画布图元 → 对象树滚动并高亮对应节点,两侧选中状态始终一致 | P0 |
 | FR-2.6 | 对象树节点可见性开关(眼睛图标):隐藏/显示单节点及其子树,用于复杂 PCB 分层审查 | P1 |
@@ -169,13 +169,17 @@ MyProject/
 | FR-3.6 | 元件符号渲染:元件记录内联/内嵌的符号绘制数据(`OBJ`/path 等)完整绘制;若为外部引用导致缺数据,降级绘制位号占位框并提示 | P1 |
 | FR-3.7 | 字体:文本类图元使用 canvas 字体渲染,支持旋转/镜像/字号;BLOB 真彩图与自定义字体(TMFont)P2 | P1 |
 | FR-3.8 | 深色/浅色两种画布主题,默认跟随 EDA 习惯(原理图浅灰底、PCB 深底) | P1 |
+| FR-3.9 | PCB 走线/圆弧端点为**圆头**(strokeCap=round);长圆形焊盘的槽型孔按圆角矩形绘制(非尖角椭圆);钻孔填充跟随画布背景色(不用黑色) | P0 |
+| FR-3.10 | PCB 文本(丝印等)按数据中的**路径/锚点/角度**还原渲染,与官方视觉一致;底面丝印的镜像重复副本(自动生成的 twins)跳过,只渲染独立文字 | P0 |
+| FR-3.11 | 焊盘编号/网络名等固定标签用**屏幕恒定小字号**(~9px)绘制,不随缩放放大缩小;元件内 STRING 文本仍按文档比例 | P0 |
+| FR-3.12 | 图层面板取文档内 `LAYER` 记录的**图层名称**展示,且只列出当前文档实际有图元的图层,带图元计数 | P0 |
 
 ### 4.4 FR-4 画布交互
 
 | ID | 需求 | 优先级 |
 | --- | --- | --- |
 | FR-4.1 | **滚轮缩放**:以鼠标位置为中心;触控板双指缩放/平移原生支持 | P0 |
-| FR-4.2 | **平移**:中键拖拽、空格+左键拖拽、单指拖拽(触屏);边界不限(内容范围外可继续平移) | P0 |
+| FR-4.2 | **平移**:右键拖拽(不弹浏览器/自绘右键菜单)、中键拖拽、空格+左键拖拽、单指拖拽(触屏);边界不限(内容范围外可继续平移) | P0 |
 | FR-4.3 | 左键点选图元 → 选中(描边+控制框),命中容差随缩放级别自适应;空白处点击取消选择 | P0 |
 | FR-4.4 | 框选(P1 支持多选并在属性面板展示列表)| P1 |
 | FR-4.5 | 工具栏:适应窗口(Fit)、1:1、放大/缩小、手型/选择模式切换 | P0 |
@@ -183,60 +187,64 @@ MyProject/
 | FR-4.7 | 悬停 tooltip:显示图元类型与关键属性(位号/网络/值) | P1 |
 | FR-4.8 | 状态栏:缩放比例、光标处文档坐标(含单位)、图元/层计数、渲染耗时 | P0 |
 
-### 4.5 FR-5 属性面板
+### 4.5 FR-5 属性面板(面向普通用户重新设计)
 
 | ID | 需求 | 优先级 |
 | --- | --- | --- |
-| FR-5.1 | 选中图元后右侧显示属性面板,未选中时显示当前文档信息(类型、单位、图元统计、DOCHEAD 元数据) | P0 |
-| FR-5.2 | 属性分组展示:标识(type/id/ticket)、几何(坐标/尺寸/旋转/镜像)、样式(颜色/线宽/填充)、业务(位号、值、网络、图层、锁定等) | P0 |
-| FR-5.3 | "原始 JSON" 页签:格式化显示该行记录完整内容,支持复制 | P0 |
-| FR-5.4 | 可语义化的字段做类型化展示(颜色值带色块、坐标带单位、布尔带勾);未知字段透传原文 | P1 |
+| FR-5.1 | **默认不展示**:初始右侧面板收起,点击画布图元(或树上节点)时才展开;未选中时显示引导文案"点击画布中的图元查看属性" | P0 |
+| FR-5.2 | 只展示**普通用户关注的关键属性**(类型中文名、位号/值/网络、图层、坐标、旋转、字号、颜色、线宽、钻孔等),按图元类型挑选;不再罗列 path/attrs 等内部字段,无"原始 JSON"页签 | P0 |
+| FR-5.3 | 属性名带中英翻译(i18n 联动);值做**解码后展示**:复合 id 拆解、颜色带色块、坐标/尺寸换算为 mil/mm 带单位、枚举显示可读名 | P0 |
+| FR-5.4 | 面板底部内嵌**图层列表**(仅 PCB/PANEL 文档):眼睛开关 + 文件内 LAYER 记录的图层名 + 图元计数;属性区与图层区之间有可拖拽分隔线,手动调整占比 | P0 |
 | FR-5.5 | 属性面板内点击图元 id/网络名 → 定位到引用处(同网络高亮所有连线) | P2 |
 
 ### 4.6 FR-6 对外接口(可嵌入)
 
 构建产物两种形态,同源同 API:
 
-1. **单文件应用** `viewer.html`:双击打开即用;同时可被 iframe 嵌入。
-2. **JS 库** `viewer.es.js / viewer.umd.js`(同一次构建输出,外部依赖打包为零):
+1. **单文件应用** `dist/index.html`(vite-plugin-singlefile 全内联,~334 kB / gzip 110 kB):双击打开即用;同时可被 iframe 嵌入。
+2. **嵌入 API** `src/embed.ts`(`createViewer`,配合打包器引用源码;独立 `es/umd + .d.ts` 库产物为 P1 计划):
 
 ```ts
-import { createViewer } from 'easyeda-viewer';
+import { createViewer } from 'easyeda-viewer/embed'; // 现阶段经打包器引 src/embed.ts
 
 const viewer = createViewer(document.getElementById('host'), {
-  theme: 'auto',            // light | dark | auto
-  showTree: true,           // 面板开关裁剪 UI
-  showProperties: true,
-  locale: 'zh-CN',          // en 预留
+  theme: 'light',                 // light | dark(画布始终保留文档色)
+  lang: 'zh',                     // zh | en
+  chrome: { toolbar: true, left: true, right: false, status: true },
+  files: [],                      // 可选:创建即加载
+  onSelect: (obj) => {},          // 选中图元(null=取消)
+  onLoaded: (model) => {},        // 工程加载完成(openables 供枚举文档)
+  onError: (err) => {},
 });
 
-await viewer.load(file: File | Blob | ArrayBuffer, name?: string); // 容器自动探测
-viewer.openPage(docId);           // 切换文档
-await viewer.zoomToFit();         // 适应内容
-const bounds = viewer.zoomTo(primitiveId, { padding: 60 }); // 定位图元
-viewer.on('load',   e => { /* e.project, e.docs */ });
-viewer.on('select', e => { /* e.primitive */ });
-viewer.on('pageChange', e => {});
-viewer.on('error',  e => { /* e.code, e.message */ });
+await viewer.loadFiles(files);            // File[](eprj3 目录内容 / .epro2 / 单文档)
+viewer.loadMap(new Map([['a.esch2', bytes]])); // 已读取的 path→bytes
+viewer.open(nodeId);                      // 按树节点 id 切换文档
+viewer.fit();                             // 适应窗口
+viewer.setTheme('dark'); viewer.setLang('en'); viewer.setChrome({ left: false });
+viewer.getModel();                        // 当前 ProjectModel
 viewer.destroy();
 ```
 
-iframe/postMessage 协议(单文件嵌入场景,P0):
+iframe/postMessage 协议(`src/main.ts` 内置桥,**已实现**;消息均带 `source:"easyeda-viewer"`):
 
 ```jsonc
-// 宿主 → viewer
-{ "cmd": "load",  "payload": "<Transferable: ArrayBuffer>", "name": "p.eprj3.zip" }
-{ "cmd": "call", "id": 1, "method": "zoomToFit", "args": [] }
+// 宿主 → viewer(iframe.contentWindow.postMessage)
+{ "cmd": "load", "files": [ { "name": "a.eprj3", "dataBase64": "..." }, ... ] } // 目录=多条目
+{ "cmd": "open", "nodeId": "..." }   // 切换文档
+{ "cmd": "fit" }                     // 适应窗口
+{ "cmd": "theme", "theme": "dark" }  { "cmd": "lang", "lang": "en" }
+{ "cmd": "chrome", "chrome": { "left": false } }
 // viewer → 宿主
-{ "event": "ready" } { "event": "load" } { "event": "select", "payload": {...} } { "event": "error", "payload": {...} }
+{ "event": "ready", "version" } { "event": "load-ok", "count" } { "event": "open-result", "ok" } { "event": "error", "message" }
 ```
 
 | ID | 需求 | 优先级 |
 | --- | --- | --- |
-| FR-6.1 | JS API 如上,类型声明 `.d.ts` 随库发布 | P0 |
-| FR-6.2 | postMessage 协议:load/call/event,ArrayBuffer 走 transferable 零拷贝 | P0 |
-| FR-6.3 | 嵌入配置项(URL query 与 options 双轨):`theme`、`toolbar/left/right/status`(或 `chrome=canvas`)、初始文件;**已实现**,水印预留 | P1 |
-| FR-6.4 | 对外演示页 `demo/`(iframe 嵌入 + API 两种用法),仅开发期产物 | P0 |
+| FR-6.1 | JS API 如上;**已实现**(回调式 onSelect/onLoaded/onError)。独立库产物 + `.d.ts` 发布 | P0(已)/ 库产物 P1 |
+| FR-6.2 | postMessage 协议:load(base64 文件条目)/open/fit/theme/lang/chrome + ready/load-ok/open-result/error 事件 | P0 |
+| FR-6.3 | 嵌入配置项(URL query 与 options 双轨):`theme`、`lang`、`toolbar/left/right/status`(或 `chrome=canvas`)、初始文件 `?file=`;**已实现**,水印预留 | P1(水印) |
+| FR-6.4 | 对外演示页 `demo/`(iframe 嵌入 + API 两种用法);现阶段以 `qa/viewer.html` 承载演示 | P1 |
 
 ### 4.7 FR-7 诊断与空状态
 
@@ -253,15 +261,20 @@ iframe/postMessage 协议(单文件嵌入场景,P0):
 | FR-8.3 | 图标全部使用 Lucide(ISC 许可,免费可商用,构建期内联进单文件产物),语义贴切(文档树/对象/图层/面板开关/缩放/主题) | P0 |
 | FR-8.4 | 主题默认亮色;参数 `?theme=light|dark` 与工具栏🌙/️切换按钮均可控制;**画布与图元始终使用源文件原始颜色**(SCH/PANEL 白底、PCB 深色),不随主题变化 | P0 |
 | FR-8.5 | 布局参数:`?toolbar=0&left=0&right=0&status=0` 或 `?chrome=canvas` 单独隐藏任一面板(纯画布场景);工具栏面板按钮可运行时切换;JS API `setChrome()`/`setTheme()`、postMessage `chrome`/`theme` 命令 | P0 |
+| FR-8.6 | **中英双语 UI**:工具栏 🌐 按钮即时切换(全部界面文案/树类型名/属性名经 i18n 表),参数 `?lang=zh|en` 与 API `setLang()` 可设定初始语言 | P0 |
+| FR-8.7 | 顶部工具栏**纯图标**无文字(打开文件/打开文件夹为图标按钮);缩放控件为**可点击输入的数字百分比**(直接键入缩放值回车生效)+ 放大/缩小/适应窗口 | P0 |
+| FR-8.8 | 左右面板宽度、文档树/对象树高度、属性区/图层区高度均可**拖拽分隔条调整**;初始界面(未打开文件)只显示工具栏与中央引导卡,左右面板收起 | P0 |
+| FR-8.9 | 品牌图标使用嘉立创EDA 官方云朵+电路标志(无字版,单一 path,#5588FF);库分组节点用官方图标包提取的 symbol/footprint/library 等语义图标 | P0 |
 
 ### 4.9 FR-9 免安装桌面版(Go + webview)
 
 | ID | 需求 | 优先级 |
 | --- | --- | --- |
-| FR-9.1 | 单个自包含 `.exe`(Windows amd64,约 3~4 MB):`//go:embed` 内嵌单文件查看器,本机 127.0.0.1 随机端口 HTTP 服务加载,免安装、免联网 | P0 |
+| FR-9.1 | 单个自包含 `.exe`(Windows amd64,约 7 MB):`//go:embed` 内嵌单文件查看器,本机 127.0.0.1 随机端口 HTTP 服务加载,免安装、免联网 | P0 |
 | FR-9.2 | 原生能力桥接(webview Bind):`openFileDialog` / `openFolderDialog`(Win32 通用对话框,STA 线程)、`readProjectFiles`(文件/整个 .eprj3 目录 → base64 JSON);无桥接环境自动回退 `<input type=file>` | P0 |
 | FR-9.3 | 拖放本地工程文件进窗口可直接打开(WebView2 原生 File 支持) | P0 |
-| FR-9.4 | 构建:`node scripts/build-desktop.mjs`(vite 打包 → 复制到 `desktop/dist` → `go build -H windowsgui`);`desktop/` 跨平台骨架(Win32 完整,macOS/Linux 用 osascript/zenity 对话框) | P1 |
+| FR-9.4 | 构建:`node scripts/build-desktop.mjs`(vite 打包 → 复制到 `desktop/dist` → windres 编译资源 → `go build -H windowsgui`);`desktop/` 跨平台骨架(Win32 完整,macOS/Linux 用 osascript/zenity 对话框) | P1 |
+| FR-9.5 | exe 资源:`versioninfo.rc` 提供文件属性(版本号、作者、版权、中文描述,UTF-8 资源编译)与 EasyEDA 云朵 ICON(256/32px ICO);资源提交 `rsrc_windows_amd64.syso` 兜底(无 windres 环境可直接构建) | P0 |
 
 ---
 
@@ -292,9 +305,9 @@ iframe/postMessage 协议(单文件嵌入场景,P0):
 | 构建 | Vite 6 + `vite-plugin-singlefile` | 同一份代码输出 `viewer.html`(单文件内联全部 JS/CSS)与 `viewer.es.js`/`umd` + `.d.ts` |
 | 渲染 | **LeaferJS**(`leafer` + 需要的 `@leafer-ui` 模块) | 2D 场景图 + 事件命中;按图层/分组建 scene graph,配合视口裁剪与批量更新 |
 | UI | 原生 DOM + 轻量自研组件(树、面板、Tab) | 不引入框架:控制单文件体积;若评估后需框架,仅允许预编译无运行时组件方案 |
-| 解析 | Web Worker(`?worker` + singlefile 下内联为 Blob) | 行记录切分、JSON 解析、模型构建全在 Worker;主线程只做进度 |
+| 解析 | 主线程行切分 + JSON 解析,文档级**懒解析 + 模型缓存** | RA6E2 全工程打开 <1 s,Worker 化列为量级增长后的 P1 |
 | ZIP | fflate(纯 JS,可内联) | `.epro2` 若为 ZIP / 用户打包 zip 的工程目录 |
-| 测试 | Vitest(单元)+ Playwright(e2e:双击打开、拖放、API) | e2e 覆盖 `file://` 场景 |
+| 测试 | Vitest(解析单测)+ `vite-node` headless smoke(108 文档全量渲染零异常回归)+ 无头 Chrome 截图矩阵(`scripts/qa-screens.mjs`) | Playwright e2e(file:// 双击、拖放、API)为 P1 |
 | 规范 | ESLint + Prettier;Conventional Commits | — |
 
 ### 6.2 分层架构
@@ -310,7 +323,7 @@ iframe/postMessage 协议(单文件嵌入场景,P0):
 ├─────────────────┴───────────────────────────┤
 │ Core Model(DocModel):项目/文档/图层/图元(格式无关)│
 ├─────────────────────────────────────────────┤
-│ Parse Pipeline(Worker)                       │
+│ Parse Pipeline(主线程,文档级懒解析)            │
 │  container(魔数探测: epro2/zip/folder/plain)  │
 │   └ adapters: eprj3-fs | epro2 | zip          │
 │  records: DOCHEAD/CANVAS/… → decoder registry │
@@ -322,7 +335,7 @@ iframe/postMessage 协议(单文件嵌入场景,P0):
 - **中间模型隔离格式**:解析器输出 `Project → Doc → Layer → Primitive`(已换算统一坐标),渲染/树/属性面板只消费中间模型。新增格式(如旧 `eprj/.eprj2` SQLite 工程)只加 adapter。
 - **容器探测优先**:`probe(bytes, files)` → `eprj3-folder | zip(再按 project2.json / *.epru 条目判定为 eprj3 打包或 epro2) | single-doc(单个 .esch2/.epcb2/.epan2 允许直接拖入预览)`,错误导向 UI;ZIP 条目名解码做 UTF-8 flag 检测 + GBK 兜底(实测 epro2 中文工程名场景必须)。
 - **记录解码注册表**:`RecordRegistry[type] = { decode, toModel, describe }`,按 primitives/schemas 文档逐类型实现,未注册类型进"未知图元"列表;与 `validate.js`/JSON Schema 对齐做 fixture 测试。
-- **按需解析**:打开工程只解析索引(eprj3 的 `.eprj3` JSON / epro2 的 SCAN 关键行);首次切换到某文档时才完整解析该文档(Worker 流式逐行),再次打开走模型缓存。epro2 无结构索引,`.epru` 首开走 SCAN:仅解 DOCHEAD/META/PRIMITIVE 行重建文档树,几何行按文档延后解析。
+- **按需解析**:打开工程只解析索引(eprj3 的 `.eprj3` JSON / epro2 的 SCAN 关键行);首次切换到某文档时才完整解析该文档(主线程逐行),再次打开走模型缓存。epro2 无结构索引,`.epru` 首开走 SCAN:仅解 DOCHEAD/META/PRIMITIVE 行重建文档树,几何行按文档延后解析。
 - **性能三板斧**:视口裁剪(粗 AABB 索引网格)+ 图层分组显隐 + 低缩放级别 LOD(细线合并/文本按屏占比隐藏);Leafer 批量 `add`、关闭中间帧交互期间命中。
 - **单文件约束**:所有资源内联(Worker 转 Blob、无 wasm 文件外挂 —— 若 epro2 需要 SQLite wasm,采用内联 base64 启动时还原,并在库版本保持可拆分)。
 
@@ -330,40 +343,52 @@ iframe/postMessage 协议(单文件嵌入场景,P0):
 
 ```
 easyeda-viewer/
-├── docs/                  # 本文档、格式笔记、API 文档
-├── samples/               # 本地测试工程(不入库)
+├── docs/PRD.md            # 本文档
+├── samples/               # 本地测试工程与官方参考截图(不入库)
 ├── src/
-│   ├── main.ts            # 单文件应用入口
-│   ├── embed.ts           # 库入口(createViewer)
+│   ├── main.ts            # 单文件应用入口(URL 参数 + postMessage 桥)
+│   ├── embed.ts           # createViewer 嵌入 API
+│   ├── styles.css         # 主题令牌(CSS 变量、明暗双主题)
 │   ├── core/
-│   │   ├── model/         # DocModel 类型与工具(bounds/hit 数据)
+│   │   ├── types.ts / model.ts        # 中间模型(Project/Doc/Rec、建树)
 │   │   ├── parse/
-│   │   │   ├── container/ # 魔数探测 + epro2/eprj3/zip/目录适配
-│   │   │   ├── records/   # 行记录切分与各 type 解码器(registry)
-│   │   │   └── worker.ts  # parse worker 入口
-│   │   ├── render/        # leafer 场景:layers/symbols/primitives 绘制器
-│   │   ├── interact/      # zoom/pan/select/locate/tooltip
-│   │   └── state/         # 轻量 store(文档、选中、可见性、主题)
-│   ├── ui/                # 树/属性面板/工具栏/Tab/诊断/引导页
-│   └── styles/
-├── test/
-│   ├── fixtures/          # 从参考仓库 examples/ 提取的真实记录样本
-│   └── e2e/
-├── public/                # (构建期)静态资源
-├── vite.config.ts
-├── package.json           # build → dist/{easyeda-viewer.html, es/cjs/d.ts}
-└── .github/workflows/ci.yml
+│   │   │   ├── container.ts  # 魔数探测与 ZIP 展平(epro2/zip/folder/plain)
+│   │   │   ├── epro2.ts      # .epru 文档流切分 + META 建树(GBK 条目名兜底)
+│   │   │   ├── eprj3.ts      # 文件夹工程索引 + 文档映射
+│   │   │   ├── single.ts     # 单文档 .esch2/.epcb2/.epan2/.esym2…
+│   │   │   ├── records.ts    # 行记录切分与 type→解码 registry
+│   │   │   └── zip.ts        # fflate 解包
+│   │   └── render/
+│   │       ├── layers.ts     # 图层栈/Z 序/颜色映射/对象收集
+│   │       ├── pcb.ts        # PCB/PANEL 绘制器(含符号解析)
+│   │       ├── sch.ts        # 原理图绘制器(含 SYMBOL/FOOTPRINT 内联解析)
+│   │       └── geom.ts       # 坐标换算/path 工具/弧/焊盘几何
+│   └── ui/
+│       ├── shell.ts          # 布局、工具栏、缩放/输入、分隔条、状态栏
+│       ├── tree.ts           # 文档树 + 分组对象树(搜索、眼睛开关)
+│       ├── props.ts          # 属性面板(关键属性 + 图层列表停靠)
+│       ├── camera.ts         # 滚轮缩放/拖拽平移/定位动画
+│       ├── dnd.ts            # 拖放 + 桌面桥打开
+│       ├── i18n.ts           # zh/en 文案表与 setLang
+│       └── icons.ts          # Lucide + EasyEDA 官方单色图标(构建期内联)
+├── test/parse.spec.ts       # Vitest 解析单测
+├── scripts/                 # smoke.mjs / qa-screens.mjs / gen-icons.mjs / build-desktop.mjs
+├── qa/viewer.html           # 无头 Chrome 视觉 QA 宿主(URL 参数驱动)
+├── desktop/                 # Go + WebView2 免安装壳(main.go/dialogs.go/files.go/versioninfo.rc/app.ico)
+└── vite.config.ts           # singlefile + 版本注入(→ dist/index.html)
 ```
 
 ### 6.4 构建产物
 
 ```
 dist/
-├── easyeda-viewer.html     # ★ 单文件应用(双击可用、iframe 可用)
-├── easyeda-viewer.es.js    # 库(ESM)
-├── easyeda-viewer.umd.cjs  # 库(UMD,<script> 直挂 window.EasyEdaViewer)
-└── types/*.d.ts
+└── index.html              # ★ 单文件应用(全内联 ~334 kB / gzip 110 kB;双击可用、iframe 可用)
+
+desktop/build/
+└── easyeda-viewer.exe      # 免安装桌面版(内嵌同一 index.html,~7 MB)
 ```
+
+独立 ESM/UMD 库产物 + `.d.ts` 发布为 P1(见 FR-6.1);现阶段嵌入方直接引 `src/embed.ts`。
 
 ---
 
@@ -378,25 +403,29 @@ dist/
 
 ## 8. 里程碑
 
-| 阶段 | 交付 | 退出标准 |
-| --- | --- | --- |
-| M0 骨架(1 周) | 仓库脚手架、Vite+singlefile 构建跑通、Leafer 最小画布、拖文件→行记录解析出 DOCHEAD/CANVAS 日志 | `npm run build` 出单文件,双击可开,拖入 `.esch2` 能解析出记录 |
-| M1 原理图可看(2 周) | eprj3 目录/zip/单文件加载、文档树、SCH_PAGE 核心图元渲染、缩放平移、多页 Tab | 参考样例工程全部原理图页正确显示;NFR-1/2 初验 |
-| M2 交互闭环(2 周) | 对象树、点选+属性面板、树↔画布双向定位、状态栏、诊断面板 | FR-2/FR-5 全部 P0 通过;e2e 用例覆盖 |
-| M3 PCB/面板(2-3 周) | PCB/面板渲染器、图层体系与图层面板 | 样例 PCB(含覆铜/焊盘/丝印)可浏览可交互 |
-| M4 epro2 + 嵌入(1.5 周) | epro2 adapter(ZIP 解包 + `.epru` 文档切分 + META 建树 + GBK 条目名解码,容器已实测为 ZIP);JS API + postMessage;`.d.ts` | `RA6E2.epro2` 直开,与 eprj3 同工程渲染一致;两种宿主方式全通 |
-| M5 性能与打磨(持续) | LOD/裁剪调优、主题、tooltip、快捷键、体积审查 | NFR 全表达标;README/演示页发布 v1.0 |
+| 阶段 | 交付 | 退出标准 | 状态 |
+| --- | --- | --- | --- |
+| M0 骨架(1 周) | 仓库脚手架、Vite+singlefile 构建跑通、Leafer 最小画布、拖文件→行记录解析出 DOCHEAD/CANVAS 日志 | `npm run build` 出单文件,双击可开,拖入 `.esch2` 能解析出记录 | ✅ 完成 |
+| M1 原理图可看(2 周) | eprj3 目录/zip/单文件加载、文档树、SCH_PAGE 核心图元渲染、缩放平移 | 参考样例工程全部原理图页正确显示;NFR-1/2 初验 | ✅ 完成(smoke 108/108;官方 PNG 对照) |
+| M2 交互闭环(2 周) | 对象树(类型分组+搜索)、点选+属性面板、树↔画布双向定位、状态栏、图层眼睛开关 | FR-2/FR-5 全部 P0 通过 | ✅ 完成(e2e 自动化仍为 P1) |
+| M3 PCB/面板(2-3 周) | PCB/面板渲染器、图层体系(文件图层名)、覆铜/焊盘/丝印保真(圆头走线、槽孔、固定标签、丝印镜像去重) | 样例 PCB 可浏览可交互,视觉与官方截图一致 | ✅ 完成 |
+| M4 epro2 + 嵌入(1.5 周) | epro2 adapter(ZIP 解包 + `.epru` 切分 + META 建树 + GBK 条目名);createViewer API + postMessage 桥 | `RA6E2.epro2` 直开,与 eprj3 渲染一致;两种宿主方式全通 | ✅ 完成(独立库产物 `.d.ts` 为 P1) |
+| M5 体验批次 | 中英双语 UI、纯图标工具栏+可输入缩放、面板宽/高拖拽、初始隐藏侧栏、右键平移、EasyEDA 品牌图标、桌面 exe 图标+版本属性 | 33 项反馈全部关闭(见 README/提交记录) | ✅ 完成(v0.2) |
+| M6 性能与发布(持续) | LOD/裁剪调优、Worker 化评估、Playwright e2e、npm 库产物、LICENSES.txt、演示页 | NFR 全表达标;v1.0 发布 | ⏳ 进行中 |
 
 ---
 
 ## 9. 验收标准(v1 DoD)
 
-- [ ] `dist/easyeda-viewer.html` 单文件在 Windows/macOS Chrome/Edge、Safari 下**双击打开**,拖入 `.eprj3` 文件夹/zip、`.epro2` 样本、单个 `.esch2/.epcb2/.epan2` 均可渲染。
-- [ ] 文档树/对象树/属性面板/画布交互四件套满足 §4 P0 全部条目(含双向定位、滚轮以指针为中心缩放)。
-- [ ] iframe + postMessage 与 JS API 两条嵌入路径均有可运行示例并通过 e2e。
-- [ ] 5 千图元页 ≥ 30fps(Chrome devtools performance 记录);典型样例打开 < 1.5 s。
-- [ ] 解析器测试:每种已支持记录类型有真实样本 fixture;§3.5 两个 RA6E2 工程在 CI 中端到端回归;畸形输入用例 0 崩溃。
-- [ ] 运行期 Network 面板零请求(样例加载全程)。
+- [x] `dist/index.html` 单文件**双击打开**,拖入 `.eprj3` 文件夹/zip、`.epro2` 样本、单个 `.esch2/.epcb2/.epan2` 均可渲染(Windows Chrome;合成拖放回归 `qa/shots/drop-proj.png`)。
+- [x] 文档树/对象树/属性面板/画布交互四件套满足 §4 P0 全部条目(含双向定位、滚轮以指针为中心缩放、右键平移)。
+- [x] 无头 smoke:§3.5 两个 RA6E2 工程 + 单文档共 **108 个文档全量渲染 0 异常**;Vitest 解析单测 12 项;视觉对照 `samples/png/` 官方截图。
+- [ ] iframe postMessage 与 JS API 两条嵌入路径的**自动化 e2e**(Playwright)与协议示例页(P1)。
+- [ ] 性能实测数字留档:5 千图元页 ≥ 30fps(devtools trace)、打开 < 1.5 s、内存曲线(NFR-2/3/5)。
+- [ ] 每种已支持记录类型 ≥1 条真实 fixture 单测(现覆盖主要类型,长尾类型进行中);CI 化。
+- [x] 运行期 Network 面板零请求(样例加载全程;`?file=` 为宿主显式发起,不算查看器请求)。
+- [x] 中英双语 UI + 明暗主题 + chrome 参数裁剪全部可用(截图矩阵 `qa/shots/`)。
+- [x] Windows 免安装 exe:图标/文件属性(FileVersion 0.2.0)正确、拖放与原生对话框可用(FR-9)。
 
 ---
 
@@ -421,12 +450,12 @@ dist/
 ## 12. 许可与署名
 
 - **Apache License 2.0**(与本仓库 `LICENSE` 一致)。参考格式仓库(easyeda-eprj3-skill / easyeda-pro-format-skill)为 MIT,与 Apache-2.0 兼容,引用其文档/示例数据时按要求保留其版权声明。
-- 依赖声明:LeaferJS、fflate 等第三方许可清单随发布物打包(`LICENSES.txt`);若引入 `NOTICE` 文件义务,一并维护。
+- 依赖声明:LeaferJS、fflate、Lucide 等第三方许可清单随发布物打包(`LICENSES.txt`,**发布前待生成**,见 M6);Lucide(ISC)与 EasyEDA 官方单色图标的署名已内联在 `src/ui/icons.ts` 头注释。若引入 `NOTICE` 文件义务,一并维护。
 - "嘉立创EDA / EasyEDA" 为深圳嘉立创科技集团商标,本项目为非官方第三方查看器,文档与 UI 中注明。
 
 ## 13. 开放问题(评审前补充)
 
 1. ~~`.epro2` 容器与内部记录结构~~ **已确认**(RA6E2 样本实测):ZIP 容器 = `project2.json` + `<工程名>.epru` 全工程记录流 + `IMAGE/*.webp`,详见 §3.3。遗留跟进:更多工程名编码变体、`.epru` 是否存在分卷/加密场景(再放 2~3 个不同来源样本即可关闭)。
 2. 旧工程 `eprj/.eprj2`(SQLite)是否需要支持?当前列为 P2,请确认用户诉求。
-3. 首版是否需要英文 UI(参考仓库双语,建议 i18n 预留、v1 仅中文)。
+3. ~~首版是否需要英文 UI~~ **已实现**:中英双语 UI(`?lang=zh|en` 参数 + 🌐 工具栏即时切换,FR-8.6)。
 4. 对外发布形态:GitHub Pages 在线演示 + Release 下载单文件,是否同步发布 npm 包(`@easyeda/viewer` 名称可用性待查,可先用 `easyeda-viewer`)。

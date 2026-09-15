@@ -20,6 +20,16 @@ rmSync(resolve(root, 'desktop/dist'), { recursive: true, force: true });
 mkdirSync(resolve(root, 'desktop/dist'), { recursive: true });
 cpSync(resolve(root, 'dist'), resolve(root, 'desktop/dist'), { recursive: true });
 
+// refresh Windows resources (exe icon + version info) when a resource compiler
+// is available; the committed rsrc_windows_amd64.syso is the fallback.
+try {
+  console.log('[*] windres -> rsrc_windows_amd64.syso');
+  sh('windres', ['-c', '65001', '-i', 'versioninfo.rc', '-O', 'coff', '-o', 'rsrc_windows_amd64.syso'],
+    { cwd: resolve(root, 'desktop'), stdio: 'pipe' });
+} catch {
+  console.log('[*] windres not found — using committed .syso');
+}
+
 console.log('[3/3] go build desktop exe');
 const outDir = resolve(root, 'desktop/build');
 mkdirSync(outDir, { recursive: true });

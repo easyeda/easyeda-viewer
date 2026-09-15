@@ -1,8 +1,9 @@
 /** Standalone page entry: create the viewer + postMessage bridge for embedding. */
 import { createViewer, type EextViewer } from './embed';
 import type { ChromeFlags, Theme } from './ui/shell';
+import type { Lang } from './ui/i18n';
 
-const VIEWER_VERSION = '0.1.0';
+const VIEWER_VERSION: string = (import.meta as any).env?.VITE_APP_VERSION ?? '0.0.0';
 
 const host = document.getElementById('app');
 if (!host) throw new Error('missing #app root');
@@ -10,16 +11,18 @@ if (!host) throw new Error('missing #app root');
 /**
  * URL params (also used by the Go desktop shell):
  *   ?theme=light|dark          chrome theme, default light (canvas keeps document colors)
+ *   ?lang=zh|en                UI language, default zh
  *   ?toolbar=0|left=0|right=0|status=0   hide individual panes
  *   ?chrome=canvas             shortcut for toolbar/left/right/status all off
  */
-function parseOptions(q: URLSearchParams): { theme: Theme; chrome: Partial<ChromeFlags> } {
+function parseOptions(q: URLSearchParams): { theme: Theme; lang: Lang; chrome: Partial<ChromeFlags> } {
   const flag = (name: string): boolean | undefined => {
     const v = q.get(name);
     if (v == null) return undefined;
     return !(v === '0' || v.toLowerCase() === 'false' || v.toLowerCase() === 'off');
   };
   const theme: Theme = q.get('theme') === 'dark' ? 'dark' : 'light';
+  const lang: Lang = q.get('lang') === 'en' ? 'en' : 'zh';
   const chrome: Partial<ChromeFlags> = {};
   if (q.get('chrome') === 'canvas') {
     chrome.toolbar = false; chrome.left = false; chrome.right = false; chrome.status = false;
@@ -28,15 +31,16 @@ function parseOptions(q: URLSearchParams): { theme: Theme; chrome: Partial<Chrom
     const v = flag(k);
     if (v !== undefined) chrome[k] = v;
   }
-  return { theme, chrome };
+  return { theme, lang, chrome };
 }
 
 const params = new URLSearchParams(location.search);
-const { theme, chrome } = parseOptions(params);
+const { theme, lang, chrome } = parseOptions(params);
 // mirror theme on <html> so the page background matches before/around the shell
 document.documentElement.dataset.theme = theme;
+document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
 
-const viewer: EextViewer = createViewer(host, { theme, chrome });
+const viewer: EextViewer = createViewer(host, { theme, lang, chrome });
 
 /** file↔base64 for host pages that cannot hand over File objects */
 function b64ToBytes(s: string): Uint8Array {
@@ -70,7 +74,12 @@ interface ChromeMsg {
   cmd: 'chrome';
   chrome: Partial<ChromeFlags>;
 }
-type HostMsg = LoadMsg | OpenMsg | FitMsg | ThemeMsg | ChromeMsg;
+interface LangMsg {
+  source: 'easyeda-viewer';
+  cmd: 'lang';
+  lang: Lang;
+}
+type HostMsg = LoadMsg | OpenMsg | FitMsg | ThemeMsg | ChromeMsg | LangMsg;
 
 function post(event: string, payload: Record<string, unknown> = {}): void {
   window.parent?.postMessage({ source: 'easyeda-viewer', event, ...payload }, '*');
@@ -95,6 +104,10 @@ window.addEventListener('message', (e: MessageEvent) => {
       document.documentElement.dataset.theme = msg.theme === 'dark' ? 'dark' : 'light';
     } else if (msg.cmd === 'chrome') {
       viewer.setChrome(msg.chrome ?? {});
+    } else if (msg.cmd === 'lang') {
+      const l: Lang = msg.lang === 'en' ? 'en' : 'zh';
+      viewer.setLang(l);
+      document.documentElement.lang = l === 'en' ? 'en' : 'zh-CN';
     }
   } catch (err) {
     post('error', { message: err instanceof Error ? err.message : String(err) });

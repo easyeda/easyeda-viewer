@@ -49,12 +49,27 @@ export function parseAllRecords(text: string): { lines: RawLine[]; bad: ParseRep
   return { lines, bad };
 }
 
+/** some records carry their array id as a *stringified* array, e.g. LAYER → "[\"LAYER\",1]" */
+function normalizeId(id: unknown): unknown {
+  if (typeof id === 'string') {
+    const t = id.trim();
+    if (t.startsWith('[') && t.endsWith(']')) {
+      try {
+        const p = JSON.parse(t);
+        if (Array.isArray(p)) return p;
+      } catch { /* keep the raw string */ }
+    }
+  }
+  return id;
+}
+
 function toRec(l: RawLine, lineNo: number): Rec {
-  const id = Array.isArray(l.outer.id) ? l.outer.id.join(',') : String(l.outer.id ?? '');
+  const rawId = normalizeId(l.outer.id);
+  const id = Array.isArray(rawId) ? rawId.join(',') : String(rawId ?? '');
   return {
     type: String(l.outer.type ?? ''),
     id,
-    idVal: l.outer.id,
+    idVal: rawId,
     ticket: Number(l.outer.ticket ?? 0),
     data: l.inner ?? {},
     lineNo,

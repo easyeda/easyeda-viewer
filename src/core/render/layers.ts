@@ -3,10 +3,12 @@
  * collecting a flat object list (for the object tree / properties panel)
  * and layer groups (for the layer panel toggles).
  */
-import { Group } from 'leafer-ui';
+import { Group, Text } from 'leafer-ui';
 import type { OpenedDoc, Rec, DocSegment, ParseReport } from '../types';
 import { renderSch } from './sch';
 import { renderPcb } from './pcb';
+
+export interface BBoxLike { minX: number; minY: number; maxX: number; maxY: number }
 
 export interface RenderObject {
   id: string;
@@ -16,7 +18,12 @@ export interface RenderObject {
   kind: 'component' | 'primitive' | 'pad' | 'track';
   title?: string;
   /** world-space bbox (screen coords, origin-flipped) for custom hit-test & locate */
-  bbox?: { minX: number; minY: number; maxX: number; maxY: number };
+  bbox?: BBoxLike;
+  /**
+   * precise pick: world point + tolerance (world units). Used for stroke-only
+   * primitives so clicking inside an unfilled rect outline does NOT select it.
+   */
+  hit?(wx: number, wy: number, tol: number): boolean;
 }
 
 export interface RenderLayer {
@@ -35,6 +42,10 @@ export interface RenderApi {
   addObject(o: RenderObject): void;
   /** layer registry for PCB-style docs */
   layer(id: number | string, name?: string, color?: string, show?: boolean): Group;
+  /** fill color that tracks the canvas background (drill holes etc.) */
+  bgColor: string;
+  /** register a label that must stay the same pixel size at any zoom */
+  addConstantText(node: Text, basePx: number): void;
   reportDiagnostics: string[];
 }
 
@@ -47,14 +58,17 @@ export interface RenderResult {
   diagnostics: string[];
   /** node -> object reverse index for hit resolution */
   nodeIndex: Map<object, RenderObject>;
+  /** labels that must stay a fixed pixel size (rescale fontSize with camera) */
+  constantTexts: { node: Text; basePx: number }[];
 }
 
-export function renderDoc(opened: OpenedDoc): RenderResult {
+export function renderDoc(opened: OpenedDoc, bgColor = '#000000'): RenderResult {
   const root = new Group({ name: `doc:${opened.self.uuid}` });
   const objects: RenderObject[] = [];
   const layers = new Map<string, RenderLayer>();
   const reportDiagnostics: string[] = [];
   const nodeIndex = new Map<object, RenderObject>();
+  const constantTexts: { node: Text; basePx: number }[] = [];
 
   const api: RenderApi = {
     addGroup(_seg, group) {
@@ -79,19 +93,28 @@ export function renderDoc(opened: OpenedDoc): RenderResult {
       l.count++;
       return l.group;
     },
+    bgColor,
+    addConstantText(node, basePx) {
+      constantTexts.push({ node, basePx });
+    },
     reportDiagnostics,
   };
 
   const dt = opened.self.docType;
-  if (dt === 'PCB' || dt === 'PANEL' || dt === 'FOOTPRINT') renderPcb(opened, api);
-  else renderSch(opened, api); // SCH_PAGE / SIMULATION / SYMBOL standalone
+  if (dt === 'PCB' || dt === 'PANEL' || dt === 'FOOTPRINT') {
+    renderPcb(opened, api);
+    // layer groups were created in file order (Top first = drawn bottommost);
+    // re-add in real copper stacking order: bottom … top … multi … silk … outline/doc
+    const Z_ORDER = ['panel', '2', '6', '14', '15', '16', '17', '18', '1', '5', '7', '12', '3', '4', '19', '11', '13', '47', '0'];
+    for (const id of Z_ORDER) { const l = layers.get(id); if (l) root.add(l.group); }
+  } else renderSch(opened, api); // SCH_PAGE / SIMULATION / SYMBOL standalone
 
   const list = [...layers.values()];
   for (const l of list) {
     l.group.visible = l.show;
     l.count = l.group.children?.length ?? l.count;
   }
-  return { root, objects, layers: list, report: opened.report, diagnostics: reportDiagnostics, nodeIndex };
+  return { root, objects, layers: list, report: opened.report, diagnostics: reportDiagnostics, nodeIndex, constantTexts };
 }
 
 /** map every descendant leafer node to its owning object (hit resolution) */

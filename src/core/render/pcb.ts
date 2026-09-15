@@ -2,18 +2,27 @@
 import { Group, Line, Rect, Path, Text, Ellipse } from 'leafer-ui';
 import type { OpenedDoc, Rec, DocSegment } from '../types';
 import type { RenderApi, RenderObject } from './layers';
-import { X, Y, P, ang, strokeOf, widthOf, xfOf, objBBox, bboxFromPts, multiPathToSvg, scalePourItems, COLORS, type BBox } from './geom';
+import { X, Y, P, ang, strokeOf, widthOf, xfOf, objBBox, bboxFromPts, multiPathToSvg, scalePourItems, type BBox } from './geom';
 import { resolveLibGraphics } from '../model';
 
-/** standard EasyEDA layer ids */
+/** standard EasyEDA layer ids (numeric layerId used by primitives) */
 export const LAYER = {
-  TOP: 1, BOTTOM: 2, TOP_SILK: 3, TOP_PASTE: 4, TOP_MASK: 5,
-  INNER1: 6, KEETIN: 19, MULTI: 12, HOLE: 20, MECHANISM: 13,
-  BOTTOM_SILK: 7,
+  TOP: 1, BOTTOM: 2, TOP_SILK: 3, BOT_SILK: 4, TOP_MASK: 5, BOT_MASK: 6,
+  TOP_PASTE: 7, OUTLINE: 11, MULTI: 12, DOCUMENT: 13, INNER1: 14,
+  KEEPIN: 19, HOLE: 47,
 };
+/** utility layers EasyEDA keeps in data but never paints in 2D view
+ * (49/50 = soldering/pin-soldering pads — the rose discs over through-hole pads) */
+const HIDDEN_LAYERS = new Set(['49', '50']);
+
+/** bottom-side layers seen through the board are semi-transparent in EasyEDA's
+ * 2D view — alphas measured from the official export (#336619 silk @50%, #000059 copper @70%) */
+const BOTTOM_ALPHA: Record<string, number> = { '2': 0.7, '4': 0.5, '6': 0.5, '8': 0.5, '10': 0.5 };
+
+/** used only when a LAYER record is missing; files carry the real names+colors */
 const LAYER_FALLBACK: Record<number, string> = {
-  1: '#c8a400', 2: '#9d2b00', 3: '#cccccc', 5: '#9b4a9b', 7: '#cccccc',
-  12: '#c0c0c0', 13: '#00b0b0', 19: '#00a000', 20: '#808080',
+  1: '#ff0000', 2: '#0000ff', 3: '#ffcc00', 4: '#66cc33', 5: '#800080', 6: '#aa00ff',
+  7: '#808080', 11: '#ff00ff', 12: '#c0c0c0', 13: '#ffffff', 19: '#00a000', 47: '#555555',
 };
 
 /** records embedded at the head of each FOOTPRINT sub-segment (its own doc boilerplate) */
@@ -24,20 +33,22 @@ const FOOTPRINT_STRUCTURAL = new Set([
   'PANELIZE', 'NET', 'LAYER_STACK', 'VIA_TYPE', 'PAD_TYPE', 'DRC_RULE',
 ]);
 
-/** pad shape → leafer node (local footprint coords, center at cx,cy) */
-function padNode(d: any, xf: ReturnType<typeof xfOf>): Group {
+/** pad shape → leafer node (local footprint coords, center at cx,cy).
+ * `holeFill` is the canvas background: drills punch through the board, they
+ * are not a colored ink layer (EasyEDA shows them as bg-colored holes). */
+function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => string, holeFill: string): Group {
   const g = new Group();
   const cx = X(Number(d.centerX ?? 0), xf), cy = Y(Number(d.centerY ?? 0), xf);
   const dp = d.defaultPad ?? {};
   const w = Number(dp.width ?? 10), h = Number(dp.height ?? 10);
-  const layer = Number(d.layerId ?? 1);
-  const color = LAYER_FALLBACK[layer] ?? COLORS.pad;
+  const color = colorOf(d.layerId ?? LAYER.TOP);
   const shape = String(dp.padType ?? 'RECT').toUpperCase();
   let pad: Group['children'][number] | null = null;
   if (shape === 'ELLIPSE' || shape === 'ROUND' || shape === 'CIRCLE') {
     pad = new Ellipse({ x: cx - w / 2, y: cy - h / 2, width: w, height: h, fill: color });
   } else if (shape === 'OVAL' || shape === 'SLOT') {
-    pad = new Rect({ x: cx - w / 2, y: cy - h / 2, width: w, height: h, fill: color, cornerRadius: [Math.min(w, h) / 2, Math.min(w, h) / 2, Math.min(w, h) / 2, Math.min(w, h) / 2] });
+    const cr = Math.min(w, h) / 2;
+    pad = new Rect({ x: cx - w / 2, y: cy - h / 2, width: w, height: h, fill: color, cornerRadius: [cr, cr, cr, cr] });
   } else {
     pad = new Rect({ x: cx - w / 2, y: cy - h / 2, width: w, height: h, fill: color, cornerRadius: (Number(dp.radius) || 0) });
   }
@@ -47,10 +58,18 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>): Group {
   if (hole) {
     const hw = Number(hole.width ?? 0), hh = Number(hole.height ?? hw);
     if (hw > 0) {
-      const isRound = String(hole.holeType ?? 'ROUND').toUpperCase() !== 'SQUARE';
-      const hn: any = isRound
-        ? new Ellipse({ x: cx - hw / 2, y: cy - hh / 2, width: hw, height: hh, fill: COLORS.hole })
-        : new Rect({ x: cx - hw / 2, y: cy - hh / 2, width: hw, height: hh, fill: COLORS.hole });
+      const ht = String(hole.holeType ?? 'ROUND').toUpperCase();
+      let hn: any;
+      if (ht === 'SLOT') {
+        // oblong drill: rounded-rect with half-circle caps, NOT a pointed ellipse
+        const cr = Math.min(hw, hh) / 2;
+        hn = new Rect({ x: cx - hw / 2, y: cy - hh / 2, width: hw, height: hh, fill: holeFill, cornerRadius: [cr, cr, cr, cr] });
+      } else if (ht === 'SQUARE') {
+        hn = new Rect({ x: cx - hw / 2, y: cy - hh / 2, width: hw, height: hh, fill: holeFill });
+      } else {
+        hn = new Ellipse({ x: cx - hw / 2, y: cy - hh / 2, width: hw, height: hh, fill: holeFill });
+      }
+      hn.rotation = pad.rotation;
       g.add(hn);
     }
   }
@@ -74,10 +93,10 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       if (p[0] === 'LAYER' && p[1]) { numId = Number(p[1]); key = p[1]; }
     }
     if (numId == null || !isFinite(numId)) continue;
-    const c = String(r.data.activeColor ?? LAYER_FALLBACK[numId] ?? '#999999');
-    const show = r.data.show !== false;
+    const c = String(r.data.activeColor ?? r.data.color ?? r.data.layerColor ?? LAYER_FALLBACK[numId] ?? '#999999');
+    const show = r.data.show !== false && r.data.visible !== false;
     layerMeta.set(key, {
-      name: String(r.data.layerName ?? r.data.layerType ?? `Layer ${key}`),
+      name: String(r.data.layerName ?? r.data.name ?? r.data.layerType ?? `Layer ${key}`),
       color: c.startsWith('#') ? c : '#' + c,
       show,
     });
@@ -88,13 +107,72 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     if (lm) return lm.color;
     return LAYER_FALLBACK[Number(id)] ?? '#999999';
   };
+  /** drill/via holes punch through to the canvas background */
+  const holeFill = api.bgColor;
+  /** attribute labels (net names / pad numbers / designators) keep a small
+   * fixed pixel size at any zoom (see RenderApi.addConstantText) */
+  const LABEL_PX = 9;
+
+  /** PCB text node. `docScale` (STRING silk records) renders at the file's
+   * own font size so silk grows/shrinks with the board like EasyEDA does;
+   * attribute labels are fixed-pixel instead.
+   * Origin token (LEFT_BOTTOM …) selects the anchor within the given point. */
+  function mkLabel(d: any, color: string, xfc: ReturnType<typeof xfOf>, docScale = false): Text {
+    const fs = docScale ? (Number(d.fontSize) || LABEL_PX) : LABEL_PX;
+    const t = new Text({
+      text: String(d.text ?? d.value ?? ''), fontSize: fs,
+      // silk uses heavy display fonts (e.g. 阿里巴巴普惠体 Heavy) — approximate
+      // with a bold sans face so weight/styles stay close to the reference
+      fontFamily: docScale ? 'Arial Black, Arial Bold, Microsoft YaHei, sans-serif' : undefined,
+      fill: color, bold: docScale || !!d.bold,
+      textAlign: alignX(d.origin),
+      verticalAlign: String(d.origin ?? '').toUpperCase().includes('BOTTOM') ? 'bottom'
+        : String(d.origin ?? '').toUpperCase().includes('TOP') ? 'top' : 'middle',
+    } as any);
+    t.x = X(Number(d.x ?? 0), xfc);
+    t.y = Y(Number(d.y ?? 0), xfc);
+    t.rotation = ang(Number(d.angle ?? d.rotation ?? 0));
+    if (d.reverse) t.scaleX = -1;
+    if (d.mirror) t.scaleY = -1;
+    if (!docScale) api.addConstantText(t, LABEL_PX);
+    return t;
+  }
 
   const byParent = indexByParent(seg.recs);
 
+  // POUR carries the layerId of its generated fill (POURED id "POURED,<pourId>")
+  const pourLayer = new Map<string, unknown>();
+  for (const r of seg.recs) if (r.type === 'POUR') pourLayer.set(String(r.id), r.data.layerId);
+
+  // Bottom-silk strings are stored as auto-generated mirror copies of the
+  // top-silk originals (same text/size, anchor offset along the text axis);
+  // the official 2D view paints them exactly under their L3 twins, so only
+  // unique bottom text (e.g. the part-number watermark) is ever visible.
+  // Skip the twins instead of trying to reproduce the mirror anchor.
+  const silkTwins = new Set<object>();
+  {
+    const top = seg.recs.filter((r) => r.type === 'STRING' && String(r.data.layerId) === '3');
+    for (const r of seg.recs) {
+      if (r.type !== 'STRING' || String(r.data.layerId) !== '4') continue;
+      const t = String(r.data.text ?? '').trim();
+      const fs = Number(r.data.fontSize ?? 0);
+      const x = Number(r.data.x ?? 0);
+      const y = Number(r.data.y ?? 0);
+      const tol = Math.max(20, fs * (t.length + 2));
+      if (top.some((o) => String(o.data.text ?? '').trim() === t && Number(o.data.fontSize ?? 0) === fs &&
+        Math.abs(Number(o.data.x ?? 0) - x) <= tol && Math.abs(Number(o.data.y ?? 0) - y) <= tol)) silkTwins.add(r.data);
+    }
+  }
+
   const addToLayer = (d: any, obj: Rec, node: Group, label: string, kind: RenderObject['kind'] = 'primitive') => {
     const lid = d.layerId != null ? String(d.layerId) : '0';
+    if (HIDDEN_LAYERS.has(lid)) return; // never-painted utility layers (#27 area)
     const lm = layerMeta.get(lid);
     api.layer(lid, lm?.name, lm?.color ?? LAYER_FALLBACK[Number(lid)] ?? '#888888', lm?.show ?? true).add(node);
+    // bottom-side layers show through the board at partial opacity — measured
+    // from the official 2D export (#336619 = silk @50%, #000059 = copper @70%)
+    const alpha = BOTTOM_ALPHA[lid];
+    if (alpha !== undefined && node.opacity === undefined) node.opacity = alpha;
     api.addObject({ id: obj.id, rec: obj, node, label, kind, bbox: objBBox(obj, xf) ?? undefined });
   };
 
@@ -131,20 +209,21 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     const fxf = xfOf(fp.canvas); // footprint-local canvas (origin likely 0)
     for (const r of sortZ(fp.recs)) {
       const d = r.data;
+      if (HIDDEN_LAYERS.has(String(d.layerId))) continue; // pin-soldering rose discs etc.
       switch (r.type) {
         case 'PAD': {
-          target.add(padNode(d, fxf));
+          target.add(padNode(d, fxf, layerColor, holeFill));
           break;
         }
         case 'POLY': {
           if (Array.isArray(d.points)) {
             const pts: number[] = [];
             for (const p of d.points as any[]) { const [x, y] = P(Number(p.x ?? 0), Number(p.y ?? 0), fxf); pts.push(x, y); }
-            if (pts.length >= 4) target.add(new Line({ points: pts, closed: !!d.closed, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4) }));
+            if (pts.length >= 4) target.add(new Line({ points: pts, closed: !!d.closed, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round', strokeJoin: 'round' }));
           }
           const ds = multiPathToSvg(d.path ?? [], fxf, false);
           for (const path of ds) {
-            target.add(new Path({ path, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4) }));
+            target.add(new Path({ path, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round', strokeJoin: 'round' }));
           }
           break;
         }
@@ -158,37 +237,29 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         case 'LINE': {
           const [x1, y1] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), fxf);
           const [x2, y2] = P(Number(d.endX ?? 0), Number(d.endY ?? 0), fxf);
-          target.add(new Line({ x1, y1, x2, y2, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4) }));
+          target.add(new Line({ points: [x1, y1, x2, y2], stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round' }));
           break;
         }
         case 'ARC': {
           const [x1, y1] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), fxf);
           const [x2, y2] = P(Number(d.endX ?? 0), Number(d.endY ?? 0), fxf);
-          target.add(new Path({ path: arcD(x1, y1, x2, y2, Number(d.angle ?? 0)), stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4) }));
+          target.add(new Path({ path: arcD(x1, y1, x2, y2, Number(d.angle ?? 0)), stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round' }));
           break;
         }
         case 'STRING': case 'TEXT': {
-          const t = new Text({
-            text: String(d.text ?? d.value ?? ''), fontSize: Number(d.fontSize) || 10,
-            fill: layerColor(d.layerId),
-            bold: !!d.bold, italic: !!d.italic,
-          } as any);
-          t.x = X(Number(d.x ?? 0), fxf); t.y = Y(Number(d.y ?? 0), fxf);
-          t.rotation = ang(Number(d.angle ?? d.rotation ?? 0));
-          if (d.reverse) t.scaleX = -1;
-          target.add(t);
+          target.add(mkLabel(d, layerColor(d.layerId), fxf, true));
           break;
         }
         case 'CIRCLE': {
           const cx = X(Number(d.centerX ?? 0), fxf), cy = Y(Number(d.centerY ?? 0), fxf);
           const rad = Math.abs(Number(d.radius ?? 0)) || 1;
-          target.add(new Ellipse({ x: cx - rad, y: cy - rad, width: rad * 2, height: rad * 2, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), fill: 'none' }));
+          target.add(new Ellipse({ x: cx - rad, y: cy - rad, width: rad * 2, height: rad * 2, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), fill: null }));
           break;
         }
         case 'ELLIPSE': {
           const cx = X(Number(d.centerX ?? 0), fxf), cy = Y(Number(d.centerY ?? 0), fxf);
           const rx = Math.abs(Number(d.radiusX ?? 0)) || 1, ry = Math.abs(Number(d.radiusY ?? 0)) || 1;
-          const e = new Ellipse({ x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), fill: 'none' });
+          const e = new Ellipse({ x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), fill: null });
           e.rotation = ang(Number(d.rotation ?? 0));
           target.add(e);
           break;
@@ -226,16 +297,13 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       g.add(new Rect({ x: -12, y: -8, width: 24, height: 16, stroke: '#cc0000', strokeWidth: 1, strokeDashArray: [3, 3] }));
       if (fpUuid) api.reportDiagnostics.push(`未解析封装 ${fpUuid.slice(0, 10)} (line ${r.lineNo})`);
     }
-    // designator / visible attrs
+    // designator / visible attrs (fixed pixel size, same as silk labels)
     for (const a of attrs) {
       const ad = a.data;
       if (ad.valueVisible === true && typeof ad.x === 'number') {
-        const t = new Text({
-          text: String(ad.value ?? ''), fontSize: Number(ad.fontSize) || 10,
-          fill: layerColor(ad.layerId),
-        } as any);
-        t.x = X(ad.x, xf); t.y = Y(Number(ad.y ?? 0), xf);
-        if (ad.angle != null || ad.rotation != null) t.rotation = ang(Number(ad.angle ?? ad.rotation));
+        const t = mkLabel(ad, layerColor(ad.layerId), xf);
+        const al = BOTTOM_ALPHA[String(ad.layerId)];
+        if (al !== undefined) t.opacity = al;
         api.layer(String(ad.layerId ?? LAYER.TOP)).add(t);
       }
     }
@@ -255,7 +323,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const [x1, y1] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), xf);
         const [x2, y2] = P(Number(d.endX ?? 0), Number(d.endY ?? 0), xf);
         const node = new Group();
-        node.add(new Line({ x1, y1, x2, y2, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 6), hitStoke: 'all' }));
+        node.add(new Line({ points: [x1, y1, x2, y2], stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 6), strokeCap: 'round', hitStroke: 'all' }));
         addToLayer(d, r, node, `走线 ${r.id} ${d.netName ?? ''}`, 'track');
         return;
       }
@@ -265,7 +333,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         if (Array.isArray(d.points)) {
           const pts: number[] = [];
           for (const p of d.points as any[]) { const [x, y] = P(Number(p.x ?? 0), Number(p.y ?? 0), xf); pts.push(x, y); }
-          if (pts.length >= 4) node.add(new Line({ points: pts, closed: !!d.closed, stroke, strokeWidth: widthOf(d, 6), hitStoke: 'all' }));
+          if (pts.length >= 4) node.add(new Line({ points: pts, closed: !!d.closed, stroke, strokeWidth: widthOf(d, 6), hitStroke: 'all' }));
         }
         for (const path of multiPathToSvg(d.path ?? [], xf, false)) {
           node.add(new Path({ path, stroke, strokeWidth: widthOf(d, 6) }));
@@ -292,8 +360,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
                 const [sx, sy] = tm(qx, qy);
                 pts.push(sx, sy);
               }
-              const fill = d.displayFill !== false && d.fillColor && d.fillColor !== 'none' ? String(d.fillColor) : 'none';
-              node.add(new Line({ points: pts, closed: true, stroke: d.displayStroke === false ? 'none' : stroke, strokeWidth: Number(d.strokeWidth) || 1, fill }));
+              const fill = d.displayFill !== false && d.fillColor && d.fillColor !== 'none' ? String(d.fillColor) : null;
+              node.add(new Line({ points: pts, closed: true, stroke: d.displayStroke === false ? null : stroke, strokeWidth: Number(d.strokeWidth) || 1, fill }));
             } else if (tk) {
               const mk = `面板图形暂不支持:${tk}`;
               if (!api.reportDiagnostics.includes(mk)) api.reportDiagnostics.push(mk);
@@ -307,7 +375,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const cx = X(Number(d.centerX ?? 0), xf), cy = Y(Number(d.centerY ?? 0), xf);
         const rad = Math.abs(Number(d.radius ?? 0)) || 1;
         const node = new Group();
-        node.add(new Ellipse({ x: cx - rad, y: cy - rad, width: rad * 2, height: rad * 2, stroke: strokeOf(d, layerColor(d.layerId)), strokeWidth: widthOf(d, 6), fill: 'none' }));
+        node.add(new Ellipse({ x: cx - rad, y: cy - rad, width: rad * 2, height: rad * 2, stroke: strokeOf(d, layerColor(d.layerId)), strokeWidth: widthOf(d, 6), fill: null }));
         addToLayer(d, r, node, `圆 ${r.id}`);
         return;
       }
@@ -315,7 +383,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const cx = X(Number(d.centerX ?? 0), xf), cy = Y(Number(d.centerY ?? 0), xf);
         const rx = Math.abs(Number(d.radiusX ?? 0)) || 1, ry = Math.abs(Number(d.radiusY ?? 0)) || 1;
         const node = new Group();
-        const e = new Ellipse({ x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2, stroke: strokeOf(d, layerColor(d.layerId)), strokeWidth: widthOf(d, 6), fill: 'none' });
+        const e = new Ellipse({ x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2, stroke: strokeOf(d, layerColor(d.layerId)), strokeWidth: widthOf(d, 6), fill: null });
         e.rotation = ang(Number(d.rotation ?? 0));
         node.add(e);
         addToLayer(d, r, node, `椭圆 ${r.id}`);
@@ -325,12 +393,12 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const [x1, y1] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), xf);
         const [x2, y2] = P(Number(d.endX ?? 0), Number(d.endY ?? 0), xf);
         const node = new Group();
-        node.add(new Path({ path: arcD(x1, y1, x2, y2, Number(d.angle ?? 0)), stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 6) }));
+        node.add(new Path({ path: arcD(x1, y1, x2, y2, Number(d.angle ?? 0)), stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 6), strokeCap: 'round' }));
         addToLayer(d, r, node, `圆弧走线 ${r.id} ${d.netName ?? ''}`, 'track');
         return;
       }
       case 'PAD': {
-        const node = padNode(d, xf);
+        const node = padNode(d, xf, layerColor, holeFill);
         addToLayer(d, r, node, `焊盘 ${r.id} #${d.num ?? ''}`, 'pad');
         return;
       }
@@ -344,8 +412,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const cx = X(Number(d.centerX ?? 0), xf), cy = Y(Number(d.centerY ?? 0), xf);
         const vd = Number(d.viaDiameter ?? 20), hd = Number(d.holeDiameter ?? 12);
         const node = new Group();
-        node.add(new Ellipse({ x: cx - vd / 2, y: cy - vd / 2, width: vd, height: vd, fill: layerColor(LAYER.TOP) }));
-        node.add(new Ellipse({ x: cx - hd / 2, y: cy - hd / 2, width: hd, height: hd, fill: COLORS.hole }));
+        node.add(new Ellipse({ x: cx - vd / 2, y: cy - vd / 2, width: vd, height: vd, fill: layerColor(LAYER.MULTI) }));
+        node.add(new Ellipse({ x: cx - hd / 2, y: cy - hd / 2, width: hd, height: hd, fill: holeFill }));
         addToLayer({ layerId: LAYER.MULTI }, r, node, `过孔 ${r.id} ${d.netName ?? ''}`, 'pad');
         return;
       }
@@ -358,14 +426,18 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         return;
       }
       case 'POURED': {
+        // the copper fill itself; its layer lives on the paired POUR record
+        // (POURED carries id ["POURED", "<pourId>"], not its own layerId)
+        const key = String(r.id).split(',').pop() ?? '';
+        const lid = pourLayer.get(key) ?? LAYER.TOP;
         // pourFill paths are authored in 0.1× PCB doc units → scale coords by 10
         const node = new Group();
         for (const pf of (d.pourFill ?? [])) {
           for (const path of multiPathToSvg(scalePourItems(pf.path), xf, true)) {
-            node.add(new Path({ path, fill: layerColor(d.layerId) + (pf.fill ? '66' : ''), stroke: pf.strokeWidth ? layerColor(d.layerId) : undefined, strokeWidth: Number(pf.strokeWidth) || undefined }));
+            node.add(new Path({ path, fill: layerColor(lid) + (pf.fill ? 'b2' : ''), stroke: pf.strokeWidth ? layerColor(lid) : undefined, strokeWidth: Number(pf.strokeWidth) || undefined }));
           }
         }
-        addToLayer(d, r, node, `铺铜 ${r.id}`);
+        addToLayer({ layerId: lid }, r, node, `铺铜 ${r.id} ${d.netName ?? ''}`);
         return;
       }
       case 'TEARDROP': {
@@ -381,16 +453,11 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         return;
       }
       case 'STRING': case 'TEXT': {
+        if (silkTwins.has(d)) return; // hidden mirror copy of a top-silk string
         const node = new Group();
-        const t = new Text({
-          text: String(d.text ?? d.value ?? ''), fontSize: Number(d.fontSize) || 10,
-          fill: strokeOf(d, layerColor(d.layerId)), bold: !!d.bold, italic: !!d.italic,
-          textAlign: alignX(d.origin),
-        } as any);
-        t.x = X(Number(d.x ?? 0), xf); t.y = Y(Number(d.y ?? 0), xf);
-        t.rotation = ang(Number(d.angle ?? d.rotation ?? 0));
-        if (d.reverse) t.scaleX = -1;
-        node.add(t);
+        // layer color wins over specialColor — matches how EasyEDA shows silk strings;
+        // doc-scaled so big silk words grow with the board like the reference export
+        node.add(mkLabel(d, layerColor(d.layerId), xf, true));
         addToLayer(d, r, node, `文本 ${r.id} "${String(d.text ?? d.value ?? '').slice(0, 16)}"`);
         return;
       }
@@ -424,7 +491,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           }
           return out;
         });
-        for (const path of multiPathToSvg(mapped, xf, true)) node.add(new Path({ path, stroke: layerColor(d.layerId), strokeWidth: 1 }));
+        // glyph outline geometry (text converted to paths): FILLED, not stroked
+        for (const path of multiPathToSvg(mapped, xf, true)) node.add(new Path({ path, fill: layerColor(d.layerId), fillRule: 'nonzero' }));
         addToLayer(d, r, node, `图形 ${r.id}`);
         return;
       }
@@ -454,7 +522,16 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         if (!opened.report.unknownTypes.includes(r.type)) opened.report.unknownTypes.push(r.type);
     }
   }
-  for (const r of sortZ(seg.recs)) drawPrim(r);
+  // copper pours sit under everything else; bottom copper first so top overlaps it
+  const all = sortZ(seg.recs);
+  const pours = all.filter((r) => r.type === 'POURED');
+  pours.sort((a, b) => {
+    const la = Number(pourLayer.get(String(a.id).split(',').pop() ?? '') ?? 0);
+    const lb = Number(pourLayer.get(String(b.id).split(',').pop() ?? '') ?? 0);
+    return lb - la; // higher layer number (bottom=2) drawn earlier
+  });
+  for (const r of pours) drawPrim(r);
+  for (const r of all) if (r.type !== 'POURED') drawPrim(r);
 }
 
 /** world bbox of a component: union of footprint geometry (in fp screen coords) transformed by the group transform */

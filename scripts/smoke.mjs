@@ -21,7 +21,7 @@ function loadZip(file) {
   const map = new Map([[path.basename(file), new Uint8Array(readFileSync(file))]]);
   return loadFromMap(expandZips(map));
 }
-const models = [loadZip('samples/RA6E2-eprj3/RA6E2-eprj3.zip'), loadZip('samples/RA6E2-epro2/RA6E2.epro2')];
+const models = [loadZip('samples/RA6E2-eprj3/RA6E2-eprj3.zip'), loadZip('samples/RA6E2-epro2/RA6E2.epro2'), loadZip('samples/viewer_fulltest-epro2/viewer_fulltest.epro2')];
 let total = 0, errs = 0;
 for (const m of models) {
   console.log('==', m.name, m.format, 'openables:', m.openables.size);

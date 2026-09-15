@@ -3,6 +3,7 @@
  * Emits collected File[] to a callback. See PRD FR-1.
  */
 import { icon } from './icons';
+import { t } from './i18n';
 
 export interface DndOptions {
   /** host element the overlay + canvas drop zone listens on (drop works app-wide) */
@@ -20,13 +21,13 @@ export function setupDnd(root: HTMLElement, opts: DndOptions): DndController {
   const overlay = opts.overlay ?? document.body;
   const mask = document.createElement('div');
   mask.className = 'ev-drop-mask';
-  mask.innerHTML = `<div class="ev-drop-pill">${icon('scanSearch', 22)}<span>释放以加载 EasyEDA 工程文件</span></div>`;
   mask.style.display = 'none';
   root.appendChild(mask);
 
   let depth = 0;
   const showMask = (): void => {
     depth++;
+    mask.innerHTML = `<div class="ev-drop-pill">${icon('scanSearch', 22)}<span>${t('dropHint')}</span></div>`;
     mask.style.display = 'flex';
     opts.onDragState?.(true);
   };
@@ -44,18 +45,28 @@ export function setupDnd(root: HTMLElement, opts: DndOptions): DndController {
   const onDrop = async (e: DragEvent) => {
     e.preventDefault();
     hideMask();
+    const files: File[] = [];
     const items = e.dataTransfer?.items;
     if (items && items.length && 'webkitGetAsEntry' in items[0]) {
+      // WebView2/Edge can return null from webkitGetAsEntry() for Explorer drops —
+      // collect whatever entries DO resolve, then fall through to dataTransfer.files.
       const entries = [...items]
-        .map((it) => (it as DataTransferItem & { webkitGetAsEntry(): FileSystemEntry | null }).webkitGetAsEntry())
+        .map((it) => {
+          try {
+            return (it as DataTransferItem & { webkitGetAsEntry(): FileSystemEntry | null }).webkitGetAsEntry();
+          } catch {
+            return null;
+          }
+        })
         .filter((x): x is FileSystemEntry => !!x);
-      const files: File[] = [];
-      await Promise.all(entries.map((en) => walkEntry(en, files)));
-      if (files.length) opts.onFiles(files);
-      return;
+      await Promise.all(entries.map((en) => walkEntry(en, files).catch(() => { /* per-entry failure: keep others */ })));
     }
-    const files = e.dataTransfer ? [...e.dataTransfer.files] : [];
+    if (!files.length) {
+      const dt = e.dataTransfer;
+      if (dt) for (const f of [...dt.files]) files.push(f);
+    }
     if (files.length) opts.onFiles(files);
+    else opts.onFiles([]); // surface "nothing readable" to the caller
   };
 
   window.addEventListener('dragover', onDragOver);
@@ -134,7 +145,7 @@ async function bridgeLoad(dialog: 'openFileDialog' | 'openFolderDialog'): Promis
 }
 
 /** open native file picker (multiple, filtered extensions) */
-export function pickFiles(accept = '.eprj3,.epro2,.esch2,.epcb2,.epan2,.elib2,.epru,.esym2,.efp2,.zip'): Promise<File[]> {
+export function pickFiles(accept = '.eprj3,.epro2,.esch2,.epcb2,.epan2,.elib2,.epru,.esym2,.zip'): Promise<File[]> {
   if (desktopBridge()) return bridgeLoad('openFileDialog');
   return new Promise((resolve) => {
     const input = document.createElement('input');

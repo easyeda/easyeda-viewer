@@ -154,3 +154,5 @@ qa/shots/
 desktop/build/
 desktop/dist/*
 !desktop/dist/.gitkeep
+
+.bridge-work

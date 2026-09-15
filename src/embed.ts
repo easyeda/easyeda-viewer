@@ -9,6 +9,7 @@
  *   v.destroy();
  */
 import { Shell, type Theme, type ChromeFlags } from './ui/shell';
+import type { Lang } from './ui/i18n';
 import type { ProjectModel, TreeNode } from './core/types';
 import type { RenderObject } from './core/render/layers';
 
@@ -19,6 +20,8 @@ export interface CreateViewerOptions {
   theme?: Theme;
   /** show/hide toolbar & side panels, e.g. {toolbar:false,left:false,right:false} for a pure canvas */
   chrome?: Partial<ChromeFlags>;
+  /** UI language, default 'zh' */
+  lang?: Lang;
   onSelect?(obj: RenderObject | null): void;
   onLoaded?(model: ProjectModel): void;
   onError?(err: Error): void;
@@ -34,6 +37,8 @@ export interface EextViewer {
   fit(): void;
   /** switch chrome theme at runtime (canvas keeps document colors) */
   setTheme(theme: Theme): void;
+  /** switch UI language at runtime (rebuilds all labels) */
+  setLang(lang: Lang): void;
   /** show/hide toolbar & side panels at runtime */
   setChrome(flags: Partial<ChromeFlags>): void;
   getModel(): ProjectModel | null;
@@ -44,6 +49,7 @@ export function createViewer(host: HTMLElement, opts: CreateViewerOptions = {}):
   const shell = new Shell(host, {
     theme: opts.theme,
     chrome: opts.chrome,
+    lang: opts.lang,
     onSelect: opts.onSelect,
     onLoaded: opts.onLoaded,
     onError: opts.onError,
@@ -52,18 +58,14 @@ export function createViewer(host: HTMLElement, opts: CreateViewerOptions = {}):
   return {
     loadFiles: (files) => shell.loadFiles(files),
     loadMap: (map) => shell.loadMap(map),
-    open: (nodeId) => {
-      const node = shell.getModel()?.openables.get(nodeId);
-      if (!node) return false;
-      shell.openNode(node);
-      return true;
-    },
+    open: (nodeId) => shell.openNodeId(nodeId),
     fit: () => shell.fitCurrent(),
     setTheme: (theme) => shell.setTheme(theme),
+    setLang: (lang) => shell.setLang(lang),
     setChrome: (flags) => shell.setChrome(flags),
     getModel: () => shell.getModel(),
     destroy: () => shell.destroy(),
   };
 }
 
-export type { ProjectModel, TreeNode, RenderObject, Theme, ChromeFlags };
+export type { ProjectModel, TreeNode, RenderObject, Theme, ChromeFlags, Lang };
