@@ -41,8 +41,11 @@ export function collectAttrs(rec: Rec, opened: OpenedDoc): AttrEntry[] {
   const map = new Map<string, AttrEntry>();
   const set = (key: string, value: unknown, source: AttrEntry['source']) => {
     if (value == null) return;
-    const s = String(value);
-    if (!s && source === 'lib') return; // don't let empty lib defaults wipe instance values
+    // object-valued attributes (e.g. pad specs) serialize as JSON so the props
+    // panel can re-parse and show them as a hierarchy
+    const s = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    const empty = !s || s === '[]' || s === '{}';
+    if (empty && source === 'lib') return; // don't let empty lib defaults wipe instance values
     if (!map.has(key)) map.set(key, { key, value: s, source });
   };
   // instance ATTR records parented to this object

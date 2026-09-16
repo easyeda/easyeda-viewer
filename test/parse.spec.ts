@@ -3,10 +3,10 @@
  * Skipped automatically when samples are not present.
  */
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expandZips, loadFromMap } from '../src/core/parse/container';
+import { loadFromMap } from '../src/core/parse/container';
 import { parseAllRecords, splitSegments } from '../src/core/parse/records';
 import { openDoc } from '../src/core/model';
 import { RENDERABLE } from '../src/core/types';
@@ -14,12 +14,27 @@ import type { ProjectModel } from '../src/core/types';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const EPRJ3_ZIP = path.join(root, 'samples/RA6E2-eprj3/RA6E2-eprj3.zip');
+const EPRJ3_DIR = path.join(root, 'samples/RA6E2-eprj3'); // folder-form project (index + doc files)
 const EPRO2 = path.join(root, 'samples/RA6E2-epro2/RA6E2.epro2');
-const hasSamples = existsSync(EPRJ3_ZIP) && existsSync(EPRO2);
+const hasSamples = existsSync(EPRJ3_DIR) && existsSync(EPRO2);
 
 function zipToMap(file: string): Map<string, Uint8Array> {
   return new Map([[path.basename(file), new Uint8Array(readFileSync(file))]]);
+}
+
+/** read a folder-form project the way a drag&drop upload would: posix-relative paths */
+function dirToMap(dir: string, prefix = ''): Map<string, Uint8Array> {
+  const m = new Map<string, Uint8Array>();
+  for (const name of readdirSync(dir)) {
+    const p = path.join(dir, name);
+    const key = prefix ? `${prefix}/${name}` : name;
+    if (statSync(p).isDirectory()) {
+      for (const [k, b] of dirToMap(p, key)) m.set(k, b);
+    } else {
+      m.set(key, new Uint8Array(readFileSync(p)));
+    }
+  }
+  return m;
 }
 
 describe('record line format', () => {
@@ -47,7 +62,7 @@ describe('record line format', () => {
 });
 
 describe.skipIf(!hasSamples)('eprj3 container (RA6E2 sample)', () => {
-  const model = loadFromMap(expandZips(zipToMap(EPRJ3_ZIP))) as ProjectModel;
+  const model = loadFromMap(dirToMap(EPRJ3_DIR)) as ProjectModel;
 
   it('detects format and names the project', () => {
     expect(model.format).toBe('eprj3');
@@ -99,7 +114,7 @@ describe.skipIf(!hasSamples)('eprj3 container (RA6E2 sample)', () => {
 });
 
 describe.skipIf(!hasSamples)('epro2 container (RA6E2 sample)', () => {
-  const model = loadFromMap(expandZips(zipToMap(EPRO2))) as ProjectModel;
+  const model = loadFromMap(zipToMap(EPRO2)) as ProjectModel;
 
   it('detects format', () => {
     expect(model.format).toBe('epro2');
@@ -144,7 +159,7 @@ describe.skipIf(!hasSamples)('epro2 container (RA6E2 sample)', () => {
 
 describe.skipIf(!hasSamples)('single .esch2 fallback', () => {
   it('loads a loose document file as single-doc project', () => {
-    const model = loadFromMap(expandZips(zipToMap(EPRJ3_ZIP)));
+    const model = loadFromMap(dirToMap(EPRJ3_DIR));
     // grab one .esch2 out of the eprj3 project and feed it alone
     const key = [...model.files.keys()].find((k) => k.endsWith('.esch2'))!;
     const alone = new Map([[path.basename(key), model.files.get(key)!]]);

@@ -17,6 +17,59 @@ function fmt(n: unknown): string {
 }
 const mil = (n: unknown): string => `${fmt(n)} ${t('mil')}`;
 
+/** values that are serialized JSON objects/arrays get rendered as a hierarchy */
+function parseObjectLike(v: string): unknown {
+  const s = v.trim();
+  if (s.length < 2 || (s[0] !== '{' && s[0] !== '[')) return null;
+  try {
+    const p = JSON.parse(s);
+    return p && typeof p === 'object' ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+const OBJ_MAX_NODES = 80;
+const OBJ_MAX_DEPTH = 6;
+
+/** nested key/value tree for object-valued attributes (indent + guide border) */
+function objectTree(v: unknown, depth: number, budget: { n: number }): HTMLElement {
+  const box = document.createElement('div');
+  box.className = 'ev-obj';
+  if (v == null || typeof v !== 'object' || depth >= OBJ_MAX_DEPTH || budget.n <= 0) {
+    box.textContent = JSON.stringify(v) ?? '';
+    return box;
+  }
+  const entries: [string, unknown][] = Array.isArray(v)
+    ? v.map((x, i) => [String(i), x])
+    : Object.entries(v as Record<string, unknown>);
+  for (const [k, val] of entries) {
+    if (budget.n-- <= 0) {
+      const more = document.createElement('div');
+      more.className = 'ev-obj-row';
+      more.textContent = '…';
+      box.appendChild(more);
+      break;
+    }
+    const rowEl = document.createElement('div');
+    rowEl.className = 'ev-obj-row';
+    const key = document.createElement('span');
+    key.className = 'ev-obj-k';
+    key.textContent = Array.isArray(v) ? `[${k}]` : k;
+    rowEl.appendChild(key);
+    if (val != null && typeof val === 'object') {
+      rowEl.appendChild(objectTree(val, depth + 1, budget));
+    } else {
+      const valEl = document.createElement('span');
+      valEl.className = 'ev-obj-v';
+      valEl.textContent = String(val);
+      rowEl.appendChild(valEl);
+    }
+    box.appendChild(rowEl);
+  }
+  return box;
+}
+
 export class PropsView {
   private host: HTMLElement;
   private layerNames = new Map<string, string>();
@@ -91,7 +144,7 @@ export class PropsView {
         const s = document.createElement('span'); s.className = 'ev-props-color'; s.style.background = swatch;
         tv.appendChild(s);
       }
-      tv.appendChild(document.createTextNode(v));
+      this.fillValue(tv, v);
       tr.append(tk, tv);
       table.appendChild(tr);
     };
@@ -193,9 +246,35 @@ export class PropsView {
 
   /** look up a library/3D-model uuid and return the segment title if known */
   private libTitle(uuid: string): string {
-    if (!this.opened || !uuid) return uuid;
-    const seg = this.opened.libs.get(uuid);
+    if (!uuid) return uuid;
+    const seg = this.opened?.libs.get(uuid) ?? this.deviceOpened?.libs.get(uuid);
     return seg?.meta?.title ? String(seg.meta.title) : uuid;
+  }
+
+  /** display value for the "3D Model" attr: the sibling "3D Model Title" wins,
+   *  then a lib lookup; the compound `modelUuid|owner` form never shows raw (#3d-model) */
+  private model3dTitle(titleAttr: string | undefined, raw: string): string {
+    if (titleAttr) return titleAttr;
+    if (!raw.includes('|')) return this.libTitle(raw);
+    const first = raw.split('|')[0];
+    const titled = this.libTitle(first);
+    // libTitle echoes the uuid back when unknown — report "unresolvable" instead
+    return titled === first ? '' : titled;
+  }
+
+  /** fill a property value cell: full text in the hover title, 2-line clamp for
+   *  long values, and JSON-object values expanded as a hierarchy (#props-1:1) */
+  private fillValue(tv: HTMLElement, v: string): void {
+    tv.title = v;
+    const obj = parseObjectLike(v);
+    if (obj) {
+      tv.appendChild(objectTree(obj, 0, { n: OBJ_MAX_NODES }));
+      return;
+    }
+    const s = document.createElement('div');
+    s.className = 'ev-vtext';
+    s.textContent = v;
+    tv.appendChild(s);
   }
 
   /** component attribute table: merge instance ATTR records + library/device defaults, resolve ={...} refs (#2/#3) */
@@ -207,22 +286,27 @@ export class PropsView {
     const row = (k: string, v: string): void => {
       const tr = document.createElement('tr');
       const tk = document.createElement('td'); tk.className = 'ev-k'; tk.textContent = k;
-      const tv = document.createElement('td'); tv.className = 'ev-v'; tv.textContent = v;
+      const tv = document.createElement('td'); tv.className = 'ev-v';
+      this.fillValue(tv, v);
       tr.append(tk, tv);
       table.appendChild(tr);
     };
     const displayFor = (k: string, raw: string): string => {
-      if (['Symbol', 'Footprint', '3D Model', 'Device'].includes(k)) return this.libTitle(raw);
+      if (k === '3D Model') return this.model3dTitle(val('3D Model Title') || undefined, raw);
+      if (['Symbol', 'Footprint', 'Device'].includes(k)) return this.libTitle(raw);
       return raw;
     };
     const priority = ['Designator', 'Name', 'Value', 'Symbol', 'Footprint', '3D Model', 'Device'];
     const seen = new Set<string>();
     for (const k of priority) {
       const raw = val(k);
-      if (raw) { row(attrLabel(k), displayFor(k, raw)); seen.add(k); }
+      if (!raw) continue;
+      const disp = displayFor(k, raw);
+      if (disp) { row(attrLabel(k), disp); seen.add(k); }
     }
-    // remaining attributes (skip raw geometry/control keys already handled below)
-    const skip = new Set(['x', 'y', 'rotation', 'angle', 'padAngle', 'partId', 'groupId', 'isMirror', 'isMirror', 'attrs', 'zIndex', 'locked', 'layerId', 'layer']);
+    // remaining attributes (skip raw geometry/control keys already handled below;
+    // "3D Model Title" is folded into the 3D-model row above)
+    const skip = new Set(['x', 'y', 'rotation', 'angle', 'padAngle', 'partId', 'groupId', 'isMirror', 'isMirror', 'attrs', 'zIndex', 'locked', 'layerId', 'layer', '3D Model Title']);
     for (const e of entries) {
       if (seen.has(e.key) || skip.has(e.key)) continue;
       const v = resolveAttrRef(map, e.value);
@@ -248,7 +332,8 @@ export class PropsView {
     const row = (k: string, v: string): void => {
       const tr = document.createElement('tr');
       const tk = document.createElement('td'); tk.className = 'ev-k'; tk.textContent = k;
-      const tv = document.createElement('td'); tv.className = 'ev-v'; tv.textContent = v;
+      const tv = document.createElement('td'); tv.className = 'ev-v';
+      this.fillValue(tv, v);
       tr.append(tk, tv);
       table.appendChild(tr);
     };
@@ -256,8 +341,19 @@ export class PropsView {
     if (metaAny?.title) row(attrLabel('name'), String(metaAny.title));
     const attrs = metaAny?.attributes;
     if (attrs && typeof attrs === 'object') {
+      // Symbol/Footprint(/Name) attrs are raw uuids — the resolved rows below show
+      // their titles, so echoing the uuids would just repeat each entry twice
+      const folded = new Set(['3D Model Title', 'Symbol', 'Footprint', 'SymbolName', 'FootprintName']);
       for (const [k, v] of Object.entries(attrs)) {
-        const s = v == null ? '' : String(v);
+        if (k === '3D Model') {
+          const title = typeof attrs['3D Model Title'] === 'string' ? (attrs['3D Model Title'] as string) : undefined;
+          const shown = this.model3dTitle(title, v == null ? '' : String(v));
+          if (shown) row(attrLabel(k), shown);
+          continue;
+        }
+        if (folded.has(k)) continue;
+        const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+        if (k === 'Device' && s) { row(attrLabel(k), this.libTitle(s)); continue; }
         if (s) row(attrLabel(k), s);
       }
     }

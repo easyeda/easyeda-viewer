@@ -224,10 +224,19 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 /* ---------- properties ---------- */
 .ev-props { flex: 1 1 auto; overflow: auto; min-height: 0; padding: 12px; }
 .ev-props-head { font-weight: 650; font-size: 14px; margin-bottom: 8px; word-break: break-all; }
-.ev-props-table { width: 100%; border-collapse: collapse; }
+.ev-props-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .ev-props-table td { padding: 3px 6px; border-bottom: 1px solid var(--ev-border); vertical-align: top; word-break: break-all; }
 .ev-props-table tr:hover td { background: var(--ev-hover); }
-.ev-props-table .ev-k { color: var(--ev-dim); width: 38%; white-space: nowrap; }
+/* key and value columns are equal width (#props-1:1) */
+.ev-props-table .ev-k { color: var(--ev-dim); width: 50%; }
+.ev-props-table .ev-v { width: 50%; }
+/* long values clamp to two lines; the full text lives in the cell's title tooltip */
+.ev-props-table .ev-vtext { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+/* object-valued attributes render as an indented key/value hierarchy */
+.ev-props-table .ev-obj { font-size: 12px; }
+.ev-props-table .ev-obj-row { padding: 1px 0; }
+.ev-props-table .ev-obj-k { color: var(--ev-dim); margin-right: 6px; }
+.ev-props-table .ev-obj-row > .ev-obj { margin-left: 3px; padding-left: 9px; border-left: 1px solid var(--ev-border); }
 .ev-props-color { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.2); }
 
 /* ---------- status bar ---------- */
