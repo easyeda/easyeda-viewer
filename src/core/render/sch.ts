@@ -1,12 +1,12 @@
 /** Schematic page renderer (SCH_PAGE / SIMULATION docs). */
-import { Group, Line, Rect, Path, Text, Ellipse } from 'leafer-ui';
+import { Group, Line, Rect, Path, Text, Ellipse, Image as LeaferImage } from 'leafer-ui';
 import type { OpenedDoc, Rec, DocSegment } from '../types';
 import type { RenderApi, RenderObject } from './layers';
-import { X, Y, P, ang, strokeOf, fillOf, widthOf, xfOf, objBBox, bboxFromPts, arcSeg, COLORS, type Xf, type BBox } from './geom';
+import { X, Y, P, ang, strokeOf, fillOf, widthOf, xfOf, objBBox, bboxFromPts, arcSeg, arc3Seg, COLORS, type Xf, type BBox } from './geom';
 import { resolveLibGraphics, resolveAttrRef } from '../model';
 
 /** record types that contribute real graphics (for component bbox sizing) */
-const DRAWABLE_TYPES = ['POLY', 'FILL', 'LINE', 'RECT', 'CIRCLE', 'ELLIPSE', 'OVAL', 'PIN', 'TEXT', 'STRING', 'TABLE'];
+const DRAWABLE_TYPES = ['POLY', 'FILL', 'LINE', 'RECT', 'CIRCLE', 'ELLIPSE', 'OVAL', 'PIN', 'TEXT', 'STRING', 'TABLE', 'OBJ'];
 
 export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   const seg = opened.self;
@@ -117,7 +117,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
 
   // ---- embedded symbol renderer ----
   /** @param antiRot screen-deg to cancel out (component group rotation) so pin text stays upright */
-  function drawSymbolPart(target: Group, sym: DocSegment, partId: string, sx: number, sy: number, rotation: number, mirror: boolean, antiRot = 0, skipTitleBlock = false): void {
+  function drawSymbolPart(target: Group, sym: DocSegment, partId: string, sx: number, sy: number, rotation: number, mirror: boolean, antiRot = 0, skipTitleBlock = false, gray = false): void {
     const sxf = xfOf(sym.canvas, false);
     // title-block hiding (#2): the A4 frame symbol groups the region frame under
     // a GROUP titled "border"; graphics outside that group are title-block
@@ -150,12 +150,33 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
             const closed = r.type === 'FILL' ? true : !!r.data.closed;
             local.add(new Line({
               points: pts, closed,
-              stroke: strokeOf(r.data, COLORS.schComponent),
+              stroke: gray ? '#999999' : strokeOf(r.data, COLORS.schComponent),
               strokeWidth: widthOf(r.data, 1),
+              strokeCap: 'round', strokeJoin: 'round', // EasyEDA strokes are round-capped (#lib-3)
+              dashPattern: dashArrayOf(r.data.strokeStyle),
               fill: fillOf(r.data, r.data.fillStyle ? '#88cccc88' : null),
             }));
             made = true;
           }
+          break;
+        }
+        case 'ARC': case 'ARC2': {
+          // symbol arcs use the 3-point form (referX/referY lies ON the arc);
+          // the angle form is the fallback for page-drawn arcs (#arc-3pt)
+          const [sx, sy] = P(r.data.startX ?? 0, r.data.startY ?? 0, sxf);
+          const [ex, ey] = P(r.data.endX ?? r.data.startX ?? 0, r.data.endY ?? r.data.startY ?? 0, sxf);
+          const hasRefer = r.data.referX != null && r.data.referX !== '' && r.data.referY != null && r.data.referY !== '';
+          const [rx, ry] = hasRefer ? P(Number(r.data.referX), Number(r.data.referY), sxf) : [0, 0];
+          const seg = hasRefer
+            ? arc3Seg(sx, sy, rx, ry, ex, ey)
+            : arcSeg(sx, sy, ex, ey, Number(r.data.angle ?? 0), sxf.flip);
+          local.add(new Path({
+            path: `M ${sx} ${sy} ${seg}`,
+            stroke: gray ? '#999999' : strokeOf(r.data, COLORS.schComponent),
+            strokeWidth: widthOf(r.data, 1),
+            strokeCap: 'round',
+          }));
+          made = true;
           break;
         }
         case 'RECT': {
@@ -164,7 +185,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           local.add(new Rect({
             x: Math.min(x1, x2), y: Math.min(y1, y2),
             width: Math.abs(x2 - x1), height: Math.abs(y2 - y1),
-            stroke: strokeOf(r.data, COLORS.schComponent), strokeWidth: widthOf(r.data, 1),
+            stroke: gray ? '#999999' : strokeOf(r.data, COLORS.schComponent), strokeWidth: widthOf(r.data, 1),
+            dashPattern: dashArrayOf(r.data.strokeStyle),
             fill: fillOf(r.data, null),
             rotation: ang(r.data.rotation ?? 0, sxf),
           }));
@@ -179,22 +201,24 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           const [x1, y1] = P(px, py, sxf);
           const [x2, y2] = P(px + len * Math.cos(a), py + len * Math.sin(a), sxf);
           const pinG = new Group();
-          pinG.add(new Line({ points: [x1, y1, x2, y2], stroke: COLORS.schPin, strokeWidth: 1, hitStroke: 'all' }));
+          pinG.add(new Line({ points: [x1, y1, x2, y2], stroke: gray ? '#999999' : COLORS.schPin, strokeWidth: 1, strokeCap: 'round', hitStroke: 'all' }));
           if (r.data.pinShape && r.data.pinShape !== 'NONE') {
             const first = r.data.pinShape.includes('HOLE') ? 0.25 : 1;
             const ex = x1 + (x2 - x1) * first, ey = y1 + (y2 - y1) * first;
-            pinG.add(new Ellipse({ x: ex - 1.5, y: ey - 1.5, width: 3, height: 3, fill: COLORS.schPin }));
+            pinG.add(new Ellipse({ x: ex - 1.5, y: ey - 1.5, width: 3, height: 3, fill: gray ? '#999999' : COLORS.schPin }));
           }
           // pin name / number labels (attributes parented to the PIN record)
           for (const pa of attrsOf(sym, r.id)) {
             const ad = pa.data;
             if (ad.key !== 'Pin Name' && ad.key !== 'Pin Number') continue;
             const v = String(ad.value ?? '');
+            // on pages, visibility follows the document's valueVisible flag;
+            // standalone symbol previews force-show (page-level PIN case below)
             if (!v.trim() || (ad.valueVisible ?? true) === false) continue;
             if (typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
             const [lx, ly] = P(Number(ad.x), Number(ad.y), sxf);
             const t = new Text({
-              text: v, fontSize: Number(ad.fontSize) || 8, fill: '#000000',
+              text: v, fontSize: Number(ad.fontSize) || 8, fill: gray ? '#999999' : '#000000',
               textAlign: alignX(ad.align), verticalAlign: alignY(ad.align), autoSizeAlign: true,
             });
             t.x = lx; t.y = ly;
@@ -208,7 +232,13 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         case 'TEXT': case 'STRING': case 'PINLABEL': {
           const value = String(r.data.value ?? r.data.text ?? '');
           if (value) {
-            const t = new Text({ text: value, fontSize: Number(r.data.fontSize) || 8, fill: strokeOf(r.data, COLORS.schComponent) } as any);
+            const t = new Text({
+              text: value, fontSize: Number(r.data.fontSize) || 8,
+              fill: gray ? '#999999' : strokeOf(r.data, COLORS.schComponent),
+              fontFamily: r.data.fontFamily || undefined,
+              textAlign: alignX(r.data.align), verticalAlign: alignY(r.data.align ?? 'TOP'),
+              autoSizeAlign: true,
+            } as any);
             t.x = X(Number(r.data.x ?? 0), sxf); t.y = Y(Number(r.data.y ?? 0), sxf);
             if (typeof r.data.rotation === 'number') t.rotation = ang(r.data.rotation, sxf);
             const tg = new Group(); tg.add(t);
@@ -250,8 +280,25 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           made = true;
           break;
         }
-        case 'OBJ':
-          break; // embedded object (cloud blob content) — not renderable locally
+        case 'OBJ': {
+          // embedded bitmap object: `content`/`path` is a `blob:<id>` URI into
+          // the file's BLOB records (base64 data URL). (startX, startY) is the
+          // TOP-LEFT corner (verified on the PCB doc's dialog against the
+          // reference export), not the center.
+          const ref = typeof r.data.content === 'string' && r.data.content.startsWith('blob:') ? r.data.content
+            : typeof r.data.path === 'string' && r.data.path.startsWith('blob:') ? r.data.path : null;
+          const url = ref ? opened.blobs.get(ref.slice(5)) : undefined;
+          if (url) {
+            const w = Number(r.data.width) || 0, h = Number(r.data.height) || 0;
+            const pic = new LeaferImage({ url, width: w, height: h, x: -w / 2, y: -h / 2 });
+            if (r.data.isMirror ?? r.data.mirror) pic.scaleX = -1;
+            const pg = new Group({ x: X(Number(r.data.startX ?? 0), sxf) + w / 2, y: Y(Number(r.data.startY ?? 0), sxf) + h / 2 });
+            pg.add(pic);
+            local.add(pg);
+            made = true;
+          }
+          break;
+        }
         case 'PART': case 'ATTR': case 'DOCHEAD': case 'CANVAS': case 'META': case 'GROUP':
         case 'ELE_PLACEHOLDER': case 'RULE': case 'ACTIVE_LAYER': case 'NG_SETTING':
           break; // structural / metadata
@@ -428,7 +475,6 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const d = r.data;
     const attrs = byParent.get(r.id) ?? [];
     const isBorder = isBorderComponent(attrs);
-    if (isBorder && borderEnabled) drawBorder(attrs); // page frame behind the title-block table
     const symUuid = attrValue(attrs, 'Symbol') ?? attrValue(attrs, 'Device');
     // DEVICE segments are metadata-only: graphics come from the SYMBOL they name
     let sym = resolveLibGraphics(opened.libs, symUuid ? opened.libs.get(symUuid) : undefined, 'Symbol');
@@ -436,6 +482,13 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       const devUuid = attrValue(attrs, 'Device');
       if (devUuid && devUuid !== symUuid) sym = resolveLibGraphics(opened.libs, opened.libs.get(devUuid), 'Symbol');
     }
+    // the A4 frame symbol ships its own region artwork (GROUP 'border') — only
+    // synthesize the page frame for symbols that don't carry it, otherwise the
+    // region labels/frame lines render twice with slightly different anchors
+    const hasBorderArt = !!sym?.recs.some((rr) => rr.type === 'GROUP' && String(rr.data.title ?? '') === 'border');
+    if (isBorder && borderEnabled && !hasBorderArt) drawBorder(attrs);
+    // "Add into BOM = no" parts (DNP/NC) render all-gray like the EasyEDA export
+    const gray = attrValue(attrs, 'Add into BOM') === 'no';
     const g = new Group({ name: `comp:${r.id}` });
     g.x = X(d.x ?? 0, xf);
     g.y = Y(d.y ?? 0, xf);
@@ -443,11 +496,11 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     if (d.isMirror) g.scaleX = -1;
     page.add(g);
     if (sym) {
-      drawSymbolPart(g, sym, String(d.partId ?? ''), 0, 0, 0, false, Number(g.rotation) || 0, isBorder && !titleBlockEnabled);
-      drawComponentAttrs(g, attrs, sym, String(d.partId ?? ''));
+      drawSymbolPart(g, sym, String(d.partId ?? ''), 0, 0, 0, false, Number(g.rotation) || 0, isBorder && !titleBlockEnabled, gray);
+      drawComponentAttrs(g, attrs, sym, String(d.partId ?? ''), { gray, hideAll: isBorder && !titleBlockEnabled });
     } else if (symUuid) {
       // unresolved symbol — fallback marker so user sees something
-      const fr = new Rect({ x: -15, y: -10, width: 30, height: 20, stroke: '#cc0000', strokeWidth: 1, strokeDashArray: [3, 3] });
+      const fr = new Rect({ x: -15, y: -10, width: 30, height: 20, stroke: '#cc0000', strokeWidth: 1, dashPattern: [3, 3] });
       g.add(fr);
       api.reportDiagnostics.push(`未解析符号 ${symUuid.slice(0, 10)} (line ${r.lineNo})`);
     }
@@ -462,13 +515,16 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   }
 
   /**
-   * Attribute texts of a placed component (Designator / Value / Pin labels /
-   * NET / Global Net Name …). Visibility & colors follow EasyEDA: designator,
-   * value and pin text are black; net names and the device code are blue.
-   * Attributes without coordinates are anchored to the symbol body: net label
-   * beyond the pin's free end, designator at the top-left corner.
+   * Attribute texts of a placed component. Instance ATTR records carry absolute
+   * page coordinates plus per-attribute visibility; values resolve
+   * instance → symbol library default → device META.attributes, with ={…}
+   * formulas resolved against the merged map. Attributes without coordinates
+   * are library metadata and stay hidden, exactly like the EasyEDA export.
+   * Net names (NET / Global Net Name) paint blue, everything else black;
+   * "Add into BOM = no" parts (DNP/NC) render gray.
    */
-  function drawComponentAttrs(g: Group, attrs: Rec[], sym: DocSegment, partId: string): void {
+  function drawComponentAttrs(g: Group, attrs: Rec[], sym: DocSegment, partId: string, opts: { gray: boolean; hideAll: boolean }): void {
+    if (opts.hideAll) return; // border component with the title block switched off
     const sxf = xfOf(sym.canvas, false);
     let lb: BBox | null = null;
     const pts: [number, number][] = [];
@@ -480,7 +536,6 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       if (b) pts.push([b.minX, b.minY], [b.maxX, b.maxY]);
     }
     lb = bboxFromPts(pts);
-    const pin = sym.recs.find((r) => r.type === 'PIN' && (!r.data.partId || !partId || String(r.data.partId) === partId));
     // multi-part symbol: designator gets ".N" from the part's position in the PART list
     const partList = sym.recs.filter((r) => r.type === 'PART').map((r) => String(r.id ?? ''));
     const pIdx = partList.indexOf(partId);
@@ -494,119 +549,81 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       return [cx + (x - cx) * tc - (y - cy) * ts, cy + (x - cx) * ts + (y - cy) * tc];
     };
     const gx = Number(g.x) || 0, gy = Number(g.y) || 0;
-    const mx = Number(g.scaleX) < 0 ? -1 : 1;
-    const toWorld = (lx: number, ly: number): [number, number] => {
-      const x = lx * mx;
-      return [gx + x * tc - ly * ts, gy + x * ts + ly * tc];
-    };
-    // keys the UI actually shows (everything else is library metadata:
-    // Symbol/Footprint/Device uuids, manufacturer fields …)
-    const SHOW = new Set(['Designator', 'Value', 'Voltage Rated', 'NET', 'Global Net Name', 'Name', 'Pin Name', 'Pin Number']);
-    // device meta: "32.768kHz ±20ppm 12.5pF" → Value shows the first unit token
-    // ("32.768kHz"); "12pF ±5% 50V" → Voltage Rated shows the V token ("50V").
-    // multi-part devices also show their title under the body (R7FA6E2BB3CNE#BA0)
+    // device meta attributes: resolution floor for null instance values and the
+    // scope for ={…} formulas; {Device} names the device title (U14 →
+    // "BTB-24P(12x2)-0.4mm"), not the uuid the Device attr stores
     const devUuid = String(attrValue(attrs, 'Device') ?? '');
     const devSeg = opened.libs.get(devUuid);
     const metaAny = devSeg?.meta as any;
+    const metaAttrs: Record<string, string> = metaAny?.attributes ?? {};
+    const varMap: Record<string, string> = { ...metaAttrs };
+    for (const a of attrs) { const k = String(a.data.key ?? ''); if (k && a.data.value != null) varMap[k] = String(a.data.value); }
+    if (devSeg?.meta?.title) varMap.Device = String(devSeg.meta.title);
+    // description tokens only feed the legacy synthesis fallback below
+    // ("32.768kHz ±20ppm 12.5pF" → "32.768kHz")
     const descText = String(metaAny?.description ?? metaAny?.attributes?.['LCSC Part Name'] ?? '');
     const tokenRe = /^\d+(\.\d+)?([kKmMµunp])?(F|Ω|V|H)Z?$/i;
-    const descTokens = descText.split(/\s+/).filter((t) => tokenRe.test(t));
-    const firstToken = descTokens[0] ?? '';
-    const voltToken = descTokens.find((t) => /v$/i.test(t)) ?? '';
-    const localAttrMap: Record<string, string> = {};
-    for (const a of attrs) { const k = String(a.data.key ?? ''); if (k) localAttrMap[k] = String(a.data.value ?? ''); }
-    // {Device} in attribute formulas names the device title (U14 → "BTB-24P(12x2)-0.4mm"),
-    // not the raw device uuid the Device attr stores
-    if (devSeg?.meta?.title) localAttrMap.Device = String(devSeg.meta.title);
-    let stacked = 0;
-    let sawValue = false;
-    let desPos: [number, number] | null = null;
-    // net flags carry the net in both 'Name' and 'Global Net Name'; EasyEDA paints it once
-    // (the horizontal 'Name' — 'Global Net Name' can even hold a stale rotated copy)
-    let nameVal: string | null = null;
-    for (const a of attrs) {
-      if (String(a.data.key ?? '') !== 'Name') continue;
-      const ad = a.data;
-      const def = libDefAttr(sym, partId, 'Name');
-      nameVal = resolveAttrRef(localAttrMap, String(ad.value ?? def?.data.value ?? metaAny?.attributes?.['Name'] ?? '')) ?? '';
-      break;
-    }
+    const firstToken = descText.split(/\s+/).find((t) => tokenRe.test(t)) ?? '';
+    const grayColor = opts.gray ? '#999999' : null;
+    const defaultColor = (key: string) => grayColor ?? (key === 'NET' || key === 'Global Net Name' ? '#0000ff' : '#000000');
+    type Item = { key: string; label: string; a: Rec; def: Rec | null };
+    const items: Item[] = [];
     for (const a of attrs) {
       const ad = a.data;
       const key = String(ad.key ?? '');
-      if (!SHOW.has(key)) continue;
-      // instance value wins; library default, then device description / meta attributes fill nulls
+      // Symbol/Device hold uuids (the border's Symbol attr even has coordinates)
+      // and Pin Name/Number live on PIN records — metadata, never painted here
+      if (!key || key === 'Symbol' || key === 'Device' || key === 'Pin Name' || key === 'Pin Number') continue;
+      // unpositioned instance attrs are library metadata (R100's Value "0Ω",
+      // Q5's Footprint uuid …) — EasyEDA does not paint them at all
+      if (typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
+      if ((ad.valueVisible ?? true) === false) continue;
       const def = libDefAttr(sym, partId, key);
-      const devFallback = (key === 'Global Net Name' || key === 'Name')
-        ? (metaAny?.attributes?.['Global Net Name'] ?? metaAny?.attributes?.['Name'] ?? '')
-        : '';
-      const fallback = key === 'Value' ? firstToken
-        : key === 'Voltage Rated' ? voltToken
-        : devFallback;
-      const value = resolveAttrRef(localAttrMap, String(ad.value ?? def?.data.value ?? fallback ?? '')) ?? '';
-      if (!value.trim()) continue;
-      if (key === 'Global Net Name' && nameVal && value === nameVal) continue;
-      if ((ad.valueVisible ?? true) === false && ad.keyVisible !== true) continue;
-      let label = key === 'Designator'
-        ? (suffix ? value + '.' + suffix : value)
-        : (ad.keyVisible ? `${key}: ${value}` : value);
-      if (!label.trim()) continue;
-      let px: number, py: number, rot: number;
-      let align = String(ad.align ?? '');
-      if (typeof ad.x === 'number' && typeof ad.y === 'number') {
-        px = X(Number(ad.x), xf); py = Y(Number(ad.y), xf);
-        rot = typeof ad.rotation === 'number' ? ang(Number(ad.rotation), xf) : 0;
-      } else if (typeof def?.data.x === 'number' && typeof def?.data.y === 'number') {
-        // No instance position: use the library default attribute anchor, transformed by the component rotation/mirror.
-        const lx = X(Number(def.data.x), sxf);
-        const ly = Y(Number(def.data.y), sxf);
-        [px, py] = toWorld(lx, ly);
-        rot = typeof def.data.rotation === 'number' ? ang(Number(def.data.rotation), xf) : 0;
-        align = String(def.data.align ?? align);
-      } else if (!lb) {
-        continue; // no geometry to anchor to
-      } else {
-        let ax = lb.minX, ay = lb.minY - 4 + stacked++ * 8; // stack under the designator
-        if (key === 'Global Net Name') {
-          // hang the net name just beyond the symbol's free (pin) end, always horizontal
-          const pa = -((Number(pin?.data.rotation) || 0) * Math.PI) / 180;
-          const pinY = pin ? Number(pin.data.y ?? 0) - sxf.oy + (Number(pin.data.length ?? 10) + 4) * Math.sin(pa) : 0;
-          // label sits on the side away from the pin tip (flags: beyond the bars)
-          ay = pinY > (lb.minY + lb.maxY) / 2 ? lb.minY - 6 : lb.maxY + 6;
-          ax = (lb.minX + lb.maxX) / 2;
-        }
-        const [rx, ry] = mirrorOf(ax, ay);
-        px = gx + rx; py = gy + ry;
-        rot = typeof ad.rotation === 'number' ? ang(Number(ad.rotation), xf) : 0;
+      const raw = ad.value ?? def?.data.value ?? metaAttrs[key] ?? '';
+      let value = resolveAttrRef(varMap, String(raw)) ?? '';
+      if (key === 'Footprint' && /^[0-9a-f]{16,}$/i.test(value)) {
+        // footprint attrs store the footprint doc uuid; EasyEDA displays its title
+        value = String(opened.libs.get(value)?.meta?.title ?? value);
       }
+      if (key === 'Designator' && suffix) value = `${value}.${suffix}`;
+      if (!value.trim()) continue;
+      items.push({ key, label: ad.keyVisible === true ? `${key}: ${value}` : value, a, def });
+    }
+    // power flags carry the net in both 'Name' and 'Global Net Name' at the same
+    // spot; EasyEDA paints it once — keep the blue Global Net Name copy
+    const gnn = items.find((i) => i.key === 'Global Net Name');
+    let sawNetText = false;
+    let desPos: [number, number] | null = null;
+    for (const it of items) {
+      if (it.key === 'Name' && gnn && gnn.label === it.label) continue;
+      const ad = it.a.data;
+      const align = ad.align ?? it.def?.data.align;
       const t = new Text({
-        text: label, fontSize: Number(ad.fontSize ?? def?.data.fontSize) || 8,
-        // EasyEDA draws instance labels blue unless the attribute says otherwise
-        fill: strokeOf({ strokeColor: ad.color ?? def?.data.color }, '#0000ff'),
+        text: it.label, fontSize: Number(ad.fontSize ?? it.def?.data.fontSize) || 8,
+        fill: strokeOf({ strokeColor: ad.color ?? it.def?.data.color }, defaultColor(it.key)),
         textAlign: alignX(align),
-        verticalAlign: alignY(align),
+        verticalAlign: alignY(align ?? 'LEFT_BOTTOM'),
         autoSizeAlign: true,
       });
-      if (key === 'Value') sawValue = true;
-      if (key === 'Designator') desPos = [px, py];
-      t.x = px; t.y = py;
-      if (rot) t.rotation = rot;
+      t.x = X(Number(ad.x), xf);
+      t.y = Y(Number(ad.y), xf);
+      if (typeof ad.rotation === 'number' && ad.rotation) t.rotation = ang(ad.rotation, xf);
+      if (it.key === 'Designator') desPos = [t.x, t.y];
+      if (it.key === 'Name' || it.key === 'Value' || it.key === 'NET' || it.key === 'Global Net Name') sawNetText = true;
       page.add(t);
     }
-    // no Value attr on the instance: synthesize one from the device description
-    if (!sawValue && !suffix && firstToken) {
-      const [px, py] = desPos ?? (lb ? [gx + mirrorOf(lb.minX, lb.minY - 4)[0], gy + mirrorOf(lb.minX, lb.minY - 4)[1]] : []);
-      if (px != null && py != null) {
-        const t = new Text({ text: firstToken, fontSize: 8, fill: '#0000ff', textAlign: 'left', verticalAlign: 'top', autoSizeAlign: true });
-        t.x = px; t.y = py + 8;
-        page.add(t);
-      }
+    // legacy fallback for libraries without positioned attributes: derive a
+    // value token from the device description so the part still shows one
+    if (!sawNetText && !suffix && firstToken && desPos) {
+      const t = new Text({ text: firstToken, fontSize: 8, fill: grayColor ?? '#0000ff', textAlign: 'left', verticalAlign: 'top', autoSizeAlign: true });
+      t.x = desPos[0]; t.y = desPos[1] + 8;
+      page.add(t);
     }
     // multi-part devices print their device title below the body
     const devTitle = suffix ? String(devSeg?.meta?.title ?? '') : '';
     if (devTitle && lb) {
       const [rx, ry] = mirrorOf(lb.minX, lb.maxY + 4);
-      const t = new Text({ text: devTitle, fontSize: 8, fill: '#0000ff', textAlign: 'left', verticalAlign: 'top', autoSizeAlign: true });
+      const t = new Text({ text: devTitle, fontSize: 8, fill: grayColor ?? '#0000ff', textAlign: 'left', verticalAlign: 'top', autoSizeAlign: true });
       t.x = gx + rx; t.y = gy + ry;
       page.add(t);
     }
@@ -634,9 +651,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
             points: [x1, y1, x2, y2],
             stroke: strokeOf(d, COLORS.net),
             strokeWidth: widthOf(d, 1),
-            strokeLineCap: 'round',
-            strokeLineJoin: 'round',
-            strokeDashArray: d.strokeStyle === 'DASHED' ? [6, 4] : undefined,
+            strokeCap: 'round',
+            strokeJoin: 'round',
+            dashPattern: dashArrayOf(d.strokeStyle),
             hitStroke: 'all',
           }));
           if (gk) {
@@ -654,6 +671,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           node.add(new Line({
             points: pts, closed: r.type === 'FILL' || !!d.closed,
             stroke: strokeOf(d, COLORS.schStroke), strokeWidth: widthOf(d, 1),
+            strokeCap: 'round', strokeJoin: 'round', // #lib-3
+            dashPattern: dashArrayOf(d.strokeStyle),
             fill: fillOf(d, r.type === 'FILL' ? '#88cccc88' : null),
           }));
         }
@@ -666,7 +685,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         node.add(new Rect({
           x: Math.min(x1, x2), y: Math.min(y1, y2),
           width: Math.abs(x2 - x1), height: Math.abs(y2 - y1),
-          stroke: strokeOf(d, '#666'), strokeWidth: widthOf(d, 1),
+          stroke: strokeOf(d, '#000000'), strokeWidth: widthOf(d, 1),
+          dashPattern: dashArrayOf(d.strokeStyle),
           fill: fillOf(d, null),
           cornerRadius: [d.radiusX ?? 0, d.radiusY ?? 0, d.radiusX ?? 0, d.radiusY ?? 0],
         }));
@@ -679,18 +699,24 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       case 'ARC': case 'ARC2': {
         const [sx, sy] = P(d.startX ?? d.x1 ?? 0, d.startY ?? d.y1 ?? 0, xf);
         const [ex, ey] = P(d.endX ?? d.x2 ?? 0, d.endY ?? d.y2 ?? 0, xf);
-        const deg = Number(d.angle ?? 0);
+        // three-point form (referX/referY on the arc) wins over the angle form (#arc-3pt)
+        const hasRefer = d.referX != null && d.referX !== '' && d.referY != null && d.referY !== '';
+        const [rx, ry] = hasRefer ? P(Number(d.referX), Number(d.referY), xf) : [0, 0];
+        const seg = hasRefer
+          ? arc3Seg(sx, sy, rx, ry, ex, ey)
+          : arcSeg(sx, sy, ex, ey, Number(d.angle ?? 0), xf.flip);
         node = new Group();
         node.add(new Path({
-          path: `M ${sx} ${sy} ${arcSeg(sx, sy, ex, ey, deg, xf.flip)}`,
+          path: `M ${sx} ${sy} ${seg}`,
           stroke: strokeOf(d, COLORS.net), strokeWidth: widthOf(d, 1),
+          strokeCap: 'round',
         }));
         break;
       }
       case 'ELLIPSE': case 'OVAL': {
         const cx = X(d.x ?? 0, xf), cy = Y(d.y ?? 0, xf);
         node = new Group();
-        node.add(new Ellipse({ x: cx - (d.radiusX ?? 5), y: cy - (d.radiusY ?? 5), width: (d.radiusX ?? 5) * 2, height: (d.radiusY ?? 5) * 2, stroke: strokeOf(d, '#666'), strokeWidth: widthOf(d, 1), fill: fillOf(d, null) }));
+        node.add(new Ellipse({ x: cx - (d.radiusX ?? 5), y: cy - (d.radiusY ?? 5), width: (d.radiusX ?? 5) * 2, height: (d.radiusY ?? 5) * 2, stroke: strokeOf(d, '#000000'), strokeWidth: widthOf(d, 1), fill: fillOf(d, null) }));
         break;
       }
       case 'PIN': {
@@ -701,10 +727,26 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         const [x1, y1] = P(px, py, xf);
         const [x2, y2] = P(px + len * Math.cos(a), py + len * Math.sin(a), xf);
         node = new Group();
-        node.add(new Line({ points: [x1, y1, x2, y2], stroke: COLORS.schPin, strokeWidth: 1, hitStroke: 'all' }));
+        node.add(new Line({ points: [x1, y1, x2, y2], stroke: COLORS.schPin, strokeWidth: 1, strokeCap: 'round', hitStroke: 'all' }));
         if (d.pinShape && d.pinShape !== 'NONE') {
           const first = String(d.pinShape).includes('HOLE') ? 0.25 : 1;
           node.add(new Ellipse({ x: x1 + (x2 - x1) * first - 1.5, y: y1 + (y2 - y1) * first - 1.5, width: 3, height: 3, fill: COLORS.schPin }));
+        }
+        // standalone symbol preview (top-level PINs): pin name / number labels
+        // ALWAYS show here, regardless of the valueVisible flag (#lib-2)
+        for (const pa of byParent.get(r.id) ?? []) {
+          const ad = pa.data;
+          if (ad.key !== 'Pin Name' && ad.key !== 'Pin Number') continue;
+          const v = String(ad.value ?? '');
+          if (!v.trim() || typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
+          const [lx, ly] = P(Number(ad.x), Number(ad.y), xf);
+          const t = new Text({
+            text: v, fontSize: Number(ad.fontSize) || 8, fill: '#000000',
+            textAlign: alignX(ad.align), verticalAlign: alignY(ad.align), autoSizeAlign: true,
+          });
+          t.x = lx; t.y = ly;
+          if (typeof ad.rotation === 'number') t.rotation = ang(Number(ad.rotation), xf);
+          node.add(t);
         }
         break;
       }
@@ -744,6 +786,20 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
 
   for (const r of sortZ(seg.recs)) drawPrimitive(r);
   drawJunctions(wireGroups);
+  // no-connect flags: page ATTRs keyed NO_CONNECT on "{component}-{pin}" parents.
+  // value "yes" marks the pin as intentionally unconnected — the client draws a
+  // green × at the pin tip (attr x/y already holds that world position).
+  for (const r of seg.recs) {
+    if (r.type !== 'ATTR' || r.data.key !== 'NO_CONNECT' || String(r.data.value ?? '') !== 'yes') continue;
+    if (typeof r.data.x !== 'number' || typeof r.data.y !== 'number') continue;
+    const cx = X(Number(r.data.x), xf);
+    const cy = Y(Number(r.data.y), xf);
+    const arm = 4.5;
+    const cross = new Group({ hittable: false });
+    cross.add(new Line({ points: [cx - arm, cy - arm, cx + arm, cy + arm], stroke: COLORS.net, strokeWidth: 1, strokeCap: 'round' }));
+    cross.add(new Line({ points: [cx - arm, cy + arm, cx + arm, cy - arm], stroke: COLORS.net, strokeWidth: 1, strokeCap: 'round' }));
+    page.add(cross);
+  }
   // net labels parented to wires (component-attached ones render with the component;
   // labels of deleted wires are orphans like their LINEs and must not render)
   const compIds = new Set(seg.recs.filter((r) => r.type === 'COMPONENT').map((r) => r.id));
@@ -754,9 +810,13 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const ad = r.data;
     const v = String(ad.value ?? '');
     if (!v.trim() || (ad.valueVisible ?? true) === false || typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
+    // no explicit align → EasyEDA parks the label just ABOVE the wire (left-aligned,
+    // bottom edge a hair above the anchor); centered on the anchor overlaps the line
+    const plain = ad.align == null || ad.align === '';
     const t = new Text({
       text: v, fontSize: Number(ad.fontSize) || 8, fill: strokeOf({ strokeColor: ad.color }, '#0000ff'),
-      textAlign: alignX(ad.align), verticalAlign: alignY(ad.align), autoSizeAlign: true,
+      textAlign: plain ? 'left' : alignX(ad.align), verticalAlign: plain ? 'bottom' : alignY(ad.align), autoSizeAlign: true,
+      lineHeight: 1, // default line-height > 1 leaves an invisible gap under the glyphs (#net-gap)
     });
     t.x = X(Number(ad.x), xf); t.y = Y(Number(ad.y), xf);
     if (typeof ad.rotation === 'number') t.rotation = ang(Number(ad.rotation), xf);
@@ -827,6 +887,17 @@ function alignX(a: unknown): 'left' | 'center' | 'right' {
 function alignY(a: unknown): 'top' | 'middle' | 'bottom' {
   const s = String(a ?? '').toUpperCase();
   return s.includes('TOP') ? 'top' : s.includes('BOTTOM') ? 'bottom' : 'middle';
+}
+
+/** EasyEDA stroke style → leafer dash array (px) */
+function dashArrayOf(style: unknown): number[] | undefined {
+  switch (String(style ?? '').toUpperCase()) {
+    case 'DASHED': return [6, 4];
+    case 'DOTTED': return [1, 3];
+    case 'DASH_DOT': case 'DOT_DASH': return [7, 3, 1.5, 3];
+    case 'DASH_DOT_DOT': return [7, 3, 1.5, 3, 1.5, 3];
+    default: return undefined;
+  }
 }
 
 function sortZ(recs: Rec[]): Rec[] {

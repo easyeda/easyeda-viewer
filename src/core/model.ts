@@ -97,9 +97,15 @@ export function openDoc(model: ProjectModel, node: TreeNode): OpenedDoc {
   if (!self) throw new Error(`segment ${node.uuid} not found in ${node.fileKey}`);
   const libs = new Map<string, DocSegment>();
   for (const s of segs) libs.set(s.uuid, s);
+  // BLOB records carry base64 data-URL images (imported logos/screenshots) used by IMAGE primitives
+  const blobs = new Map<string, string>();
+  for (const s of segs)
+    for (const r of s.recs)
+      if (r.type === 'BLOB' && typeof r.data?.content === 'string' && r.data.content.startsWith('data:'))
+        blobs.set(String(r.id ?? ''), r.data.content);
   const report = emptyReport();
   const bbox = computeBBox(self);
-  return { self, libs, fileKey: node.fileKey, node, bbox, report };
+  return { self, libs, blobs, fileKey: node.fileKey, node, bbox, report };
 }
 
 /**
@@ -162,6 +168,9 @@ export function computeBBox(seg: DocSegment): { minX: number; minY: number; maxX
         }
         break;
       case 'IMAGE': if (num(d.startX)) { add(d.startX - (d.width ?? 0) / 2, d.startY - (d.height ?? 0) / 2); add(d.startX + (d.width ?? 0) / 2, d.startY + (d.height ?? 0) / 2); } break;
+      // OBJ (imported bitmap, blob: URI content): top-left corner at (startX, startY),
+      // startY is the top edge in doc space (PCB doc y-up, SCH y-down — same rule)
+      case 'OBJ': if (num(d.startX)) { add(d.startX, d.startY - (d.height ?? 0)); add(d.startX + (d.width ?? 0), d.startY); } break;
       case 'VIA': case 'PAD': if (num(d.centerX)) { add(d.centerX, d.centerY ?? 0); } break;
       case 'POURED': for (const pf of (d.pourFill ?? [])) for (const item of scalePourItems(pf.path)) addPathPts(item, add); break;
     }

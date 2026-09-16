@@ -14,7 +14,13 @@ function nodeIcon(node: TreeNode): string {
     case 'pcb': return edaIcon('pcb', 14);
     case 'panel': return edaIcon('panel', 14);
     case 'simGroup': case 'simPage': return icon('activity', 14);
-    case 'libGroup': return edaIcon('library', 14);
+    case 'libGroup':
+      // the three library sub-groups get their own glyph; only the umbrella
+      // "Library" node uses the library icon (#lib-12)
+      if (node.title === '符号') return edaIcon('symbol', 14);
+      if (node.title === '封装') return edaIcon('footprint', 14);
+      if (node.title === '器件') return edaIcon('device', 14);
+      return edaIcon('library', 14);
     case 'lib':
       // footprint vs symbol library gets its matching glyph
       if ((node.docType ?? '').includes('FOOTPRINT')) return edaIcon('footprint', 14);
@@ -40,9 +46,11 @@ export class DocTreeView {
   private ul: HTMLUListElement;
   private cb: TreeCallbacks;
   private rows = new Map<string, HTMLLIElement>();
+  private nodeById = new Map<string, TreeNode>();
   private nodes: TreeNode[] = [];
   private openables = new Set<string>();
   private query = '';
+  private selectedId: string | null = null;
 
   constructor(host: HTMLElement, cb: TreeCallbacks) {
     this.cb = cb;
@@ -58,6 +66,21 @@ export class DocTreeView {
     });
     this.ul = document.createElement('ul');
     this.ul.className = 'ev-tree';
+    // ArrowUp/ArrowDown walk the VISIBLE rows (collapsed sub-trees are skipped)
+    // and pick each node, like the component list (#kbd-tree)
+    this.ul.tabIndex = 0;
+    this.ul.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      const ids = [...this.rows.entries()].filter(([, el]) => el.offsetParent !== null).map(([id]) => id);
+      if (!ids.length) return;
+      const cur = ids.indexOf(this.selectedId ?? '');
+      const next = e.key === 'ArrowDown' ? Math.min(cur + 1, ids.length - 1) : Math.max(cur - 1, 0);
+      const id = ids[cur < 0 ? (e.key === 'ArrowDown' ? 0 : ids.length - 1) : next];
+      this.highlight(id);
+      const node = this.nodeById.get(id);
+      if (node) this.cb.onNode(node);
+    });
     this.host.append(this.search, this.ul);
   }
 
@@ -70,6 +93,7 @@ export class DocTreeView {
   private render(): void {
     this.ul.innerHTML = '';
     this.rows.clear();
+    this.nodeById.clear();
     for (const n of this.nodes) {
       const li = this.buildRow(n, true);
       if (li) this.ul.appendChild(li);
@@ -86,6 +110,7 @@ export class DocTreeView {
     if (!this.matches(node)) return null;
     const li = document.createElement('li');
     this.rows.set(node.id, li);
+    this.nodeById.set(node.id, node);
     const row = document.createElement('div');
     row.className = 'ev-tree-row';
     if (this.openables.has(node.id)) row.classList.add('ev-openable');
@@ -116,15 +141,16 @@ export class DocTreeView {
     label.title = node.title;
     row.appendChild(label);
     li.appendChild(row);
-    row.onclick = () => this.cb.onNode(node);
+    row.onclick = () => { this.ul.focus(); this.cb.onNode(node); };
 
     if (ul) {
       const setOpen = (open: boolean): void => {
         tw!.classList.toggle('ev-open', open);
         ul!.style.display = open ? '' : 'none';
       };
-      // searching auto-expands; otherwise keep the previous light heuristics
-      let open = !!this.query || kids.length <= 3 || node.kind === 'schematic' || forceOpen && node.kind === 'board';
+      // searching auto-expands; by default only the board and its schematic
+      // containers start open — PCB / panel / library / simulation stay collapsed
+      let open = !!this.query || node.kind === 'schematic' || (forceOpen && node.kind === 'board');
       setOpen(open);
       tw!.onclick = (e) => {
         e.stopPropagation();
@@ -141,6 +167,7 @@ export class DocTreeView {
   }
 
   highlight(nodeId: string | null): void {
+    this.selectedId = nodeId; // anchor for ArrowUp/ArrowDown
     for (const [, el] of this.rows) el.firstElementChild?.classList.remove('ev-active');
     if (nodeId) {
       const el = this.rows.get(nodeId);
@@ -161,7 +188,8 @@ export interface ObjectRow {
   pageNodeId?: string;
 }
 
-/** flat component list of the current doc, naturally sorted by designator (#6/#12) */
+/** flat component list of the current doc, naturally sorted by designator (#6/#12);
+ *  ArrowUp/ArrowDown walk the visible rows and pick each one */
 export class ObjectListView {
   private host: HTMLElement;
   private search: HTMLInputElement;
@@ -169,6 +197,7 @@ export class ObjectListView {
   private rows = new Map<string, HTMLLIElement>();
   private items: ObjectRow[] = [];
   private query = '';
+  private selectedId: string | null = null;
 
   constructor(host: HTMLElement, private cb: { onPick(id: string): void }) {
     this.host = host;
@@ -182,6 +211,18 @@ export class ObjectListView {
       this.render();
     });
     this.listEl.className = 'ev-objlist';
+    this.listEl.tabIndex = 0;
+    this.listEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      const ids = [...this.rows.keys()]; // visible, in render order
+      if (!ids.length) return;
+      const cur = ids.indexOf(this.selectedId ?? '');
+      const next = e.key === 'ArrowDown' ? Math.min(cur + 1, ids.length - 1) : Math.max(cur - 1, 0);
+      const id = ids[cur < 0 ? (e.key === 'ArrowDown' ? 0 : ids.length - 1) : next];
+      this.select(id);
+      this.cb.onPick(id);
+    });
     this.host.append(this.search, this.listEl);
   }
 
@@ -215,6 +256,7 @@ export class ObjectListView {
   }
 
   select(id: string | null): void {
+    this.selectedId = id;
     for (const [, el] of this.rows) el.classList.remove('ev-active');
     if (id) {
       const el = this.rows.get(id);
@@ -224,15 +266,31 @@ export class ObjectListView {
   }
 }
 
-/** layer toggles — eye icons, only layers that actually contain objects (#19) */
+/** layer toggles — eye icons, only layers that actually contain objects (#19);
+ *  a header eye shows/hides every layer at once */
 export class LayerListView {
   private host: HTMLElement;
-  constructor(host: HTMLElement, private cb: { onToggle(id: string, show: boolean): void }) {
+  constructor(host: HTMLElement, private cb: { onToggle(id: string, show: boolean): void; onToggleAll(show: boolean): void }) {
     this.host = host;
   }
   setLayers(items: { id: string; name: string; color: string; show: boolean; count: number }[], isSch = false): void {
     this.host.innerHTML = '';
     const rows = items.filter((l) => l.count > 0);
+    if (rows.length) {
+      const anyOn = rows.some((l) => l.show);
+      const head = document.createElement('div');
+      head.className = 'ev-layer-head';
+      const all = document.createElement('button');
+      all.className = 'ev-btn ev-btn-icon ev-layer-eye';
+      all.innerHTML = icon(anyOn ? 'eyeOff' : 'eye', 14);
+      all.title = t(anyOn ? 'layerHideAll' : 'layerShowAll');
+      all.onclick = () => this.cb.onToggleAll(!anyOn);
+      const lbl = document.createElement('span');
+      lbl.className = 'ev-layer-name';
+      lbl.textContent = t('paneLayers');
+      head.append(all, lbl);
+      this.host.appendChild(head);
+    }
     for (const l of rows) {
       const row = document.createElement('div');
       row.className = 'ev-layer-row' + (l.show ? ' ev-on' : ' ev-off');

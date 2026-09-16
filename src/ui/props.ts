@@ -161,8 +161,25 @@ export class PropsView {
     const used = new Set<string>();
 
     // ---------- identity ----------
-    if (obj.rec.type === 'COMPONENT' && this.opened) {
-      this.renderComponent(table, obj.rec, used);
+    // component tables insert the X / Y row right below Device (#lib-15), then
+    // list the remaining attributes alphabetically; other types keep XY in geometry
+    const xyRows = (): void => {
+      if (!num(d.x) || !num(d.y)) return;
+      if (num(d.x2)) {
+        row('X₁ / Y₁', `${fmt(d.x)}, ${fmt(d.y)}`);
+        row('X₂ / Y₂', `${fmt(d.x2)}, ${fmt(d.y2)}`);
+        used.add('x'); used.add('y'); used.add('x2'); used.add('y2'); used.add('x1'); used.add('y1');
+      } else if (num(d.centerX) || num(d.endX)) {
+        // pad / arc / via style: center is the meaningful anchor, show endpoints too
+        if (num(d.centerX)) { row('X / Y', `${fmt(d.centerX)}, ${fmt(d.centerY)}`); used.add('centerX'); used.add('centerY'); }
+      } else {
+        row('X / Y', `${fmt(d.x)}, ${fmt(d.y)}`);
+        used.add('x'); used.add('y');
+      }
+    };
+    const isComp = obj.rec.type === 'COMPONENT' && !!this.opened;
+    if (isComp) {
+      this.renderComponent(table, obj.rec, used, xyRows);
     } else {
       if (obj.title) row(attrLabel('designator'), obj.title);
       const compAttrs = d.attrs;
@@ -176,21 +193,7 @@ export class PropsView {
       if (d.value != null && String(d.value) !== '') { row(attrLabel('value'), valueLabel(d.value)); used.add('value'); }
       if (d.num != null && String(d.num) !== '') { row(attrLabel('num'), String(d.num)); used.add('num'); }
       if (typeof d.name === 'string' && d.name) { row(attrLabel('name'), d.name); used.add('name'); }
-    }
-
-    // ---------- geometry ----------
-    if (num(d.x) && num(d.y)) {
-      if (num(d.x2)) {
-        row('X₁ / Y₁', `${fmt(d.x)}, ${fmt(d.y)}`);
-        row('X₂ / Y₂', `${fmt(d.x2)}, ${fmt(d.y2)}`);
-        used.add('x'); used.add('y'); used.add('x2'); used.add('y2'); used.add('x1'); used.add('y1');
-      } else if (num(d.centerX) || num(d.endX)) {
-        // pad / arc / via style: center is the meaningful anchor, show endpoints too
-        if (num(d.centerX)) { row('X / Y', `${fmt(d.centerX)}, ${fmt(d.centerY)}`); used.add('centerX'); used.add('centerY'); }
-      } else {
-        row('X / Y', `${fmt(d.x)}, ${fmt(d.y)}`);
-        used.add('x'); used.add('y');
-      }
+      xyRows();
     }
     if (num(d.centerX) && !used.has('centerX')) { row('X / Y', `${fmt(d.centerX)}, ${fmt(d.centerY)}`); used.add('centerX'); used.add('centerY'); }
     const dp = (d.defaultPad && typeof d.defaultPad === 'object') ? d.defaultPad : null;
@@ -277,8 +280,10 @@ export class PropsView {
     tv.appendChild(s);
   }
 
-  /** component attribute table: merge instance ATTR records + library/device defaults, resolve ={...} refs (#2/#3) */
-  private renderComponent(table: HTMLTableElement, rec: RenderObject['rec'], used: Set<string>): void {
+  /** component attribute table: merge instance ATTR records + library/device defaults, resolve ={...} refs (#2/#3).
+   *  Row order: Designator…Device, then the X / Y geometry rows, then the remaining
+   *  attributes alphabetically (#lib-15). */
+  private renderComponent(table: HTMLTableElement, rec: RenderObject['rec'], used: Set<string>, insertGeometry: () => void): void {
     const entries = this.opened ? collectAttrs(rec, this.opened) : [];
     const map: Record<string, string> = {};
     for (const e of entries) if (!map[e.key] || e.source === 'instance') map[e.key] = e.value;
@@ -304,13 +309,17 @@ export class PropsView {
       const disp = displayFor(k, raw);
       if (disp) { row(attrLabel(k), disp); seen.add(k); }
     }
-    // remaining attributes (skip raw geometry/control keys already handled below;
+    // X / Y directly below Device, ahead of the alphabetical tail
+    insertGeometry();
+    // remaining attributes alphabetically (skip raw geometry/control keys;
     // "3D Model Title" is folded into the 3D-model row above)
-    const skip = new Set(['x', 'y', 'rotation', 'angle', 'padAngle', 'partId', 'groupId', 'isMirror', 'isMirror', 'attrs', 'zIndex', 'locked', 'layerId', 'layer', '3D Model Title']);
-    for (const e of entries) {
-      if (seen.has(e.key) || skip.has(e.key)) continue;
+    const skip = new Set(['x', 'y', 'rotation', 'angle', 'padAngle', 'partId', 'groupId', 'isMirror', 'attrs', 'zIndex', 'locked', 'layerId', 'layer', '3D Model Title']);
+    const label = (k: string): string => { const l = attrLabel(k); return l !== k ? l : k; };
+    const rest = entries.filter((e) => !seen.has(e.key) && !skip.has(e.key));
+    rest.sort((a, b) => label(a.key).localeCompare(label(b.key)));
+    for (const e of rest) {
       const v = resolveAttrRef(map, e.value);
-      if (v) row(attrLabel(e.key), v);
+      if (v) row(label(e.key), v);
     }
     used.add('attrs');
     used.add('Designator'); used.add('Name'); used.add('Value');

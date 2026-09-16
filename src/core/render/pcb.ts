@@ -1,5 +1,5 @@
 /** PCB / PANEL renderer: layer-driven colors, pads/tracks/text/pours. */
-import { Group, Line, Rect, Path, Text, Ellipse } from 'leafer-ui';
+import { Group, Line, Rect, Path, Text, Ellipse, Image as LeaferImage } from 'leafer-ui';
 import type { OpenedDoc, Rec, DocSegment } from '../types';
 import type { RenderApi, RenderObject } from './layers';
 import { X, Y, P, ang, strokeOf, widthOf, xfOf, objBBox, bboxFromPts, multiPathToSvg, scalePourItems, type BBox } from './geom';
@@ -17,7 +17,7 @@ const HIDDEN_LAYERS = new Set(['49', '50']);
 
 /** bottom-side layers seen through the board are semi-transparent in EasyEDA's
  * 2D view — alphas measured from the official export (#336619 silk @50%, #000059 copper @70%) */
-const BOTTOM_ALPHA: Record<string, number> = { '2': 0.7, '4': 0.5, '6': 0.5, '8': 0.5, '10': 0.5 };
+const BOTTOM_ALPHA: Record<string, number> = { '2': 0.7, '4': 0.5, '6': 0.5, '7': 0.5, '8': 0.5, '10': 0.5 };
 
 /** used only when a LAYER record is missing; files carry the real names+colors */
 const LAYER_FALLBACK: Record<number, string> = {
@@ -94,10 +94,19 @@ function isDocIdText(d: any, ownerId?: string, allIds?: Set<string>, netNames?: 
 
 /** pad shape → leafer node (local footprint coords, center at cx,cy).
  * `holeFill` is the canvas background: drills punch through the board, they
- * are not a colored ink layer (EasyEDA shows them as bg-colored holes). */
-function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => string, holeFill: string): Group {
+ * are not a colored ink layer (EasyEDA shows them as bg-colored holes).
+ * Rotation pivot: leafer rotates around the node's own (x,y) placement point,
+ * so each shape is drawn centered on the local origin and wrapped in a Group
+ * positioned at the pad center — rotating the Group then spins the pad around
+ * its center (rotating a node placed at top-left would swing it off-target).
+ * Pad numbers are drawn at a constant pixel size via addConstantText (#4).
+ * `opts.holeSink` hoists the drill/slot group out of the pad group (caller adds
+ * it to the topmost hole layer) — use for pads already in world coords. */
+function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => string, holeFill: string,
+  opts?: { api?: RenderApi; numPx?: number; holeSink?: (hole: Group) => void }): Group {
   const g = new Group();
-  const padAngle = (Number(d.padAngle ?? 0) * Math.PI) / 180;
+  const padAngleDeg = Number(d.padAngle ?? 0);
+  const padAngle = (padAngleDeg * Math.PI) / 180;
   const offX = Number(d.padOffsetX ?? 0), offY = Number(d.padOffsetY ?? 0);
   // pad copper is offset from the pad center; the drill stays at the center (#13).
   // EasyEDA doc angles are clockwise, so rotate clockwise before the Y-flip transform.
@@ -109,35 +118,53 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   const w = Number(dp.width ?? 10), h = Number(dp.height ?? 10);
   const color = colorOf(d.layerId ?? LAYER.TOP);
   const shape = String(dp.padType ?? 'RECT').toUpperCase();
-  let pad: Group['children'][number] | null = null;
+  const pad = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
   if (shape === 'ELLIPSE' || shape === 'ROUND' || shape === 'CIRCLE') {
-    pad = new Ellipse({ x: px - w / 2, y: py - h / 2, width: w, height: h, fill: color });
+    pad.add(new Ellipse({ x: -w / 2, y: -h / 2, width: w, height: h, fill: color }));
   } else if (shape === 'OVAL' || shape === 'SLOT') {
     const cr = Math.min(w, h) / 2;
-    pad = new Rect({ x: px - w / 2, y: py - h / 2, width: w, height: h, fill: color, cornerRadius: [cr, cr, cr, cr] });
+    pad.add(new Rect({ x: -w / 2, y: -h / 2, width: w, height: h, fill: color, cornerRadius: [cr, cr, cr, cr] }));
   } else {
-    pad = new Rect({ x: px - w / 2, y: py - h / 2, width: w, height: h, fill: color, cornerRadius: (Number(dp.radius) || 0) });
+    pad.add(new Rect({ x: -w / 2, y: -h / 2, width: w, height: h, fill: color, cornerRadius: (Number(dp.radius) || 0) }));
   }
-  pad.rotation = ang(Number(d.padAngle ?? 0));
   g.add(pad);
   const hole = d.hole;
   if (hole) {
-    const hw = Number(hole.width ?? 0), hh = Number(hole.height ?? hw);
-    if (hw > 0) {
+    const hw0 = Number(hole.width ?? 0), hh0 = Number(hole.height ?? hw0);
+    if (hw0 > 0) {
       const ht = String(hole.holeType ?? 'ROUND').toUpperCase();
+      // slot drills: hole.width runs along doc-Y at padAngle 0 (vertical slot),
+      // hole.height along doc-X — swap them for X/Y extents (#8)
+      const isSlot = ht === 'SLOT';
+      const hw = isSlot ? hh0 : hw0;
+      const hh = isSlot ? hw0 : hh0;
       let hn: any;
-      if (ht === 'SLOT') {
+      if (isSlot) {
         // oblong drill: rounded-rect with half-circle caps, NOT a pointed ellipse
         const cr = Math.min(hw, hh) / 2;
-        hn = new Rect({ x: cx - hw / 2, y: cy - hh / 2, width: hw, height: hh, fill: holeFill, cornerRadius: [cr, cr, cr, cr] });
+        hn = new Rect({ x: -hw / 2, y: -hh / 2, width: hw, height: hh, fill: holeFill, cornerRadius: [cr, cr, cr, cr] });
       } else if (ht === 'SQUARE') {
-        hn = new Rect({ x: cx - hw / 2, y: cy - hh / 2, width: hw, height: hh, fill: holeFill });
+        hn = new Rect({ x: -hw / 2, y: -hh / 2, width: hw, height: hh, fill: holeFill });
       } else {
-        hn = new Ellipse({ x: cx - hw / 2, y: cy - hh / 2, width: hw, height: hh, fill: holeFill });
+        hn = new Ellipse({ x: -hw / 2, y: -hh / 2, width: hw, height: hh, fill: holeFill });
       }
-      hn.rotation = pad.rotation;
-      g.add(hn);
+      const hg = new Group({ x: cx, y: cy, rotation: ang(padAngleDeg) });
+      hg.add(hn);
+      if (opts?.holeSink) opts.holeSink(hg); // hoisted to the topmost hole layer
+      else g.add(hg);
     }
+  }
+  // pad number, fixed pixel size regardless of zoom (#4)
+  const num = d.num == null ? '' : String(d.num);
+  if (num && opts?.api) {
+    const numPx = opts.numPx ?? 9;
+    const t = new Text({
+      text: num, fontSize: numPx, fill: '#c9ccd1', textAlign: 'center', verticalAlign: 'middle',
+      autoSizeAlign: true, hittable: false,
+    } as any);
+    t.x = cx; t.y = cy;
+    opts.api.addConstantText(t, numPx);
+    g.add(t);
   }
   return g;
 }
@@ -193,11 +220,19 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     if (lm) return lm.color;
     return LAYER_FALLBACK[Number(id)] ?? '#999999';
   };
+  /** filled copper (pour fill / static fill) paints the SAME layer color as
+   *  tracks — user pref: pour must not look dimmed against the routing (#pour-col) */
+  const pourColor = (id: unknown): string => layerColor(id);
   /** drill/via holes punch through to the canvas background */
   const holeFill = api.bgColor;
-  /** attribute labels (net names / pad numbers / designators) keep a small
+  /** drill/slot holes hoist to the hole layer (47), the topmost group in the
+   *  stacking order, so drills always paint above every copper/silk group */
+  const holeLayerGroup = api.layer(String(LAYER.HOLE), layerMeta.get(String(LAYER.HOLE))?.name, layerColor(LAYER.HOLE), true);
+  /** attribute labels (net names / designators) keep a small
    * fixed pixel size at any zoom (see RenderApi.addConstantText) */
   const LABEL_PX = 9;
+  /** pad numbers render twice as large (#lib-4: user preference) */
+  const PAD_NUM_PX = 18;
 
   /** PCB text node. `docScale` (STRING silk records) renders at the file's
    * own font size so silk grows/shrinks with the board like EasyEDA does;
@@ -262,6 +297,27 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     api.addObject({ id: obj.id, rec: obj, node, label, kind, bbox: objBBox(obj, xf) ?? undefined });
   };
 
+  // ---- origin axes at the business origin (CANVAS originX/originY) (#11) ----
+  // only for dark-canvas docs (PCB / footprint); panel is white. The cross keeps
+  // a constant 1px width at any zoom via the constant-stroke registry.
+  if (seg.docType === 'PCB' || seg.docType === 'FOOTPRINT') {
+    const c = seg.canvas as any;
+    const ox = X(Number(c?.originX ?? 0), xf), oy = Y(Number(c?.originY ?? 0), xf);
+    const b = opened.bbox;
+    // extend the axes well past the content bbox so they are visible around the board
+    const ex = Math.max((b.maxX - b.minX) * 0.35, 300);
+    const ey = Math.max((b.maxY - b.minY) * 0.35, 300);
+    const axes = new Group({ name: 'origin-axes' });
+    const axis = (pts: number[], color: string) => {
+      const ln = new Line({ points: pts, stroke: color, strokeWidth: 1, hittable: false });
+      api.addConstantStroke(ln, 1);
+      axes.add(ln);
+    };
+    axis([ox - ex, oy, ox + ex, oy], 'rgba(214,96,96,0.55)'); // X axis (red)
+    axis([ox, oy - ey, ox, oy + ey], 'rgba(98,192,124,0.5)'); // Y axis (green)
+    api.layer('axes', '原点轴线', '#9aa2ad', true).add(axes);
+  }
+
   // ---- panel board outline from CANVAS (mm sizes), drawn before content ----
   if (seg.docType === 'PANEL') {
     const c = seg.canvas as any;
@@ -299,7 +355,21 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       if (HIDDEN_LAYERS.has(String(d.layerId))) continue; // pin-soldering rose discs etc.
       switch (r.type) {
         case 'PAD': {
-          target.add(padNode(d, fxf, layerColor, holeFill));
+          // drill/slot holes hoist to the hole layer in world coords: the pad
+          // group's local (hx,hy) maps through the component's pos + rotation
+          const gx = Number(target.x) || 0, gy = Number(target.y) || 0;
+          const gr = ((Number(target.rotation) || 0) * Math.PI) / 180;
+          const gc = Math.cos(gr), gs = Math.sin(gr);
+          target.add(padNode(d, fxf, layerColor, holeFill, {
+            api, numPx: PAD_NUM_PX,
+            holeSink: (hg) => {
+              const hx = Number(hg.x) || 0, hy = Number(hg.y) || 0;
+              hg.x = gx + hx * gc - hy * gs;
+              hg.y = gy + hx * gs + hy * gc;
+              hg.rotation = (Number(hg.rotation) || 0) + (Number(target.rotation) || 0);
+              holeLayerGroup.add(hg);
+            },
+          }));
           break;
         }
         case 'POLY': {
@@ -317,7 +387,9 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         case 'FILL': {
           const ds = multiPathToSvg(d.path ?? [], fxf, true);
           for (const path of ds) {
-            target.add(new Path({ path, fill: layerColor(d.layerId) }));
+            // static copper fill paints the same full layer color as pour fill (see pourColor)
+            const p = new Path({ path, fill: pourColor(d.layerId) });
+            target.add(p);
           }
           break;
         }
@@ -331,6 +403,21 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           const [x1, y1] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), fxf);
           const [x2, y2] = P(Number(d.endX ?? 0), Number(d.endY ?? 0), fxf);
           target.add(new Path({ path: arcD(x1, y1, x2, y2, Number(d.angle ?? 0)), stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round' }));
+          break;
+        }
+        case 'RECT': {
+          // footprint rectangle primitives (dotX1/dotY1…dotX2/dotY2 like sch RECT);
+          // round join keeps corners consistent with the round-capped lines (#lib-3)
+          const [x1, y1] = P(Number(d.dotX1 ?? 0), Number(d.dotY1 ?? 0), fxf);
+          const [x2, y2] = P(Number(d.dotX2 ?? d.dotX1 ?? 0), Number(d.dotY2 ?? d.dotY1 ?? 0), fxf);
+          const rr = Math.min(Number(d.radiusX ?? 0) || 0, Math.abs(x2 - x1) / 2, Math.abs(y2 - y1) / 2);
+          target.add(new Rect({
+            x: Math.min(x1, x2), y: Math.min(y1, y2),
+            width: Math.abs(x2 - x1), height: Math.abs(y2 - y1),
+            stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4),
+            strokeJoin: 'round', cornerRadius: rr,
+            fill: d.fillColor && d.fillColor !== 'none' ? String(d.fillColor) : null,
+          }));
           break;
         }
         case 'STRING': case 'TEXT': {
@@ -382,7 +469,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     api.layer(String(d.layerId ?? LAYER.TOP)).add(g);
     if (fp) drawFootprint(g, fp);
     else {
-      g.add(new Rect({ x: -12, y: -8, width: 24, height: 16, stroke: '#cc0000', strokeWidth: 1, strokeDashArray: [3, 3] }));
+      g.add(new Rect({ x: -12, y: -8, width: 24, height: 16, stroke: '#cc0000', strokeWidth: 1, dashPattern: [3, 3] }));
       if (fpUuid) api.reportDiagnostics.push(`未解析封装 ${fpUuid.slice(0, 10)} (line ${r.lineNo})`);
     }
     // designator / visible attrs (fixed pixel size, same as silk labels)
@@ -487,13 +574,21 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         return;
       }
       case 'PAD': {
-        const node = padNode(d, xf, layerColor, holeFill);
+        // page-level pads are in world coords — the hoisted hole group plugs
+        // straight into the hole layer
+        const node = padNode(d, xf, layerColor, holeFill, {
+          api, numPx: PAD_NUM_PX,
+          holeSink: (hg) => holeLayerGroup.add(hg),
+        });
         addToLayer(d, r, node, `焊盘 ${r.id} #${d.num ?? ''}`, 'pad');
         return;
       }
       case 'FILL': {
         const node = new Group();
-        for (const path of multiPathToSvg(d.path ?? [], xf, true)) node.add(new Path({ path, fill: layerColor(d.layerId) }));
+        for (const path of multiPathToSvg(d.path ?? [], xf, true)) {
+          // static copper fill paints the same full layer color as pour fill (see pourColor)
+          node.add(new Path({ path, fill: pourColor(d.layerId) }));
+        }
         addToLayer(d, r, node, `填充 ${r.id}`);
         return;
       }
@@ -502,7 +597,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const vd = Number(d.viaDiameter ?? 20), hd = Number(d.holeDiameter ?? 12);
         const node = new Group();
         node.add(new Ellipse({ x: cx - vd / 2, y: cy - vd / 2, width: vd, height: vd, fill: layerColor(LAYER.MULTI) }));
-        node.add(new Ellipse({ x: cx - hd / 2, y: cy - hd / 2, width: hd, height: hd, fill: holeFill }));
+        // the drill goes to the topmost hole layer like pad drills
+        holeLayerGroup.add(new Ellipse({ x: cx - hd / 2, y: cy - hd / 2, width: hd, height: hd, fill: holeFill }));
         addToLayer({ layerId: LAYER.MULTI }, r, node, `过孔 ${r.id} ${d.netName ?? ''}`, 'pad');
         return;
       }
@@ -523,7 +619,10 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const node = new Group();
         for (const pf of (d.pourFill ?? [])) {
           for (const path of multiPathToSvg(scalePourItems(pf.path), xf, true)) {
-            node.add(new Path({ path, fill: layerColor(lid) + (pf.fill ? 'b2' : ''), stroke: pf.strokeWidth ? layerColor(lid) : undefined, strokeWidth: Number(pf.strokeWidth) || undefined }));
+            // pour copper paints the SAME full layer color as tracks (user pref:
+            // the pour must not look dimmed next to routing) — #pour-col
+            const col = pourColor(lid);
+            node.add(new Path({ path, fill: col, stroke: pf.strokeWidth ? layerColor(lid) : undefined, strokeWidth: Number(pf.strokeWidth) || undefined }));
           }
         }
         addToLayer({ layerId: lid }, r, node, `铺铜 ${r.id} ${d.netName ?? ''}`);
@@ -549,6 +648,31 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         node.add(mkLabel(d, layerColor(d.layerId), xf, true));
         addToLayer(d, r, node, `文本 ${r.id} "${String(d.text ?? d.value ?? '').slice(0, 16)}"`);
         return;
+      }
+      case 'OBJ': {
+        // bitmap object imported into the doc: `path`/`content` is a `blob:<id>`
+        // URI pointing at a BLOB record (base64 data URL). (startX, startY) is the
+        // TOP-LEFT corner in doc space (PCB doc is y-up, so startY is the top edge),
+        // not the center — verified against the reference export's dialog placement.
+        const ref = typeof d.path === 'string' && d.path.startsWith('blob:') ? d.path
+          : typeof d.content === 'string' && d.content.startsWith('blob:') ? d.content : null;
+        const url = ref ? opened.blobs.get(ref.slice(5)) : undefined;
+        if (url) {
+          const wDoc = Number(d.width) || 0, hDoc = Number(d.height) || 0;
+          const node = new Group();
+          // pic centered on the node origin; offset the node by half extents so the
+          // pic's top-left lands on (startX, startY) — keeps mirror flips centered
+          const pic = new LeaferImage({ url, width: wDoc, height: hDoc, x: -wDoc / 2, y: -hDoc / 2 });
+          if (d.mirror ?? d.isMirror) pic.scaleX = -1;
+          node.add(pic);
+          const [px, py] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), xf);
+          node.x = px + wDoc / 2;
+          node.y = py + hDoc / 2;
+          node.rotation = ang(Number(d.angle ?? d.rotation ?? 0));
+          addToLayer(d, r, node, `图片 ${r.id} ${d.fileName ?? ''}`);
+          return;
+        }
+        return; // blob missing — nothing to draw
       }
       case 'IMAGE': {
         // glyph-outline vector: numbers are local coords centered on 0 (y-down),
@@ -611,17 +735,23 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           node.add(arrow(B, 1));
           node.add(arrow(C, -1));
           const td = (d.text ?? {}) as any;
-          const tv = td.text ?? td.value;
+          // the stored text is a stale cache the client recomputes on open
+            // (this file's horizontal dim says "0.0mm" for a 1496 mil span) —
+          // recompute LENGTH dimensions from the measured segment instead
+          const mil = Math.hypot(Number(cs[4]) - Number(cs[2]), Number(cs[5]) - Number(cs[3]));
+          const tv = mil > 0 ? (mil * 0.0254).toFixed(1) : (td.text ?? td.value);
           if (tv != null && tv !== '') {
             const tp = P(Number(td.x ?? 0), Number(td.y ?? 0), xf);
             const fs = Number(td.fontSize) || 100;
-            const t = new Text({ text: `${String(tv)}${d.unit ?? ''}`, fontSize: fs, fill: col } as any);
+            const t = new Text({ text: `${tv}${d.unit ?? 'mm'}`, fontSize: fs, fill: col, textAlign: 'center', verticalAlign: 'bottom' } as any);
             const vertical = Math.abs(Number(cs[4]) - Number(cs[2])) < 1e-6;
             if (vertical) {
               t.rotation = -90; // read bottom-up alongside a vertical dimension
+              t.textAlign = 'left';
+              t.verticalAlign = 'middle';
               t.x = tp[0] + fs * 0.35; t.y = tp[1];
             } else {
-              t.x = tp[0]; t.y = tp[1] - fs; // above the dimension line
+              t.x = tp[0]; t.y = tp[1]; // above the dimension line
             }
             node.add(t);
           }

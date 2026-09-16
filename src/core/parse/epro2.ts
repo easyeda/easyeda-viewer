@@ -106,7 +106,21 @@ export function buildTreeFromSegments(fileKey: string, segs: DocSegment[]): Tree
   if (simRoot.children!.length) tree.push(simRoot);
   if (libs.length) {
     const g: TreeNode = { id: nid('libg'), kind: 'libGroup', title: 'Library', children: [] };
-    for (const l of libs) g.children!.push(mk('lib', titleOf(l), l));
+    // three collapsible sub-groups: symbols / footprints / devices (#lib-12)
+    const sub = [
+      { title: '符号', docTypes: ['SYMBOL'] },
+      { title: '封装', docTypes: ['FOOTPRINT'] },
+      { title: '器件', docTypes: ['DEVICE'] },
+    ];
+    for (const s of sub) {
+      const members = libs.filter((l) => s.docTypes.includes(String(l.docType)));
+      if (!members.length) continue;
+      // library entries sort naturally by title ("L0603" < "L1206" < "SOD-323…" ← #lib-1)
+      members.sort((a, b) => titleOf(a).localeCompare(titleOf(b), undefined, { numeric: true, sensitivity: 'base' }));
+      const sg: TreeNode = { id: nid('libg'), kind: 'libGroup', title: s.title, children: [] };
+      for (const l of members) sg.children!.push(mk('lib', titleOf(l), l));
+      g.children!.push(sg);
+    }
     tree.push(g);
   }
   for (const bn of boardNode.values()) if (bn.children?.length) tree.unshift(bn);

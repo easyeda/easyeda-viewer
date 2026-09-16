@@ -3,7 +3,7 @@
  * collecting a flat object list (for the object tree / properties panel)
  * and layer groups (for the layer panel toggles).
  */
-import { Group, Text } from 'leafer-ui';
+import { Group, Line, Text } from 'leafer-ui';
 import type { OpenedDoc, Rec, DocSegment, ParseReport } from '../types';
 import { renderSch } from './sch';
 import { renderPcb } from './pcb';
@@ -46,6 +46,8 @@ export interface RenderApi {
   bgColor: string;
   /** register a label that must stay the same pixel size at any zoom */
   addConstantText(node: Text, basePx: number): void;
+  /** register a stroke whose width must stay the same pixels at any zoom (origin axes) */
+  addConstantStroke(node: Line, baseW: number): void;
   reportDiagnostics: string[];
 }
 
@@ -60,6 +62,8 @@ export interface RenderResult {
   nodeIndex: Map<object, RenderObject>;
   /** labels that must stay a fixed pixel size (rescale fontSize with camera) */
   constantTexts: { node: Text; basePx: number }[];
+  /** strokes that must keep a fixed pixel width (rescale strokeWidth with camera) */
+  constantStrokes: { node: Line; baseW: number }[];
 }
 
 export function renderDoc(opened: OpenedDoc, bgColor = '#000000'): RenderResult {
@@ -69,6 +73,7 @@ export function renderDoc(opened: OpenedDoc, bgColor = '#000000'): RenderResult 
   const reportDiagnostics: string[] = [];
   const nodeIndex = new Map<object, RenderObject>();
   const constantTexts: { node: Text; basePx: number }[] = [];
+  const constantStrokes: { node: Line; baseW: number }[] = [];
 
   const api: RenderApi = {
     addGroup(_seg, group) {
@@ -97,6 +102,9 @@ export function renderDoc(opened: OpenedDoc, bgColor = '#000000'): RenderResult 
     addConstantText(node, basePx) {
       constantTexts.push({ node, basePx });
     },
+    addConstantStroke(node, baseW) {
+      constantStrokes.push({ node, baseW });
+    },
     reportDiagnostics,
   };
 
@@ -104,8 +112,11 @@ export function renderDoc(opened: OpenedDoc, bgColor = '#000000'): RenderResult 
   if (dt === 'PCB' || dt === 'PANEL' || dt === 'FOOTPRINT') {
     renderPcb(opened, api);
     // layer groups were created in file order (Top first = drawn bottommost);
-    // re-add in real copper stacking order: bottom … top … multi … silk … outline/doc
-    const Z_ORDER = ['panel', '2', '6', '14', '15', '16', '17', '18', '1', '5', '7', '12', '3', '4', '19', '11', '13', '47', '0'];
+    // re-add in real copper stacking order: board/keep-out … bottom group …
+    // inner … top paste (user pref: under the top copper) … top group …
+    // silk/mask on top … outline/doc … origin axes … drill/slot holes on top
+    // (user pref: drills punch through everything, incl. pads on the top copper)
+    const Z_ORDER = ['panel', '2', '6', '4', '8', '10', '14', '15', '16', '17', '18', '7', '1', '5', '9', '12', '3', '19', '11', '13', '0', 'axes', '47'];
     for (const id of Z_ORDER) { const l = layers.get(id); if (l) root.add(l.group); }
   } else renderSch(opened, api); // SCH_PAGE / SIMULATION / SYMBOL standalone
 
@@ -114,7 +125,7 @@ export function renderDoc(opened: OpenedDoc, bgColor = '#000000'): RenderResult 
     l.group.visible = l.show;
     l.count = l.group.children?.length ?? l.count;
   }
-  return { root, objects, layers: list, report: opened.report, diagnostics: reportDiagnostics, nodeIndex, constantTexts };
+  return { root, objects, layers: list, report: opened.report, diagnostics: reportDiagnostics, nodeIndex, constantTexts, constantStrokes };
 }
 
 /** map every descendant leafer node to its owning object (hit resolution) */

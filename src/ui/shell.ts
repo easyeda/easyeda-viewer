@@ -12,7 +12,7 @@ import type { ProjectModel, TreeNode, OpenedDoc } from '../core/types';
 import { loadFromFiles, loadFromMap } from '../core/parse/container';
 import { openDoc, collectAttrs, resolveAttrRef, resolveLibGraphics } from '../core/model';
 import { renderDoc, type RenderObject, type RenderLayer } from '../core/render/layers';
-import type { Text as LeaferText } from 'leafer-ui';
+import type { Text as LeaferText, Line as LeaferLine } from 'leafer-ui';
 import { Camera } from './camera';
 import { setupDnd, pickFiles, pickFolder, type DndController } from './dnd';
 import { DocTreeView, ObjectListView, LayerListView, escapeHtml, type ObjectRow } from './tree';
@@ -67,6 +67,7 @@ export class Shell {
   private zoomEl!: HTMLInputElement;
   private titleEl: HTMLElement;
   private welcomeEl: HTMLElement;
+  private deviceNoteEl!: HTMLElement;
   private dnd: DndController;
   private leftEl: HTMLElement;
   private rightEl: HTMLElement;
@@ -88,6 +89,7 @@ export class Shell {
   private objects: RenderObject[] = [];
   private layers: RenderLayer[] = [];
   private constantTexts: { node: LeaferText; basePx: number }[] = [];
+  private constantStrokes: { node: LeaferLine; baseW: number }[] = [];
   private layerVisible = new Map<string, boolean>();
   private selected: RenderObject | null = null;
   private selRect: Rect | null = null;
@@ -154,6 +156,7 @@ export class Shell {
               <p class="ev-wz-or" data-i18n="welcomeLocal"></p>
             </div>
           </div>
+          <div class="ev-device-note ev-hidden" data-i18n="deviceNoGraphics"></div>
         </div>
         <div class="ev-resize" data-side="right"></div>
         <aside class="ev-right">
@@ -170,6 +173,7 @@ export class Shell {
     this.statusMsgEl = this.el.querySelector('.ev-status-msg') as HTMLElement;
     this.titleEl = this.el.querySelector('.ev-title') as HTMLElement;
     this.welcomeEl = this.el.querySelector('.ev-welcome') as HTMLElement;
+    this.deviceNoteEl = this.el.querySelector('.ev-device-note') as HTMLElement;
     this.toolbarEl = this.el.querySelector('.ev-toolbar') as HTMLElement;
     this.leftEl = this.el.querySelector('.ev-left') as HTMLElement;
     this.rightEl = this.el.querySelector('.ev-right') as HTMLElement;
@@ -187,6 +191,8 @@ export class Shell {
       this.updateSelStroke();
       // keep net/pad labels at a constant pixel size at any zoom (#11)
       for (const ct of this.constantTexts) (ct.node as unknown as { fontSize: number }).fontSize = ct.basePx / this.camera.scale;
+      // keep origin axes at a constant pixel width at any zoom (#11)
+      for (const cs of this.constantStrokes) cs.node.strokeWidth = cs.baseW / this.camera.scale;
     };
     this.overlay = new Group({ hittable: false });
     this.camera.world.add(this.overlay);
@@ -198,6 +204,16 @@ export class Shell {
         this.layerVisible.set(id, show);
         const l = this.layers.find((x) => x.id === id);
         if (l) l.group.visible = show;
+      },
+      onToggleAll: (show) => {
+        for (const it of this.lastLayerItems) {
+          if (it.count <= 0) continue;
+          it.show = show;
+          this.layerVisible.set(it.id, show);
+          const l = this.layers.find((x) => x.id === it.id);
+          if (l) l.group.visible = show;
+        }
+        this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
       },
     });
     this.props = new PropsView(this.el.querySelector('.ev-props-host') as HTMLElement);
@@ -383,8 +399,10 @@ export class Shell {
     (this.el.querySelector('.ev-resize[data-side="right"]') as HTMLElement).classList.toggle('ev-hidden', !this.rightVisible());
     this.statusEl.classList.toggle('ev-hidden', !this.flags.status);
     const hasLayers = this.layers.length > 0 && (this.docKind === 'pcb' || this.docKind === 'panel' || this.docKind === 'footprint');
-    this.layerPane.hidden = !hasLayers;
-    this.layerSplit.hidden = !hasLayers;
+    // `.ev-pane` sets display:flex, which beats the UA [hidden] rule — use the
+    // !important .ev-hidden class so stale layer rows really disappear (#lib-layers)
+    this.layerPane.classList.toggle('ev-hidden', !hasLayers);
+    this.layerSplit.classList.toggle('ev-hidden', !hasLayers);
     (this.el.querySelector('[data-act="panelL"]') as HTMLElement).classList.toggle('ev-on', this.leftVisible());
     (this.el.querySelector('[data-act="panelR"]') as HTMLElement).classList.toggle('ev-on', this.rightVisible());
   }
@@ -442,15 +460,20 @@ export class Shell {
   private openNode(node: TreeNode): void {
     if (!this.model || !node.fileKey || !node.uuid) return;
     try {
+      this.deviceNoteEl.classList.add('ev-hidden');
       const opened = openDoc(this.model, node);
       const kind = docKind(node.docType ?? '');
       const result = renderDoc(opened, canvasBg(kind));
       this.currentRoot?.remove();
       this.camera.world.add(result.root);
+      // re-add the overlay AFTER the doc root so the selection box always paints
+      // above the document content (on PCBs the opaque board used to cover it)
+      this.camera.world.add(this.overlay);
       this.currentRoot = result.root;
       this.objects = result.objects;
       this.layers = result.layers;
       this.constantTexts = result.constantTexts as { node: LeaferText; basePx: number }[];
+      this.constantStrokes = result.constantStrokes;
       this.layerVisible = new Map(this.layers.map((l) => [l.id, l.show]));
       this.curNode = node;
       this.docKind = kind;
@@ -518,6 +541,10 @@ export class Shell {
         this.props.setLayerNames(this.layers);
       } else {
         this.lastLayerItems = [];
+        // destroy the previous doc's layer rows — the pane is hidden for
+        // sch/symbol/device docs, but stale DOM must not survive (#lib-layers)
+        this.layerList.setLayers([], this.docKind === 'sch');
+        this.props.setLayerNames([]);
       }
       this.props.setOpened(opened);
       this.announceOpened(result, node);
@@ -558,6 +585,27 @@ export class Shell {
     if (node.docType === 'DEVICE' && node.fileKey && node.uuid) {
       try {
         const opened = openDoc(this.model, node);
+        // a DEVICE carries only attributes, no graphics — clear the canvas and
+        // show the hint instead of leaving stale content around (#10)
+        this.currentRoot?.remove();
+        this.currentRoot = null;
+        this.objects = [];
+        this.layers = [];
+        this.constantTexts = [];
+        this.constantStrokes = [];
+        this.layerVisible.clear();
+        this.selected = null;
+        if (this.selRect) { this.selRect.remove(); this.selRect = null; }
+        this.curNode = node;
+        this.docKind = 'other';
+        delete this.canvasHost.dataset.kind;
+        this.lastObjRows = [];
+        this.lastLayerItems = [];
+        this.objList.setObjects([]);
+        this.layerList.setLayers([], true);
+        this.props.setLayerNames([]);
+        this.docTree.highlight(node.id);
+        this.deviceNoteEl.classList.remove('ev-hidden');
         this.props.showDevice(node, opened);
         this.rightForced = true;
         this.applyChrome();
@@ -650,12 +698,13 @@ export class Shell {
     this.objList.select(obj ? this.rowIdOf(obj.id) : null);
     if (obj?.bbox) {
       const b = obj.bbox;
-      const selStroke = (this.docKind === 'pcb' || this.docKind === 'footprint') ? '#ffffff' : '#808080';
+      const selStroke = (this.docKind === 'pcb' || this.docKind === 'footprint' || this.docKind === 'panel') ? '#c9ccd1' : '#2563eb';
       this.selRect = new Rect({
         x: b.minX, y: b.minY,
         width: Math.max(2, b.maxX - b.minX), height: Math.max(2, b.maxY - b.minY),
         stroke: selStroke, strokeWidth: 2 / this.camera.scale,
-        strokeDashArray: [6, 4], fill: null, hittable: false,
+        // constant-pixel dashes (4on/3off): dense at any zoom, gaps never scale
+        dashPattern: [4 / this.camera.scale, 3 / this.camera.scale], fill: null, hittable: false,
       } as any);
       this.overlay.add(this.selRect);
     }
@@ -664,7 +713,10 @@ export class Shell {
   }
 
   private updateSelStroke(): void {
-    if (this.selRect) (this.selRect as any).strokeWidth = 2 / this.camera.scale;
+    if (this.selRect) {
+      (this.selRect as any).strokeWidth = 2 / this.camera.scale;
+      (this.selRect as any).dashPattern = [4 / this.camera.scale, 3 / this.camera.scale];
+    }
   }
 
   // ---------- misc ----------

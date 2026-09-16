@@ -147,6 +147,7 @@ samples/
 
 # QA harness artifacts
 qa/*.png
+qa/diff
 qa/shots/
 .qa-chrome/
 

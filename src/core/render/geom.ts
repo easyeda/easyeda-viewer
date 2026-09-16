@@ -155,6 +155,29 @@ export function arcSeg(sx: number, sy: number, ex: number, ey: number, deg: numb
   return `A ${rad} ${rad} 0 ${large} ${sweep} ${ex} ${ey}`;
 }
 
+/** three-point arc (start / on-arc reference / end) → svg `A` segment.
+ *  All coords are already in screen space (y-down), so angles from atan2 line up
+ *  with the svg sweep convention: sweep=1 = increasing atan2 angle. Falls back to
+ *  a straight `L` when the points are collinear (degenerate circle). */
+export function arc3Seg(sx: number, sy: number, rx: number, ry: number, ex: number, ey: number): string {
+  const d = 2 * (sx * (ry - ey) + rx * (ey - sy) + ex * (sy - ry));
+  if (!Number.isFinite(d) || Math.abs(d) < 1e-9) return `L ${ex} ${ey}`;
+  const s2 = sx * sx + sy * sy, r2 = rx * rx + ry * ry, e2 = ex * ex + ey * ey;
+  const cx = (s2 * (ry - ey) + r2 * (ey - sy) + e2 * (sy - ry)) / d;
+  const cy = (s2 * (ex - rx) + r2 * (sx - ex) + e2 * (rx - sx)) / d;
+  const rad = Math.hypot(sx - cx, sy - cy);
+  if (!Number.isFinite(rad) || rad < 1e-9) return `L ${ex} ${ey}`;
+  const norm = (a: number): number => ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const a0 = Math.atan2(sy - cy, sx - cx);
+  const dR = norm(Math.atan2(ry - cy, rx - cx) - a0); // start → refer
+  const d1 = norm(Math.atan2(ey - cy, ex - cx) - a0); // start → end
+  // the drawn arc is the one passing through the refer point
+  const sweep = dR < d1 ? 1 : 0;
+  const span = sweep === 1 ? d1 : Math.PI * 2 - d1;
+  const large = span > Math.PI ? 1 : 0;
+  return `A ${rad} ${rad} 0 ${large} ${sweep} ${ex} ${ey}`;
+}
+
 export interface BBox { minX: number; minY: number; maxX: number; maxY: number }
 
 export function bboxFromPts(pts: [number, number][]): BBox | null {
@@ -193,6 +216,12 @@ export function objBBox(r: { type: string; data: any }, xf: Xf, local = false): 
       if (typeof d.width === 'number' && isFinite(d.width)) {
         raw.push([Number(d.startX) - d.width / 2, Number(d.startY) - (Number(d.height) || 0) / 2]);
         raw.push([Number(d.startX) + d.width / 2, Number(d.startY) + (Number(d.height) || 0) / 2]);
+      } else raw.push(pt(d.startX, d.startY));
+      break;
+    case 'OBJ': // imported bitmap, top-left corner at (startX, startY) — startY is the top edge
+      if (typeof d.width === 'number' && isFinite(d.width)) {
+        raw.push([Number(d.startX), Number(d.startY) - (Number(d.height) || 0)]);
+        raw.push([Number(d.startX) + d.width, Number(d.startY)]);
       } else raw.push(pt(d.startX, d.startY));
       break;
     case 'PIN': {

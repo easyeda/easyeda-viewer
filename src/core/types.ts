@@ -101,6 +101,8 @@ export interface OpenedDoc {
   self: DocSegment;
   /** uuid -> embedded segment (SYMBOL/DEVICE/FOOTPRINT...) anywhere in the file */
   libs: Map<string, DocSegment>;
+  /** BLOB record contents (base64 data URLs) keyed by record id */
+  blobs: Map<string, string>;
   fileKey: string;
   node: TreeNode;
   /** combined bbox in screen units (already Y-flipped) */
