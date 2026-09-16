@@ -11,17 +11,31 @@ globalThis.document = {
 };
 globalThis.window = globalThis;
 
-const { readFileSync } = await import('node:fs');
+const { readdirSync, readFileSync, statSync } = await import('node:fs');
 const path = await import('node:path');
-const { expandZips, loadFromMap } = await import('./src/core/parse/container.ts');
+const { loadFromMap } = await import('./src/core/parse/container.ts');
 const { openDoc } = await import('./src/core/model.ts');
 const { renderDoc } = await import('./src/core/render/layers.ts');
 
-function loadZip(file) {
+function loadFile(file) {
   const map = new Map([[path.basename(file), new Uint8Array(readFileSync(file))]]);
-  return loadFromMap(expandZips(map));
+  return loadFromMap(map);
 }
-const models = [loadZip('samples/RA6E2-eprj3/RA6E2-eprj3.zip'), loadZip('samples/RA6E2-epro2/RA6E2.epro2'), loadZip('samples/viewer_fulltest-epro2/viewer_fulltest.epro2')];
+/** folder-form project: read the directory tree like a drag&drop upload would */
+function loadDir(dir, prefix = '') {
+  const map = new Map();
+  for (const name of readdirSync(dir)) {
+    const p = path.join(dir, name);
+    const key = prefix ? `${prefix}/${name}` : name;
+    if (statSync(p).isDirectory()) {
+      for (const [k, b] of loadDir(p, key)) map.set(k, b);
+    } else {
+      map.set(key, new Uint8Array(readFileSync(p)));
+    }
+  }
+  return map;
+}
+const models = [loadFromMap(loadDir('samples/RA6E2-eprj3')), loadFile('samples/RA6E2-epro2/RA6E2.epro2'), loadFile('samples/viewer_fulltest-epro2/viewer_fulltest.epro2')];
 let total = 0, errs = 0;
 for (const m of models) {
   console.log('==', m.name, m.format, 'openables:', m.openables.size);

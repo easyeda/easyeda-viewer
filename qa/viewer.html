@@ -8,7 +8,10 @@
 <script type="module">
 import { createViewer } from '../src/embed';
 const params = new URLSearchParams(location.search);
-const file = params.get('file') || '/samples/RA6E2-eprj3/RA6E2-eprj3.zip';
+// `file=` (repeatable) and `files=` (comma-separated) load a folder-form project:
+// each fetched file keeps its URL path as webkitRelativePath so the parser sees the tree
+const paths = params.getAll('file').filter((p) => p && p !== 'none')
+  .concat(params.get('files') ? params.get('files').split(',') : []);
 const open = params.get('open') || '';
 const opts = {};
 if (params.get('theme')) opts.theme = params.get('theme');
@@ -21,9 +24,15 @@ for (const k of ['toolbar', 'left', 'right', 'status']) {
 if (Object.keys(chrome).length) opts.chrome = chrome;
 document.documentElement.dataset.theme = opts.theme ?? 'light';
 const v = createViewer(document.getElementById('app'), opts);
-if (file && file !== 'none') {
-  const buf = await fetch(file).then((r) => r.arrayBuffer());
-  await v.loadFiles([new File([buf], file.split('/').pop())]);
+if (paths.length) {
+  const fs = [];
+  for (const p of paths) {
+    const buf = await fetch(p).then((r) => r.arrayBuffer());
+    const f = new File([buf], p.split('/').pop());
+    Object.defineProperty(f, 'webkitRelativePath', { value: p.replace(/^\//, '') });
+    fs.push(f);
+  }
+  await v.loadFiles(fs);
 }
 if (open) {
   // let loadFiles' auto-open of the first doc settle first, otherwise it wins the race
