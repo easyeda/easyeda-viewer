@@ -102,6 +102,7 @@ export function splitSegments(lines: RawLine[]): { segs: DocSegment[] } {
     }
     if (rec.type === 'CANVAS' && cur) cur.canvas = rec.data as any;
     else if (rec.type === 'META' && cur) cur.meta = { ...(cur.meta ?? {}), ...rec.data };
+    if (rec.type === 'DELETE_DOC' && rec.data.isDelete === true && cur) cur.deleted = true;
     cur.recs.push(rec);
   });
   return { segs };

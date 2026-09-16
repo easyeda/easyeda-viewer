@@ -44,6 +44,8 @@ export interface DocSegment {
   canvas: CanvasInfo | null;
   meta: MetaInfo | null;
   recs: Rec[];
+  /** a DELETE_DOC record in the stream tombstoned this document (deleted in EDA) */
+  deleted?: boolean;
 }
 
 export interface ParseReport {

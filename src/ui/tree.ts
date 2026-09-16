@@ -157,6 +157,8 @@ export interface ObjectRow {
   /** display text: designator for components, id for everything else */
   label: string;
   color?: string;
+  /** schematic-wide list: tree-node id of the page owning the component */
+  pageNodeId?: string;
 }
 
 /** flat component list of the current doc, naturally sorted by designator (#6/#12) */

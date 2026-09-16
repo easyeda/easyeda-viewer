@@ -54,14 +54,16 @@ export function buildTreeFromSegments(fileKey: string, segs: DocSegment[]): Tree
   });
   const titleOf = (s: DocSegment) => (s.meta?.title as string) || s.docType + ' ' + s.uuid.slice(0, 8);
 
-  const boards = segs.filter((s) => s.docType === 'BOARD');
-  const schs = segs.filter((s) => s.docType === 'SCH');
-  const pages = segs.filter((s) => s.docType === 'SCH_PAGE');
-  const pcbs = segs.filter((s) => s.docType === 'PCB');
-  const panels = segs.filter((s) => s.docType === 'PANEL');
-  const simSch = segs.filter((s) => s.docType === 'SIMULATION_SCH');
-  const simPages = segs.filter((s) => s.docType === 'SIMULATION');
-  const libs = segs.filter((s) => ['SYMBOL', 'DEVICE', 'FOOTPRINT'].includes(s.docType));
+  // DELETE_DOC tombstones: segments deleted in the EDA client must not appear in the tree
+  const live = segs.filter((s) => !s.deleted);
+  const boards = live.filter((s) => s.docType === 'BOARD');
+  const schs = live.filter((s) => s.docType === 'SCH');
+  const pages = live.filter((s) => s.docType === 'SCH_PAGE');
+  const pcbs = live.filter((s) => s.docType === 'PCB');
+  const panels = live.filter((s) => s.docType === 'PANEL');
+  const simSch = live.filter((s) => s.docType === 'SIMULATION_SCH');
+  const simPages = live.filter((s) => s.docType === 'SIMULATION');
+  const libs = live.filter((s) => ['SYMBOL', 'DEVICE', 'FOOTPRINT'].includes(s.docType));
 
   const tree: TreeNode[] = [];
   const boardNode = new Map<string, TreeNode>();

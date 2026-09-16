@@ -62,6 +62,8 @@ export class Shell {
   private layerList: LayerListView;
   private props: PropsView;
   private statusEl: HTMLElement;
+  private statusPosEl: HTMLElement;
+  private statusMsgEl: HTMLElement;
   private zoomEl!: HTMLInputElement;
   private titleEl: HTMLElement;
   private welcomeEl: HTMLElement;
@@ -97,6 +99,10 @@ export class Shell {
   private lastTree: TreeNode[] | null = null;
   private lastOpenables: Set<string> | null = null;
   private lastObjRows: ObjectRow[] = [];
+  /** schematic-wide component rows cached per page node id (invalidate on model change) */
+  private compRowsCache = new Map<string, ObjectRow[]>();
+  /** true while the object list spans the whole owning schematic, not just the open page */
+  private schematicWide = false;
   private lastLayerItems: { id: string; name: string; color: string; show: boolean; count: number }[] = [];
 
   constructor(host: HTMLElement, private events: ShellOptions = {}) {
@@ -156,10 +162,12 @@ export class Shell {
           <div class="ev-pane ev-pane-layers" hidden><div class="ev-pane-cap" data-i18n="paneLayers"></div><div class="ev-pane-inner"></div></div>
         </aside>
       </div>
-      <div class="ev-status"></div>`;
+      <div class="ev-status"><span class="ev-status-pos"></span><span class="ev-status-msg"></span></div>`;
 
     this.canvasHost = this.el.querySelector('.ev-canvas') as HTMLElement;
     this.statusEl = this.el.querySelector('.ev-status') as HTMLElement;
+    this.statusPosEl = this.el.querySelector('.ev-status-pos') as HTMLElement;
+    this.statusMsgEl = this.el.querySelector('.ev-status-msg') as HTMLElement;
     this.titleEl = this.el.querySelector('.ev-title') as HTMLElement;
     this.welcomeEl = this.el.querySelector('.ev-welcome') as HTMLElement;
     this.toolbarEl = this.el.querySelector('.ev-toolbar') as HTMLElement;
@@ -199,6 +207,10 @@ export class Shell {
     this.applyI18n();
 
     this.canvasHost.addEventListener('pointerup', (e) => this.onCanvasClick(e));
+
+    // status bar bottom-left live cursor position in document mil (#cursor-pos)
+    this.canvasHost.addEventListener('pointermove', (e) => this.showCursorPos(e));
+    this.canvasHost.addEventListener('pointerleave', () => { /* keep the last position */ });
 
     // any manual navigation (wheel zoom / drag pan) stops the auto re-fit below
     this.canvasHost.addEventListener('wheel', () => { this.userView = true; }, { passive: true });
@@ -324,7 +336,7 @@ export class Shell {
       n.setAttribute('title', t((n as HTMLElement).dataset.tip as string));
     });
     this.el.querySelector('.ev-lang-code')!.textContent = this.lang === 'zh' ? 'EN' : '中';
-    if (!this.model && !this.curNode) this.statusEl.textContent = t('statusInit');
+    if (!this.model && !this.curNode) this.statusMsgEl.textContent = t('statusInit');
   }
 
   // ---------- theme & chrome ----------
@@ -410,6 +422,7 @@ export class Shell {
   private setModel(model: ProjectModel): void {
     this.model = model;
     this.docLoaded = true;
+    this.compRowsCache.clear();
     this.welcomeEl.classList.add('ev-hidden');
     this.titleEl.innerHTML = `<b>${escapeHtml(model.name)}</b> · ${model.format}`;
     const openables = new Set(model.openables.keys());
@@ -448,22 +461,53 @@ export class Shell {
       this.select(null);
       this.docTree.highlight(node.id);
 
-      // component tree: only real components, naturally sorted by designator (#6/#12)
-      const rows: ObjectRow[] = [];
-      for (const o of this.objects) {
-        if (o.rec.type !== 'COMPONENT') continue;
-        const attrs = collectAttrs(o.rec, opened);
-        const map = new Map<string, string>(attrs.map((e) => [e.key, e.value]));
-        const des = map.get('Designator') ?? o.title ?? o.id;
-        // Skip sheet borders, power/ground symbols, net labels and similar non-components.
-        if (!map.has('Designator') && isAuxiliarySymbol(String(o.title ?? ''))) continue;
-        const extraKey = map.has('Name') ? 'Name' : map.has('Value') ? 'Value' : '';
-        const extra = extraKey ? resolveAttrRef(Object.fromEntries(map), map.get(extraKey)) : '';
-        rows.push({
-          id: o.id,
-          type: o.rec.type,
-          label: extra ? `${des} (${extra})` : String(des),
-        });
+      // component tree: only real components, naturally sorted by designator (#6/#12);
+      // when a sheet page is open the list spans the WHOLE owning schematic —
+      // clicking a component from another page jumps to that page first
+      const buildRows = (objs: RenderObject[], od: OpenedDoc, pageNodeId: string): ObjectRow[] => {
+        const rows: ObjectRow[] = [];
+        for (const o of objs) {
+          if (o.rec.type !== 'COMPONENT') continue;
+          const attrs = collectAttrs(o.rec, od);
+          const map = new Map<string, string>(attrs.map((e) => [e.key, e.value]));
+          const des = map.get('Designator') ?? o.title ?? o.id;
+          // Skip sheet borders, power/ground symbols, net labels and similar non-components.
+          if (!map.has('Designator') && isAuxiliarySymbol(String(o.title ?? ''))) continue;
+          const extraKey = map.has('Name') ? 'Name' : map.has('Value') ? 'Value' : '';
+          const extra = extraKey ? resolveAttrRef(Object.fromEntries(map), map.get(extraKey)) : '';
+          rows.push({
+            id: pageNodeId ? `${pageNodeId}::${o.id}` : o.id,
+            type: o.rec.type,
+            label: extra ? `${des} (${extra})` : String(des),
+            pageNodeId: pageNodeId || undefined,
+          });
+        }
+        return rows;
+      };
+      const siblings = this.docKind === 'sch' ? this.siblingSheets(node) : null;
+      let rows: ObjectRow[];
+      if (siblings && siblings.length > 1) {
+        this.schematicWide = true;
+        rows = [];
+        for (const p of siblings) {
+          let pr = this.compRowsCache.get(p.id);
+          if (!pr) {
+            if (p.id === node.id) {
+              pr = buildRows(this.objects, opened, p.id);
+            } else {
+              try {
+                const sod = openDoc(this.model, p);
+                const sres = renderDoc(sod, canvasBg('sch'));
+                pr = buildRows(sres.objects, sod, p.id);
+              } catch { pr = []; }
+            }
+            this.compRowsCache.set(p.id, pr);
+          }
+          rows.push(...pr);
+        }
+      } else {
+        this.schematicWide = false;
+        rows = buildRows(this.objects, opened, '');
       }
       rows.sort((a, b) => naturalDesignator(a.label, b.label));
       this.lastObjRows = rows;
@@ -533,8 +577,40 @@ export class Shell {
 
   // ---------- selection ----------
 
+  /** sheet pages sharing the current page's owning schematic (null = standalone) */
+  private siblingSheets(node: TreeNode): TreeNode[] | null {
+    const findParent = (ns: TreeNode[]): TreeNode | null => {
+      for (const n of ns) {
+        if ((n.children ?? []).some((c) => c.id === node.id)) return n;
+        const deep = findParent(n.children ?? []);
+        if (deep) return deep;
+      }
+      return null;
+    };
+    const parent = this.model ? findParent(this.model.tree) : null;
+    const kids = (parent?.children ?? []).filter((c) => c.kind === 'sheet');
+    return kids.length ? kids : null;
+  }
+
+  /** row id of an object in the (possibly schematic-wide) component list */
+  private rowIdOf(objId: string): string {
+    return this.schematicWide && this.curNode ? `${this.curNode.id}::${objId}` : objId;
+  }
+
   private pickObject(id: string, center: boolean): void {
-    const obj = this.objects.find((o) => o.id === id) ?? null;
+    // schematic-wide list: rows carry their owning page's node id —
+    // clicking a component that lives on another page opens that page first
+    let compId = id;
+    const sep = id.indexOf('::');
+    if (sep > 0) {
+      const pageId = id.slice(0, sep);
+      compId = id.slice(sep + 2);
+      if (this.curNode?.id !== pageId) {
+        const node = this.model?.openables.get(pageId);
+        if (node) this.openNode(node);
+      }
+    }
+    const obj = this.objects.find((o) => o.id === compId) ?? null;
     this.select(obj);
     if (obj && center && obj.bbox) {
       const b = obj.bbox;
@@ -571,7 +647,7 @@ export class Shell {
     this.selected = obj;
     if (this.selRect) { this.selRect.remove(); this.selRect = null; }
     this.props.show(obj);
-    this.objList.select(obj?.id ?? null);
+    this.objList.select(obj ? this.rowIdOf(obj.id) : null);
     if (obj?.bbox) {
       const b = obj.bbox;
       const selStroke = (this.docKind === 'pcb' || this.docKind === 'footprint') ? '#ffffff' : '#808080';
@@ -617,8 +693,20 @@ export class Shell {
   }
 
   private setStatus(text: string, error = false): void {
-    this.statusEl.textContent = text;
+    this.statusMsgEl.textContent = text;
     this.statusEl.classList.toggle('ev-err', error);
+  }
+
+  /** live cursor position (document mil) at the status-bar bottom-left */
+  private showCursorPos(e: PointerEvent): void {
+    if (!this.model || !this.docLoaded) { this.statusPosEl.textContent = ''; return; }
+    const r = this.canvasHost.getBoundingClientRect();
+    const wx = (e.clientX - r.left - this.camera.tx) / this.camera.scale;
+    const wy = (e.clientY - r.top - this.camera.ty) / this.camera.scale;
+    // PCB-family docs render with a Y-flip (file space is Y-up) — report file coordinates
+    const flipped = this.docKind === 'pcb' || this.docKind === 'panel' || this.docKind === 'footprint';
+    const dx = wx, dy = flipped ? -wy : wy;
+    this.statusPosEl.textContent = `X: ${dx.toFixed(1)} ${t('mil')}  Y: ${dy.toFixed(1)} ${t('mil')}`;
   }
 
   getModel(): ProjectModel | null {

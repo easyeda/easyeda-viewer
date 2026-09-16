@@ -241,10 +241,17 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 
 /* ---------- status bar ---------- */
 .ev-status {
+  display: flex; align-items: center; gap: 18px;
   padding: 5px 12px; background: var(--ev-panel); border-top: 1px solid var(--ev-border);
-  color: var(--ev-dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--ev-dim); font-size: 12px; white-space: nowrap; overflow: hidden;
 }
-.ev-status.ev-err { color: #d92d20; }
+/* bottom-left live cursor position (document mil) */
+.ev-status-pos {
+  flex: none; min-width: 24ch; font-variant-numeric: tabular-nums;
+  color: var(--ev-dim);
+}
+.ev-status-msg { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.ev-status.ev-err .ev-status-msg { color: #d92d20; }
 
 .ev-hint { color: var(--ev-dim); padding: 12px; line-height: 1.6; }
 .ev-hl { background: var(--ev-accent-weak); color: inherit; border-radius: 2px; }
