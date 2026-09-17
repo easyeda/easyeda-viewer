@@ -169,8 +169,15 @@ export function computeBBox(seg: DocSegment): { minX: number; minY: number; maxX
         break;
       case 'IMAGE': if (num(d.startX)) { add(d.startX - (d.width ?? 0) / 2, d.startY - (d.height ?? 0) / 2); add(d.startX + (d.width ?? 0) / 2, d.startY + (d.height ?? 0) / 2); } break;
       // OBJ (imported bitmap, blob: URI content): top-left corner at (startX, startY),
-      // startY is the top edge in doc space (PCB doc y-up, SCH y-down — same rule)
-      case 'OBJ': if (num(d.startX)) { add(d.startX, d.startY - (d.height ?? 0)); add(d.startX + (d.width ?? 0), d.startY); } break;
+      // startY is the top edge; the body extends downward from it in DOC space —
+      // which is -y on PCB docs (y-up) but +y on SCH docs (y-down) (#obj-bbox)
+      case 'OBJ': {
+        if (!num(d.startX)) break;
+        const down = seg.docType === 'SCH_PAGE' || seg.docType === 'SCH' || seg.docType === 'SIMULATION_SCH';
+        const dy = down ? (d.height ?? 0) : -(d.height ?? 0);
+        add(d.startX, d.startY); add(d.startX + (d.width ?? 0), d.startY + dy);
+        break;
+      }
       case 'VIA': case 'PAD': if (num(d.centerX)) { add(d.centerX, d.centerY ?? 0); } break;
       case 'POURED': for (const pf of (d.pourFill ?? [])) for (const item of scalePourItems(pf.path)) addPathPts(item, add); break;
     }

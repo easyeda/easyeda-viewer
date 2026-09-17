@@ -222,8 +222,11 @@ export function objBBox(r: { type: string; data: any }, xf: Xf, local = false): 
       break;
     case 'OBJ': // imported bitmap, top-left corner at (startX, startY) — startY is the top edge
       if (typeof d.width === 'number' && isFinite(d.width)) {
-        raw.push([Number(d.startX), Number(d.startY) - (Number(d.height) || 0)]);
-        raw.push([Number(d.startX) + d.width, Number(d.startY)]);
+        const x1 = Number(d.startX), y0 = Number(d.startY), h = Number(d.height) || 0;
+        // y-up doc space (PCB): the body hangs below the top edge; y-down (SCH):
+        // it extends below in increasing y — the span flips with the axis (#obj-bbox)
+        raw.push([x1, xf.flip ? y0 - h : y0]);
+        raw.push([x1 + Number(d.width), xf.flip ? y0 : y0 + h]);
       } else raw.push(pt(d.startX, d.startY));
       break;
     case 'PIN': {
