@@ -673,37 +673,57 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         return; // blob missing — nothing to draw
       }
       case 'IMAGE': {
-        // glyph-outline vector: numbers are local coords centered on 0 (y-down),
-        // scaled so the declared width matches the real size, placed at startX/startY
-        const node = new Group();
+        // vector graphic (converted logo / glyph outlines, #image-holes): `path`
+        // holds 复杂多边形 data — the first subpolygon is the outer frame, later
+        // ones are holes with the opposite winding, so ALL subpaths must live in
+        // one nonzero-filled Path; per-subpath Paths paint the holes solid.
+        // Local coords are y-up like the doc space (cloud glyph y>0 sits above
+        // the text glyphs y<0 in the reference export), normalized to fill the
+        // declared width×height box whose top-left (y-up: maxY edge) is
+        // (startX, startY) with the body hanging below it; angle rotates about
+        // that corner and mirror flips the original image about its bbox mid.
         const raw = (Array.isArray(d.path) ? d.path : []) as any[];
         const segs: any[][] = raw.length && Array.isArray(raw[0]) ? (raw as any[][]) : [raw];
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         for (const seg of segs) {
           for (let i = 0; i < seg.length; i++) {
             const v = seg[i];
-            if (typeof v !== 'number') { if (v === 'ARC') i += 1; continue; }
+            // ARC/CARC carry a leading sweep-degree value that is not a coordinate
+            if (typeof v !== 'number') { if ((v === 'ARC' || v === 'CARC') && typeof seg[i + 1] === 'number') i += 1; continue; }
             const x = Number(v), y = Number(seg[i + 1]); i += 1;
             if (x < minX) minX = x; if (x > maxX) maxX = x;
             if (y < minY) minY = y; if (y > maxY) maxY = y;
           }
         }
-        const w = Number(d.width);
-        const s = isFinite(w) && w > 0 && maxX > minX ? w / (maxX - minX) : 1;
-        const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-        const ox = Number(d.startX ?? 0), oy = Number(d.startY ?? 0);
+        const lw = maxX - minX, lh = maxY - minY;
+        const wDoc = Number(d.width), hDoc = Number(d.height);
+        const sx = isFinite(wDoc) && wDoc > 0 && lw > 0 ? wDoc / lw : 1;
+        const sy = isFinite(hDoc) && hDoc > 0 && lh > 0 ? hDoc / lh : sx;
+        // local → doc offsets relative to the top-left anchor: x grows right,
+        // the y-up top edge (maxY) sits on startY so the body extends downward
         const mapped = segs.map((seg) => {
           const out: any[] = [];
           for (let i = 0; i < seg.length; i++) {
             const v = seg[i];
-            if (typeof v !== 'number') { out.push(v); if (v === 'ARC') { out.push(seg[i + 1]); i += 1; } continue; }
+            if (typeof v !== 'number') {
+              out.push(v);
+              if ((v === 'ARC' || v === 'CARC') && typeof seg[i + 1] === 'number') { out.push(seg[i + 1]); i += 1; }
+              continue;
+            }
             const x = Number(v), y = Number(seg[i + 1]); i += 1;
-            out.push((x - cx) * s + ox, (cy - y) * s + oy); // y-down path → math coords
+            const lx = d.mirror ? minX + maxX - x : x;
+            out.push((lx - minX) * sx, (y - maxY) * sy);
           }
           return out;
         });
-        // glyph outline geometry (text converted to paths): FILLED, not stroked
-        for (const path of multiPathToSvg(mapped, xf, true)) node.add(new Path({ path, fill: layerColor(d.layerId), fillRule: 'nonzero' }));
+        // coords are relative to the anchor, so the Group can rotate about it
+        const node = new Group({ rotation: ang(Number(d.angle ?? 0)) });
+        const [px, py] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), xf);
+        node.x = px; node.y = py;
+        // the mapping produced y-up doc offsets relative to the anchor — the
+        // flip transform turns them into screen coords (body hanging below it)
+        const ds = multiPathToSvg(mapped, { ox: 0, oy: 0, flip: true }, true);
+        if (ds.length) node.add(new Path({ path: ds.join(' '), fill: layerColor(d.layerId), fillRule: 'nonzero' }));
         addToLayer(d, r, node, `图形 ${r.id}`);
         return;
       }

@@ -167,7 +167,16 @@ export function computeBBox(seg: DocSegment): { minX: number; minY: number; maxX
           }
         }
         break;
-      case 'IMAGE': if (num(d.startX)) { add(d.startX - (d.width ?? 0) / 2, d.startY - (d.height ?? 0) / 2); add(d.startX + (d.width ?? 0) / 2, d.startY + (d.height ?? 0) / 2); } break;
+      // IMAGE (vector graphic): top-left corner at (startX, startY) like OBJ —
+      // the body extends downward from it, which is -y on y-up docs (PCB) and
+      // +y on y-down docs (SCH) (#image-anchor)
+      case 'IMAGE': {
+        if (!num(d.startX)) break;
+        const down = seg.docType === 'SCH_PAGE' || seg.docType === 'SCH' || seg.docType === 'SIMULATION_SCH';
+        const dy = down ? (d.height ?? 0) : -(d.height ?? 0);
+        add(d.startX, d.startY); add(d.startX + (d.width ?? 0), d.startY + dy);
+        break;
+      }
       // OBJ (imported bitmap, blob: URI content): top-left corner at (startX, startY),
       // startY is the top edge; the body extends downward from it in DOC space —
       // which is -y on PCB docs (y-up) but +y on SCH docs (y-down) (#obj-bbox)
