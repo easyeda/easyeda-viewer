@@ -347,29 +347,42 @@ export class PropsView {
       table.appendChild(tr);
     };
     const metaAny = opened.self.meta as any;
-    if (metaAny?.title) row(attrLabel('name'), String(metaAny.title));
-    const attrs = metaAny?.attributes;
-    if (attrs && typeof attrs === 'object') {
-      // Symbol/Footprint(/Name) attrs are raw uuids — the resolved rows below show
-      // their titles, so echoing the uuids would just repeat each entry twice
-      const folded = new Set(['3D Model Title', 'Symbol', 'Footprint', 'SymbolName', 'FootprintName']);
-      for (const [k, v] of Object.entries(attrs)) {
-        if (k === '3D Model') {
-          const title = typeof attrs['3D Model Title'] === 'string' ? (attrs['3D Model Title'] as string) : undefined;
-          const shown = this.model3dTitle(title, v == null ? '' : String(v));
-          if (shown) row(attrLabel(k), shown);
-          continue;
-        }
-        if (folded.has(k)) continue;
-        const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
-        if (k === 'Device' && s) { row(attrLabel(k), this.libTitle(s)); continue; }
-        if (s) row(attrLabel(k), s);
+    const attrs = (metaAny?.attributes && typeof metaAny.attributes === 'object') ? metaAny.attributes : {};
+    // resolved display value per attribute key (uuid refs already folded)
+    const shown = new Map<string, string>();
+    if (metaAny?.title) shown.set('Name', String(metaAny.title));
+    // Symbol/Footprint(/Name) attrs are raw uuids — the resolved rows below show
+    // their titles, so echoing the uuids would just repeat each entry twice
+    const folded = new Set(['3D Model Title', 'Symbol', 'Footprint', 'SymbolName', 'FootprintName']);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === '3D Model') {
+        const title = typeof attrs['3D Model Title'] === 'string' ? (attrs['3D Model Title'] as string) : undefined;
+        const s = this.model3dTitle(title, v == null ? '' : String(v));
+        if (s) shown.set(k, s);
+        continue;
       }
+      if (folded.has(k)) continue;
+      const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+      if (s) shown.set(k, k === 'Device' ? this.libTitle(s) : s);
     }
     const sym = resolveLibGraphics(opened.libs, opened.self, 'Symbol');
     const fp = resolveLibGraphics(opened.libs, opened.self, 'Footprint');
-    if (sym) row(attrLabel('symbol'), String(sym.meta?.title ?? sym.uuid));
-    if (fp) row(attrLabel('footprint'), String(fp.meta?.title ?? fp.uuid));
+    if (sym) shown.set('Symbol', String(sym.meta?.title ?? sym.uuid));
+    if (fp) shown.set('Footprint', String(fp.meta?.title ?? fp.uuid));
+
+    // same row order as the schematic component table: Designator…Device first,
+    // then the remaining attributes alphabetically (#lib-15)
+    const priority = ['Designator', 'Name', 'Value', 'Symbol', 'Footprint', '3D Model', 'Device'];
+    const label = (k: string): string => { const l = attrLabel(k); return l !== k ? l : k; };
+    const seen = new Set<string>();
+    for (const k of priority) {
+      const s = shown.get(k);
+      if (!s) continue;
+      row(label(k), s);
+      seen.add(k);
+    }
+    const rest = [...shown.entries()].filter(([k]) => !seen.has(k)).sort((a, b) => label(a[0]).localeCompare(label(b[0])));
+    for (const [k, s] of rest) row(label(k), s);
     this.host.appendChild(table);
   }
 }
