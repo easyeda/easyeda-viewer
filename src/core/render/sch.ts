@@ -763,7 +763,23 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         drawTable(node, d, xf);
         break;
       }
-      case 'OBJ': return; // embedded object with cloud blob content — not renderable locally
+      case 'OBJ': {
+        // page-level bitmap object: `content`/`path` is a `blob:<id>` URI into
+        // the file's BLOB records (base64 data URL) — resolvable via opened.blobs.
+        // (startX, startY) is the TOP-LEFT corner; the pic is centered on the
+        // group so mirror flips stay centered (same pattern as the PCB renderer).
+        const ref = typeof d.content === 'string' && d.content.startsWith('blob:') ? d.content
+          : typeof d.path === 'string' && d.path.startsWith('blob:') ? d.path : null;
+        const url = ref ? opened.blobs.get(ref.slice(5)) : undefined;
+        if (!url) return; // blob missing — nothing to draw
+        const w = Number(d.width) || 0, h = Number(d.height) || 0;
+        const pic = new LeaferImage({ url, width: w, height: h, x: -w / 2, y: -h / 2 });
+        if (d.isMirror ?? d.mirror) pic.scaleX = -1;
+        node = new Group({ x: X(Number(d.startX ?? 0), xf) + w / 2, y: Y(Number(d.startY ?? 0), xf) + h / 2 });
+        if (Number(d.rotation ?? 0)) node.rotation = ang(Number(d.rotation), xf);
+        node.add(pic);
+        break;
+      }
       case 'COMPONENT': drawComponent(r); return;
       case 'ATTR': case 'WIRE': case 'DOCHEAD': case 'CANVAS': case 'META': case 'PART': case 'GROUP':
       case 'NG_SETTING':
