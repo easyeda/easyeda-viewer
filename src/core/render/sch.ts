@@ -811,7 +811,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const v = String(ad.value ?? '');
     if (!v.trim() || (ad.valueVisible ?? true) === false || typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
     // no explicit align → EasyEDA parks the label just ABOVE the wire (left-aligned,
-    // bottom edge lifted ~0.3em off the anchor; centered on the anchor overlaps the line)
+    // bottom edge lifted ~0.4em off the anchor; centered on the anchor overlaps the line)
     const plain = ad.align == null || ad.align === '';
     const t = new Text({
       text: v, fontSize: Number(ad.fontSize) || 8, fill: strokeOf({ strokeColor: ad.color }, '#0000ff'),
@@ -821,9 +821,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     t.x = X(Number(ad.x), xf); t.y = Y(Number(ad.y), xf);
     const rot = typeof ad.rotation === 'number' ? ang(Number(ad.rotation), xf) : 0;
     if (rot) t.rotation = rot;
-    // lift the bottom-aligned glyphs ~0.3em off the wire along the text's own up
+    // lift the bottom-aligned glyphs ~0.4em off the wire along the text's own up
     // axis (user pref: a bit higher than the 1.6wu measured in the ref export — #net-gap)
-    const lift = (Number(ad.fontSize) || 8) * 0.3;
+    const lift = (Number(ad.fontSize) || 8) * 0.4;
     const rr = (rot * Math.PI) / 180;
     t.x += lift * Math.sin(rr);
     t.y += -lift * Math.cos(rr);
