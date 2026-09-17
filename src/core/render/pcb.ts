@@ -407,7 +407,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         }
         case 'RECT': {
           // footprint rectangle primitives (dotX1/dotY1…dotX2/dotY2 like sch RECT);
-          // corners stay SQUARE like the ref export — only line caps are round (#lib-3)
+          // round caps/joins like the client render — thick outlines get visibly
+          // rounded corners and ends (user pref, overrides the ref zoom — #pcb-round)
           const [x1, y1] = P(Number(d.dotX1 ?? 0), Number(d.dotY1 ?? 0), fxf);
           const [x2, y2] = P(Number(d.dotX2 ?? d.dotX1 ?? 0), Number(d.dotY2 ?? d.dotY1 ?? 0), fxf);
           const rr = Math.min(Number(d.radiusX ?? 0) || 0, Math.abs(x2 - x1) / 2, Math.abs(y2 - y1) / 2);
@@ -415,6 +416,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
             x: Math.min(x1, x2), y: Math.min(y1, y2),
             width: Math.abs(x2 - x1), height: Math.abs(y2 - y1),
             stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4),
+            strokeCap: 'round', strokeJoin: 'round',
             cornerRadius: rr,
             fill: d.fillColor && d.fillColor !== 'none' ? String(d.fillColor) : null,
           }));
@@ -509,10 +511,10 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         if (Array.isArray(d.points)) {
           const pts: number[] = [];
           for (const p of d.points as any[]) { const [x, y] = P(Number(p.x ?? 0), Number(p.y ?? 0), xf); pts.push(x, y); }
-          if (pts.length >= 4) node.add(new Line({ points: pts, closed: !!d.closed, stroke, strokeWidth: widthOf(d, 6), hitStroke: 'all' }));
+          if (pts.length >= 4) node.add(new Line({ points: pts, closed: !!d.closed, stroke, strokeWidth: widthOf(d, 6), strokeCap: 'round', strokeJoin: 'round', hitStroke: 'all' }));
         }
         for (const path of multiPathToSvg(d.path ?? [], xf, false)) {
-          node.add(new Path({ path, stroke, strokeWidth: widthOf(d, 6) }));
+          node.add(new Path({ path, stroke, strokeWidth: widthOf(d, 6), strokeCap: 'round', strokeJoin: 'round' }));
         }
         // panel shapes: ploys tokens in a normalized rect (local y-DOWN), placed by
         // row-major 2x3 matrix into doc y-UP space: y' = f − d·x − e·y
@@ -537,7 +539,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
                 pts.push(sx, sy);
               }
               const fill = d.displayFill !== false && d.fillColor && d.fillColor !== 'none' ? String(d.fillColor) : null;
-              node.add(new Line({ points: pts, closed: true, stroke: d.displayStroke === false ? null : stroke, strokeWidth: Number(d.strokeWidth) || 1, fill }));
+              node.add(new Line({ points: pts, closed: true, stroke: d.displayStroke === false ? null : stroke, strokeWidth: Number(d.strokeWidth) || 1, strokeCap: 'round', strokeJoin: 'round', fill }));
             } else if (tk) {
               const mk = `面板图形暂不支持:${tk}`;
               if (!api.reportDiagnostics.includes(mk)) api.reportDiagnostics.push(mk);
@@ -605,7 +607,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       case 'POUR': {
         const node = new Group();
         for (const path of multiPathToSvg(d.path ?? [], xf, true)) {
-          node.add(new Path({ path, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 2) }));
+          node.add(new Path({ path, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 2), strokeCap: 'round', strokeJoin: 'round' }));
         }
         addToLayer(d, r, node, `覆铜边界 ${r.id} ${d.name ?? ''}`);
         return;
@@ -622,7 +624,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
             // pour copper paints the SAME full layer color as tracks (user pref:
             // the pour must not look dimmed next to routing) — #pour-col
             const col = pourColor(lid);
-            node.add(new Path({ path, fill: col, stroke: pf.strokeWidth ? layerColor(lid) : undefined, strokeWidth: Number(pf.strokeWidth) || undefined }));
+            node.add(new Path({ path, fill: col, stroke: pf.strokeWidth ? layerColor(lid) : undefined, strokeWidth: Number(pf.strokeWidth) || undefined, strokeCap: 'round', strokeJoin: 'round' }));
           }
         }
         addToLayer({ layerId: lid }, r, node, `铺铜 ${r.id} ${d.netName ?? ''}`);
