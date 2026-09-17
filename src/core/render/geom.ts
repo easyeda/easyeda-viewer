@@ -306,8 +306,11 @@ let measureCtx: CanvasRenderingContext2D | null | undefined;
  *  doc font size, since the camera applies the zoom) — #text-bbox */
 function textExtent(value: string, fontSize: number): { w: number; h: number } {
   if (measureCtx === undefined) {
-    try { measureCtx = document.createElement('canvas').getContext('2d'); }
-    catch { measureCtx = null; }
+    try {
+      const ctx = document.createElement('canvas').getContext('2d');
+      // headless shims may hand out a stub without measureText — treat as absent
+      measureCtx = ctx && typeof ctx.measureText === 'function' ? ctx : null;
+    } catch { measureCtx = null; }
   }
   if (measureCtx) measureCtx.font = `${fontSize}px sans-serif`;
   return {

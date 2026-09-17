@@ -35,7 +35,7 @@ function loadDir(dir, prefix = '') {
   }
   return map;
 }
-const models = [loadFromMap(loadDir('samples/RA6E2-eprj3')), loadFile('samples/RA6E2-epro2/RA6E2.epro2'), loadFile('samples/viewer_fulltest-epro2/viewer_fulltest.epro2')];
+const models = [loadFromMap(loadDir('samples/RA6E2-eprj3')), loadFile('samples/RA6E2-epro2/RA6E2.epro2'), loadFile('samples/viewer_fulltest-epro2/viewer_fulltest.epro2'), loadFile('samples/ReuseBlock_A3967-epro2/ReuseBlock_A3967.epro2')];
 let total = 0, errs = 0;
 for (const m of models) {
   console.log('==', m.name, m.format, 'openables:', m.openables.size);

@@ -84,8 +84,18 @@ export function splitSegments(lines: RawLine[]): { segs: DocSegment[] } {
   lines.forEach((l, idx) => {
     const rec = toRec(l, idx + 1);
     if (rec.type === 'DOCHEAD') {
+      const uuid = String(rec.data.uuid ?? `doc${segs.length}`);
+      // CBB / reuse-block streams repeat the DOCHEAD per doc: a project-level
+      // registry entry, then DOCHEAD+META (title/board), then a ticket-less
+      // DOCHEAD followed by the real body (CANVAS + records). Merge those
+      // prefixes while the current segment holds no body records — normal
+      // single-DOCHEAD files are unaffected (#cbb-epro2)
+      if (cur && cur.uuid === uuid && cur.recs.every((r) => r.type === 'META')) {
+        if (rec.data.docType) cur.docType = String(rec.data.docType);
+        return;
+      }
       cur = {
-        uuid: String(rec.data.uuid ?? `doc${segs.length}`),
+        uuid,
         docType: String(rec.data.docType ?? ''),
         startLine: idx,
         canvas: null,
