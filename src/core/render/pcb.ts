@@ -407,7 +407,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         }
         case 'RECT': {
           // footprint rectangle primitives (dotX1/dotY1…dotX2/dotY2 like sch RECT);
-          // round join keeps corners consistent with the round-capped lines (#lib-3)
+          // corners stay SQUARE like the ref export — only line caps are round (#lib-3)
           const [x1, y1] = P(Number(d.dotX1 ?? 0), Number(d.dotY1 ?? 0), fxf);
           const [x2, y2] = P(Number(d.dotX2 ?? d.dotX1 ?? 0), Number(d.dotY2 ?? d.dotY1 ?? 0), fxf);
           const rr = Math.min(Number(d.radiusX ?? 0) || 0, Math.abs(x2 - x1) / 2, Math.abs(y2 - y1) / 2);
@@ -415,7 +415,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
             x: Math.min(x1, x2), y: Math.min(y1, y2),
             width: Math.abs(x2 - x1), height: Math.abs(y2 - y1),
             stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4),
-            strokeJoin: 'round', cornerRadius: rr,
+            cornerRadius: rr,
             fill: d.fillColor && d.fillColor !== 'none' ? String(d.fillColor) : null,
           }));
           break;

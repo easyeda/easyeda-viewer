@@ -811,7 +811,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const v = String(ad.value ?? '');
     if (!v.trim() || (ad.valueVisible ?? true) === false || typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
     // no explicit align → EasyEDA parks the label just ABOVE the wire (left-aligned,
-    // bottom edge a hair above the anchor); centered on the anchor overlaps the line
+    // bottom edge lifted ~0.2em off the anchor; centered on the anchor overlaps the line)
     const plain = ad.align == null || ad.align === '';
     const t = new Text({
       text: v, fontSize: Number(ad.fontSize) || 8, fill: strokeOf({ strokeColor: ad.color }, '#0000ff'),
@@ -819,7 +819,15 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       lineHeight: 1, // default line-height > 1 leaves an invisible gap under the glyphs (#net-gap)
     });
     t.x = X(Number(ad.x), xf); t.y = Y(Number(ad.y), xf);
-    if (typeof ad.rotation === 'number') t.rotation = ang(Number(ad.rotation), xf);
+    const rot = typeof ad.rotation === 'number' ? ang(Number(ad.rotation), xf) : 0;
+    if (rot) t.rotation = rot;
+    // lift the bottom-aligned glyphs ~0.2em off the wire along the text's own up
+    // axis (measured 1.6wu gap at 8pt between glyph bottoms and the wire in the
+    // Camera ref export — #net-gap)
+    const lift = (Number(ad.fontSize) || 8) * 0.2;
+    const rr = (rot * Math.PI) / 180;
+    t.x += lift * Math.sin(rr);
+    t.y += -lift * Math.cos(rr);
     page.add(t);
   }
   api.addGroup(seg, page);

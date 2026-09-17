@@ -244,9 +244,23 @@ export function objBBox(r: { type: string; data: any }, xf: Xf, local = false): 
       return expand(b, Number(d.viaDiameter ?? 20) / 2 + 2);
     }
     case 'TEXT': case 'STRING': {
-      raw.push(pt(d.x, d.y));
-      const b = bboxFromPts(raw.map(([x, y]) => P(x, y, xf)));
-      return b && expand(b, String(d.value ?? d.text ?? '').length * (Number(d.fontSize) || 10) * 0.35 + 6);
+      // pick bbox from measured text extents around the anchor (the old
+      // char-count estimate was wildly oversized/undersized — #text-bbox)
+      const v = String(d.value ?? d.text ?? '');
+      if (!v.trim()) return null;
+      const fs = Number(d.fontSize) || 10;
+      const { w, h } = textExtent(v, fs);
+      const [ax, ay] = P(Number(d.x ?? 0), Number(d.y ?? 0), xf);
+      const s = String(d.origin ?? d.align ?? '').toUpperCase();
+      const ha = s.includes('CENTER') ? 0.5 : s.includes('RIGHT') ? 1 : 0;
+      const va = s.includes('TOP') ? 0 : s.includes('BOTTOM') ? 1 : 0.5;
+      // corners around the anchor per alignment, rotated by the screen angle
+      const rr = (-Number(d.rotation ?? d.angle ?? 0) * Math.PI) / 180;
+      const cs = Math.cos(rr), sn = Math.sin(rr);
+      const corners: [number, number][] = [[-ha, -va], [1 - ha, -va], [1 - ha, 1 - va], [-ha, 1 - va]]
+        .map(([fx, fy]) => [fx * w, fy * h])
+        .map(([dx, dy]) => [ax + dx * cs - dy * sn, ay + dx * sn + dy * cs] as [number, number]);
+      return bboxFromPts(corners);
     }
     case 'POURED': for (const pf of d.pourFill ?? []) for (const it of scalePourItems(pf.path)) collectPathPts(it, raw); break;
     case 'POUR': case 'REGION': if (Array.isArray(d.path)) for (const it of Array.isArray(d.path[0]) ? d.path : [d.path]) collectPathPts(it, raw); break;
@@ -287,6 +301,21 @@ function collectPathPts(item: any[], raw: [number, number][]): void {
 }
 
 /** AABB of a box rotated about its own center (padAngle is doc-degrees) */
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+/** measured text extents via an offscreen 2D context (world units = px at the
+ *  doc font size, since the camera applies the zoom) — #text-bbox */
+function textExtent(value: string, fontSize: number): { w: number; h: number } {
+  if (measureCtx === undefined) {
+    try { measureCtx = document.createElement('canvas').getContext('2d'); }
+    catch { measureCtx = null; }
+  }
+  if (measureCtx) measureCtx.font = `${fontSize}px sans-serif`;
+  return {
+    w: measureCtx ? measureCtx.measureText(value).width : value.length * fontSize * 0.6,
+    h: fontSize * 1.1,
+  };
+}
+
 function rotateBox(b: BBox, deg: number): BBox {
   const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
   const a = (-deg * Math.PI) / 180;
