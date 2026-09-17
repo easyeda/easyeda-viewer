@@ -119,13 +119,15 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   const color = colorOf(d.layerId ?? LAYER.TOP);
   const shape = String(dp.padType ?? 'RECT').toUpperCase();
   const pad = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
-  if (shape === 'ELLIPSE' || shape === 'ROUND' || shape === 'CIRCLE') {
-    pad.add(new Ellipse({ x: -w / 2, y: -h / 2, width: w, height: h, fill: color }));
-  } else if (shape === 'OVAL' || shape === 'SLOT') {
+  if (shape === 'RECT' || shape === 'SQUARE') {
+    pad.add(new Rect({ x: -w / 2, y: -h / 2, width: w, height: h, fill: color, cornerRadius: (Number(dp.radius) || 0) }));
+  } else {
+    // every round-family copper shape keeps round caps: ELLIPSE is the *round*
+    // pad in EasyEDA's schema (圆焊盘 — OVAL is the oblong one), so equal w/h is
+    // a plain circle and a stretched w/h (PCB4's 260×200 slot-pad demo) is an
+    // oblong with half-circle caps, never a pointed ellipse (#pad-oval)
     const cr = Math.min(w, h) / 2;
     pad.add(new Rect({ x: -w / 2, y: -h / 2, width: w, height: h, fill: color, cornerRadius: [cr, cr, cr, cr] }));
-  } else {
-    pad.add(new Rect({ x: -w / 2, y: -h / 2, width: w, height: h, fill: color, cornerRadius: (Number(dp.radius) || 0) }));
   }
   g.add(pad);
   const hole = d.hole;
@@ -137,8 +139,9 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       // hole rotates relative to the pad by `relativeAngle` — e.g. a vertical
       // slot in a horizontal pad is relAngle=90, NOT swapped w/h (#slot-dir)
       let hn: any;
-      if (ht === 'SLOT') {
-        // oblong drill: rounded-rect with half-circle caps, NOT a pointed ellipse
+      if (ht === 'SLOT' || ht === 'ROUND') {
+        // SLOT 挖槽 and ROUND 长圆孔 (schema) are round-cap drills — oblong when
+        // w≠h, degrading to a plain round drill at w=h; never a pointed ellipse
         const cr = Math.min(hw, hh) / 2;
         hn = new Rect({ x: -hw / 2, y: -hh / 2, width: hw, height: hh, fill: holeFill, cornerRadius: [cr, cr, cr, cr] });
       } else if (ht === 'SQUARE' || ht === 'RECT' || ht === 'ROUND_RECT') {
