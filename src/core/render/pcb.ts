@@ -130,25 +130,23 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   g.add(pad);
   const hole = d.hole;
   if (hole) {
-    const hw0 = Number(hole.width ?? 0), hh0 = Number(hole.height ?? hw0);
-    if (hw0 > 0) {
+    const hw = Number(hole.width ?? 0), hh = Number(hole.height ?? hw);
+    if (hw > 0) {
       const ht = String(hole.holeType ?? 'ROUND').toUpperCase();
-      // slot drills: hole.width runs along doc-Y at padAngle 0 (vertical slot),
-      // hole.height along doc-X — swap them for X/Y extents (#8)
-      const isSlot = ht === 'SLOT';
-      const hw = isSlot ? hh0 : hw0;
-      const hh = isSlot ? hw0 : hh0;
+      // hole width runs along X, height along Y in the HOLE's own frame; the
+      // hole rotates relative to the pad by `relativeAngle` — e.g. a vertical
+      // slot in a horizontal pad is relAngle=90, NOT swapped w/h (#slot-dir)
       let hn: any;
-      if (isSlot) {
+      if (ht === 'SLOT') {
         // oblong drill: rounded-rect with half-circle caps, NOT a pointed ellipse
         const cr = Math.min(hw, hh) / 2;
         hn = new Rect({ x: -hw / 2, y: -hh / 2, width: hw, height: hh, fill: holeFill, cornerRadius: [cr, cr, cr, cr] });
-      } else if (ht === 'SQUARE') {
-        hn = new Rect({ x: -hw / 2, y: -hh / 2, width: hw, height: hh, fill: holeFill });
+      } else if (ht === 'SQUARE' || ht === 'RECT' || ht === 'ROUND_RECT') {
+        hn = new Rect({ x: -hw / 2, y: -hh / 2, width: hw, height: hh, fill: holeFill, cornerRadius: (Number(hole.cornerRadius) || 0) });
       } else {
         hn = new Ellipse({ x: -hw / 2, y: -hh / 2, width: hw, height: hh, fill: holeFill });
       }
-      const hg = new Group({ x: cx, y: cy, rotation: ang(padAngleDeg) });
+      const hg = new Group({ x: cx, y: cy, rotation: ang(padAngleDeg + (Number(d.relativeAngle ?? 0) || 0)) });
       hg.add(hn);
       if (opts?.holeSink) opts.holeSink(hg); // hoisted to the topmost hole layer
       else g.add(hg);
