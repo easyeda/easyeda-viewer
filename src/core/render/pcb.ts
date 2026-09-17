@@ -616,12 +616,19 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         // pourFill paths are authored in 0.1× PCB doc units → scale coords by 10
         const node = new Group();
         for (const pf of (d.pourFill ?? [])) {
-          for (const path of multiPathToSvg(scalePourItems(pf.path), xf, true)) {
-            // pour copper paints the SAME full layer color as tracks (user pref:
-            // the pour must not look dimmed next to routing) — #pour-col
-            const col = pourColor(lid);
-            node.add(new Path({ path, fill: col, stroke: pf.strokeWidth ? layerColor(lid) : undefined, strokeWidth: Number(pf.strokeWidth) || undefined, strokeCap: 'round', strokeJoin: 'round' }));
-          }
+          // merge the item's subpolygons into ONE nonzero-filled Path: the fill
+          // bakes its clearances in as hole subpolygons (opposite winding — e.g.
+          // circles around other-net vias/pads), which only punch through when
+          // all subpaths share a single path (#pour-gaps)
+          const ds = multiPathToSvg(scalePourItems(pf.path), xf, true);
+          if (!ds.length) continue;
+          // pour copper paints the SAME full layer color as tracks (user pref:
+          // the pour must not look dimmed next to routing) — #pour-col
+          node.add(new Path({
+            path: ds.join(' '), fill: pourColor(lid), fillRule: 'nonzero',
+            stroke: pf.strokeWidth ? layerColor(lid) : undefined,
+            strokeWidth: Number(pf.strokeWidth) || undefined, strokeCap: 'round', strokeJoin: 'round',
+          }));
         }
         addToLayer({ layerId: lid }, r, node, `铺铜 ${r.id} ${d.netName ?? ''}`);
         return;
