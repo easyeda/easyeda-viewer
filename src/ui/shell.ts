@@ -161,8 +161,8 @@ export class Shell {
         <div class="ev-resize" data-side="right"></div>
         <aside class="ev-right">
           <div class="ev-props-host"></div>
-          <div class="ev-split ev-split-h" data-sp="right" hidden></div>
-          <div class="ev-pane ev-pane-layers" hidden><div class="ev-pane-cap" data-i18n="paneLayers"></div><div class="ev-pane-inner"></div></div>
+          <div class="ev-split ev-split-h ev-hidden" data-sp="right"></div>
+          <div class="ev-pane ev-pane-layers ev-hidden"><div class="ev-pane-cap" data-i18n="paneLayers"></div><div class="ev-pane-inner"></div></div>
         </aside>
       </div>
       <div class="ev-status"><span class="ev-status-pos"></span><span class="ev-status-msg"></span></div>`;
