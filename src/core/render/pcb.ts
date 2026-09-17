@@ -99,11 +99,11 @@ function isDocIdText(d: any, ownerId?: string, allIds?: Set<string>, netNames?: 
  * so each shape is drawn centered on the local origin and wrapped in a Group
  * positioned at the pad center — rotating the Group then spins the pad around
  * its center (rotating a node placed at top-left would swing it off-target).
- * Pad numbers are drawn at a constant pixel size via addConstantText (#4).
+ * Pad numbers are drawn doc-scaled (they zoom with the canvas like the client).
  * `opts.holeSink` hoists the drill/slot group out of the pad group (caller adds
  * it to the topmost hole layer) — use for pads already in world coords. */
 function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => string, holeFill: string,
-  opts?: { api?: RenderApi; numPx?: number; holeSink?: (hole: Group) => void }): Group {
+  opts?: { holeSink?: (hole: Group) => void }): Group {
   const g = new Group();
   const padAngleDeg = Number(d.padAngle ?? 0);
   const padAngle = (padAngleDeg * Math.PI) / 180;
@@ -152,16 +152,15 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       else g.add(hg);
     }
   }
-  // pad number, fixed pixel size regardless of zoom (#4)
+  // pad number: doc-scaled like the client's own labels — it grows with zoom
+  // and its size follows the pad so it stays inside the copper (#pad-num-zoom)
   const num = d.num == null ? '' : String(d.num);
-  if (num && opts?.api) {
-    const numPx = opts.numPx ?? 9;
+  if (num) {
     const t = new Text({
-      text: num, fontSize: numPx, fill: '#c9ccd1', textAlign: 'center', verticalAlign: 'middle',
-      autoSizeAlign: true, hittable: false,
+      text: num, fontSize: Math.max(Math.min(w, h) * 0.6, 1), fill: '#c9ccd1',
+      textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false,
     } as any);
     t.x = cx; t.y = cy;
-    opts.api.addConstantText(t, numPx);
     g.add(t);
   }
   return g;
@@ -226,24 +225,21 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   /** drill/slot holes hoist to the hole layer (47), the topmost group in the
    *  stacking order, so drills always paint above every copper/silk group */
   const holeLayerGroup = api.layer(String(LAYER.HOLE), layerMeta.get(String(LAYER.HOLE))?.name, layerColor(LAYER.HOLE), true);
-  /** attribute labels (net names / designators) keep a small
-   * fixed pixel size at any zoom (see RenderApi.addConstantText) */
+  /** fallback font size (doc units) when a record carries no fontSize */
   const LABEL_PX = 9;
-  /** pad numbers render twice as large (#lib-4: user preference) */
-  const PAD_NUM_PX = 18;
 
-  /** PCB text node. `docScale` (STRING silk records) renders at the file's
-   * own font size so silk grows/shrinks with the board like EasyEDA does;
-   * attribute labels are fixed-pixel instead.
+  /** PCB text node. `docScale` renders at the record's own font size so the
+   * text grows/shrinks with the board like EasyEDA does — silk (heavy display
+   * face) and designator labels (plain face) both zoom now (#pad-num-zoom).
    * Origin token (LEFT_BOTTOM …) selects the anchor within the given point. */
-  function mkLabel(d: any, color: string, xfc: ReturnType<typeof xfOf>, docScale = false): Text {
+  function mkLabel(d: any, color: string, xfc: ReturnType<typeof xfOf>, docScale = false, heavy = docScale): Text {
     const fs = docScale ? (Number(d.fontSize) || LABEL_PX) : LABEL_PX;
     const t = new Text({
       text: String(d.text ?? d.value ?? ''), fontSize: fs,
       // silk uses heavy display fonts (e.g. 阿里巴巴普惠体 Heavy) — approximate
       // with a bold sans face so weight/styles stay close to the reference
-      fontFamily: docScale ? 'Arial Black, Arial Bold, Microsoft YaHei, sans-serif' : undefined,
-      fill: color, bold: docScale || !!d.bold,
+      fontFamily: docScale && heavy ? 'Arial Black, Arial Bold, Microsoft YaHei, sans-serif' : undefined,
+      fill: color, bold: (docScale && heavy) || !!d.bold,
       textAlign: alignX(d.origin),
       verticalAlign: String(d.origin ?? '').toUpperCase().includes('BOTTOM') ? 'bottom'
         : String(d.origin ?? '').toUpperCase().includes('TOP') ? 'top' : 'middle',
@@ -253,7 +249,6 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     t.rotation = ang(Number(d.angle ?? d.rotation ?? 0));
     if (d.reverse) t.scaleX = -1;
     if (d.mirror) t.scaleY = -1;
-    if (!docScale) api.addConstantText(t, LABEL_PX);
     return t;
   }
 
@@ -359,7 +354,6 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           const gr = ((Number(target.rotation) || 0) * Math.PI) / 180;
           const gc = Math.cos(gr), gs = Math.sin(gr);
           target.add(padNode(d, fxf, layerColor, holeFill, {
-            api, numPx: PAD_NUM_PX,
             holeSink: (hg) => {
               const hx = Number(hg.x) || 0, hy = Number(hg.y) || 0;
               hg.x = gx + hx * gc - hy * gs;
@@ -472,12 +466,17 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       g.add(new Rect({ x: -12, y: -8, width: 24, height: 16, stroke: '#cc0000', strokeWidth: 1, dashPattern: [3, 3] }));
       if (fpUuid) api.reportDiagnostics.push(`未解析封装 ${fpUuid.slice(0, 10)} (line ${r.lineNo})`);
     }
-    // designator / visible attrs (fixed pixel size, same as silk labels)
+    // designator / visible attrs: doc-scaled text at the record's own fontSize so
+    // they zoom with the canvas. The designator shows even when valueVisible is
+    // false — the client paints every positioned Designator on the board (the
+    // reference export does), the flag only tracks the properties panel (#desig-zoom)
     for (const a of attrs) {
       const ad = a.data;
       if (isDocIdText(ad, r.id, allIds, netNames, padNumbers)) continue;
-      if (ad.valueVisible === true && typeof ad.x === 'number') {
-        const t = mkLabel(ad, layerColor(ad.layerId), xf);
+      const hasPos = typeof ad.x === 'number' && isFinite(ad.x);
+      const wantsShow = !!ad.valueVisible || String(ad.key) === 'Designator';
+      if (hasPos && wantsShow) {
+        const t = mkLabel(ad, layerColor(ad.layerId), xf, true, false);
         const al = BOTTOM_ALPHA[String(ad.layerId)];
         if (al !== undefined) t.opacity = al;
         api.layer(String(ad.layerId ?? LAYER.TOP)).add(t);
@@ -577,7 +576,6 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         // page-level pads are in world coords — the hoisted hole group plugs
         // straight into the hole layer
         const node = padNode(d, xf, layerColor, holeFill, {
-          api, numPx: PAD_NUM_PX,
           holeSink: (hg) => holeLayerGroup.add(hg),
         });
         addToLayer(d, r, node, `焊盘 ${r.id} #${d.num ?? ''}`, 'pad');

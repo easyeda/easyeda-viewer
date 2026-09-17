@@ -189,7 +189,8 @@ export class Shell {
     this.camera.onView = () => {
       if (document.activeElement !== this.zoomEl) this.zoomEl.value = Math.round(this.camera.scale * 100) + '%';
       this.updateSelStroke();
-      // keep net/pad labels at a constant pixel size at any zoom (#11)
+      // constant-pixel texts (registered via addConstantText) keep their screen
+      // size at any zoom; PCB labels are doc-scaled now and don't register
       for (const ct of this.constantTexts) (ct.node as unknown as { fontSize: number }).fontSize = ct.basePx / this.camera.scale;
       // keep origin axes at a constant pixel width at any zoom (#11)
       for (const cs of this.constantStrokes) cs.node.strokeWidth = cs.baseW / this.camera.scale;
