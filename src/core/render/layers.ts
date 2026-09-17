@@ -31,6 +31,8 @@ export interface RenderLayer {
   name: string;
   color: string;
   show: boolean;
+  /** file layerType (TOP / SIGNAL / BOTTOM_SILK / OUTLINE / HOLE …) that drives the PCB stack order */
+  type?: string;
   group: Group;
   count: number;
 }
@@ -41,7 +43,7 @@ export interface RenderApi {
   /** register an object for tree/properties */
   addObject(o: RenderObject): void;
   /** layer registry for PCB-style docs */
-  layer(id: number | string, name?: string, color?: string, show?: boolean): Group;
+  layer(id: number | string, name?: string, color?: string, show?: boolean, type?: string): Group;
   /** fill color that tracks the canvas background (drill holes etc.) */
   bgColor: string;
   /** register a label that must stay the same pixel size at any zoom */
@@ -66,6 +68,45 @@ export interface RenderResult {
   constantStrokes: { node: Line; baseW: number }[];
 }
 
+/** numeric-id stacking fallback ([side, type]) for layers created without a file
+ *  layerType (missing LAYER record): side 0 top · 1 inner · 2 bottom · 3 multi · 4 other */
+const NUM_STACK: Record<number, [number, number]> = {
+  1: [0, 0], 2: [2, 0], 3: [0, 2], 4: [2, 2], 5: [0, 1], 6: [2, 1], 7: [0, 3], 8: [2, 3],
+  9: [4, 4], 10: [4, 4], 12: [3, 0], 13: [4, 4], 19: [4, 4], 56: [4, 4],
+};
+for (let i = 14; i <= 46; i++) NUM_STACK[i] = [1, 0];
+
+/** PCB stacking key — lower paints first / lower in the stack: board outline <
+ *  top face < inner faces < bottom face < multi/all < annotation layers <
+ *  origin-axes & ratsnest tools < drill holes (topmost, so copper never covers
+ *  a hole). Within a face copper(0) → solder mask(1) → silk(2) → paste(3),
+ *  mirroring the reference viewer's side*10+type sort; equal keys keep
+ *  creation order (stable sort). */
+function pcbStackKey(l: RenderLayer): number {
+  if (l.id === 'panel') return -100;
+  if (l.id === 'axes') return 9000;
+  if (l.id === 'rats') return 9100;
+  const t = String(l.type ?? '').toUpperCase();
+  const n = Number(l.id);
+  if (t === 'OUTLINE' || (!t && n === 11)) return 0;
+  if (t === 'HOLE' || t === 'DRILL' || t === 'DRILL_DRAWING' || (!t && n === 47)) return 9999;
+  let side: number, type: number;
+  if (t) {
+    // layerType is a compound token (TOP / TOP_SILK / BOT_SOLDER_MASK / SIGNAL /
+    // MULTI / OUTLINE …) — match the face by prefix, the kind by infix/suffix
+    side = t.startsWith('TOP') ? 0
+      : t === 'SIGNAL' || t === 'PLANE' || t.startsWith('INNER') ? 1
+      : t.startsWith('BOTTOM') ? 2 : t.startsWith('MULTI') ? 3 : 4;
+    type = t.endsWith('SILK') ? 2 : t.includes('SOLDER_MASK') ? 1 : t.includes('PASTE') ? 3
+      : t === 'TOP' || t === 'BOTTOM' || t === 'SIGNAL' || t === 'PLANE' || t.startsWith('MULTI') ? 0 : 4;
+  } else {
+    const e = NUM_STACK[n];
+    side = e?.[0] ?? 4;
+    type = e?.[1] ?? 4;
+  }
+  return 100 + side * 10 + type;
+}
+
 export function renderDoc(opened: OpenedDoc, bgColor = '#000000'): RenderResult {
   const root = new Group({ name: `doc:${opened.self.uuid}` });
   const objects: RenderObject[] = [];
@@ -83,18 +124,19 @@ export function renderDoc(opened: OpenedDoc, bgColor = '#000000'): RenderResult 
       objects.push(o);
       indexTree(o.node, o, nodeIndex);
     },
-    layer(id, name, color, show) {
+    layer(id, name, color, show, type) {
       const key = String(id);
       let l = layers.get(key);
       if (!l) {
         const g = new Group({ name: `layer:${key}` });
-        l = { id: key, name: name ?? `Layer ${key}`, color: color ?? '#888888', show: true, group: g, count: 0 };
+        l = { id: key, name: name ?? `Layer ${key}`, color: color ?? '#888888', show: true, type, group: g, count: 0 };
         layers.set(key, l);
         root.add(g);
       }
       if (name) l.name = name;
       if (color) l.color = color;
       if (show === false) l.show = false;
+      if (type) l.type = type;
       l.count++;
       return l.group;
     },
@@ -109,18 +151,22 @@ export function renderDoc(opened: OpenedDoc, bgColor = '#000000'): RenderResult 
   };
 
   const dt = opened.self.docType;
+  let list: RenderLayer[];
   if (dt === 'PCB' || dt === 'PANEL' || dt === 'FOOTPRINT') {
     renderPcb(opened, api);
-    // layer groups were created in file order (Top first = drawn bottommost);
-    // re-add in real copper stacking order: board/keep-out … bottom group …
-    // inner … top paste (user pref: under the top copper) … top group …
-    // silk/mask on top … outline/doc … origin axes … drill/slot holes on top
-    // (user pref: drills punch through everything, incl. pads on the top copper)
-    const Z_ORDER = ['panel', '2', '6', '4', '8', '10', '14', '15', '16', '17', '18', '7', '1', '5', '9', '12', '3', '19', '11', '13', '0', 'axes', '47'];
-    for (const id of Z_ORDER) { const l = layers.get(id); if (l) root.add(l.group); }
-  } else renderSch(opened, api); // SCH_PAGE / SIMULATION / SYMBOL standalone
-
-  const list = [...layers.values()];
+    // stack like the reference gerber viewer: leafer paints later-added children
+    // on top, so re-adding the layer groups in sorted order re-stacks them —
+    // outline bottommost, faces copper→mask→silk→paste (top/inner/bottom/multi),
+    // annotations, axes & ratsnest tools, drill holes on top. The sorted order is
+    // also what the layer panel lists, so the UI matches the real stacking.
+    list = [...layers.values()];
+    const created = new Map(list.map((l, i) => [l, i] as const));
+    list.sort((a, b) => pcbStackKey(a) - pcbStackKey(b) || created.get(a)! - created.get(b)!);
+    for (const l of list) root.add(l.group);
+  } else {
+    renderSch(opened, api); // SCH_PAGE / SIMULATION / SYMBOL standalone
+    list = [...layers.values()];
+  }
   for (const l of list) {
     l.group.visible = l.show;
     l.count = l.group.children?.length ?? l.count;

@@ -17,7 +17,7 @@ const HIDDEN_LAYERS = new Set(['49', '50']);
 
 /** bottom-side layers seen through the board are semi-transparent in EasyEDA's
  * 2D view — alphas measured from the official export (#336619 silk @50%, #000059 copper @70%) */
-const BOTTOM_ALPHA: Record<string, number> = { '2': 0.7, '4': 0.5, '6': 0.5, '7': 0.5, '8': 0.5, '10': 0.5 };
+const BOTTOM_ALPHA: Record<string, number> = { '2': 0.7, '4': 0.5, '6': 0.5, '8': 0.5, '10': 0.5 };
 
 /** used only when a LAYER record is missing; files carry the real names+colors */
 const LAYER_FALLBACK: Record<number, string> = {
@@ -34,11 +34,11 @@ const LAYER_FALLBACK: Record<number, string> = {
   11: '#e0e0e0',     // Board outline
   12: '#c0c0c0',     // Multi-layer / pads
   13: '#7f7f7f',     // Document
-  14: '#008000',     // Inner1
-  15: '#008000',     // Inner2
-  16: '#008000',     // Inner3
-  17: '#008000',     // Inner4
-  18: '#008000',     // Inner5
+  14: '#f022f0',     // Mechanical
+  15: '#008000',     // Inner1
+  16: '#008000',     // Inner2
+  17: '#008000',     // Inner3
+  18: '#008000',     // Inner4
   19: '#00a000',     // Keep-out
   47: '#c8a400',     // Drill / hole
 };
@@ -194,7 +194,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   }
 
   // layers from LAYER records
-  const layerMeta = new Map<string, { name: string; color: string; show: boolean }>();
+  const layerMeta = new Map<string, { name: string; color: string; show: boolean; type: string }>();
   for (const r of seg.recs) {
     if (r.type !== 'LAYER') continue;
     const m = r.idVal;
@@ -212,8 +212,11 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       name: String(r.data.layerName ?? r.data.name ?? r.data.layerType ?? `Layer ${key}`),
       color: c.startsWith('#') ? c : '#' + c,
       show,
+      // layerType (TOP / SIGNAL / BOTTOM_SILK / OUTLINE / HOLE …) is the only
+      // stable semantic — official docs say layer numbers themselves are not
+      type: String(r.data.layerType ?? ''),
     });
-    api.layer(key, layerMeta.get(key)!.name, layerMeta.get(key)!.color, show);
+    api.layer(key, layerMeta.get(key)!.name, layerMeta.get(key)!.color, show, layerMeta.get(key)!.type);
   }
   const layerColor = (id: unknown): string => {
     const lm = layerMeta.get(String(id));
@@ -343,7 +346,10 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   }
 
   // ---- footprint geometry ----
-  function drawFootprint(target: Group, fp: DocSegment) {
+  // `targetFor` routes every primitive to the per-layer wrapper of its own
+  // layerId — footprint silk stacks with the doc's silk, pads with the copper —
+  // instead of the whole footprint living in one group (see drawComponent).
+  function drawFootprint(target: Group, fp: DocSegment, targetFor: (lid: unknown) => Group) {
     const fxf = xfOf(fp.canvas); // footprint-local canvas (origin likely 0)
     const fpAllIds = new Set(fp.recs.map((fr) => String(fr.id ?? '')));
     for (const r of sortZ(fp.recs)) {
@@ -356,7 +362,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           const gx = Number(target.x) || 0, gy = Number(target.y) || 0;
           const gr = ((Number(target.rotation) || 0) * Math.PI) / 180;
           const gc = Math.cos(gr), gs = Math.sin(gr);
-          target.add(padNode(d, fxf, layerColor, holeFill, {
+          targetFor(d.layerId).add(padNode(d, fxf, layerColor, holeFill, {
             holeSink: (hg) => {
               const hx = Number(hg.x) || 0, hy = Number(hg.y) || 0;
               hg.x = gx + hx * gc - hy * gs;
@@ -371,11 +377,11 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           if (Array.isArray(d.points)) {
             const pts: number[] = [];
             for (const p of d.points as any[]) { const [x, y] = P(Number(p.x ?? 0), Number(p.y ?? 0), fxf); pts.push(x, y); }
-            if (pts.length >= 4) target.add(new Line({ points: pts, closed: !!d.closed, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round', strokeJoin: 'round' }));
+            if (pts.length >= 4) targetFor(d.layerId).add(new Line({ points: pts, closed: !!d.closed, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round', strokeJoin: 'round' }));
           }
           const ds = multiPathToSvg(d.path ?? [], fxf, false);
           for (const path of ds) {
-            target.add(new Path({ path, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round', strokeJoin: 'round' }));
+            targetFor(d.layerId).add(new Path({ path, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round', strokeJoin: 'round' }));
           }
           break;
         }
@@ -384,20 +390,20 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           for (const path of ds) {
             // static copper fill paints the same full layer color as pour fill (see pourColor)
             const p = new Path({ path, fill: pourColor(d.layerId) });
-            target.add(p);
+            targetFor(d.layerId).add(p);
           }
           break;
         }
         case 'LINE': {
           const [x1, y1] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), fxf);
           const [x2, y2] = P(Number(d.endX ?? 0), Number(d.endY ?? 0), fxf);
-          target.add(new Line({ points: [x1, y1, x2, y2], stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round' }));
+          targetFor(d.layerId).add(new Line({ points: [x1, y1, x2, y2], stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round' }));
           break;
         }
         case 'ARC': {
           const [x1, y1] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), fxf);
           const [x2, y2] = P(Number(d.endX ?? 0), Number(d.endY ?? 0), fxf);
-          target.add(new Path({ path: arcD(x1, y1, x2, y2, Number(d.angle ?? 0)), stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round' }));
+          targetFor(d.layerId).add(new Path({ path: arcD(x1, y1, x2, y2, Number(d.angle ?? 0)), stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), strokeCap: 'round' }));
           break;
         }
         case 'RECT': {
@@ -407,7 +413,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           const [x1, y1] = P(Number(d.dotX1 ?? 0), Number(d.dotY1 ?? 0), fxf);
           const [x2, y2] = P(Number(d.dotX2 ?? d.dotX1 ?? 0), Number(d.dotY2 ?? d.dotY1 ?? 0), fxf);
           const rr = Math.min(Number(d.radiusX ?? 0) || 0, Math.abs(x2 - x1) / 2, Math.abs(y2 - y1) / 2);
-          target.add(new Rect({
+          targetFor(d.layerId).add(new Rect({
             x: Math.min(x1, x2), y: Math.min(y1, y2),
             width: Math.abs(x2 - x1), height: Math.abs(y2 - y1),
             stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4),
@@ -419,13 +425,13 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         }
         case 'STRING': case 'TEXT': {
           if (isDocIdText(d, r.id, fpAllIds, netNames, padNumbers)) break;
-          target.add(mkLabel(d, layerColor(d.layerId), fxf, true));
+          targetFor(d.layerId).add(mkLabel(d, layerColor(d.layerId), fxf, true));
           break;
         }
         case 'CIRCLE': {
           const cx = X(Number(d.centerX ?? 0), fxf), cy = Y(Number(d.centerY ?? 0), fxf);
           const rad = Math.abs(Number(d.radius ?? 0)) || 1;
-          target.add(new Ellipse({ x: cx - rad, y: cy - rad, width: rad * 2, height: rad * 2, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), fill: null }));
+          targetFor(d.layerId).add(new Ellipse({ x: cx - rad, y: cy - rad, width: rad * 2, height: rad * 2, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), fill: null }));
           break;
         }
         case 'ELLIPSE': {
@@ -433,7 +439,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           const rx = Math.abs(Number(d.radiusX ?? 0)) || 1, ry = Math.abs(Number(d.radiusY ?? 0)) || 1;
           const e = new Ellipse({ x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2, stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 4), fill: null });
           e.rotation = ang(Number(d.rotation ?? 0));
-          target.add(e);
+          targetFor(d.layerId).add(e);
           break;
         }
         case 'ELE_PLACEHOLDER': opened.report.placeholders++; break;
@@ -463,10 +469,30 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     g.x = X(Number(d.x ?? 0), xf);
     g.y = Y(Number(d.y ?? 0), xf);
     g.rotation = ang(Number(d.angle ?? 0));
-    api.layer(String(d.layerId ?? LAYER.TOP)).add(g);
-    if (fp) drawFootprint(g, fp);
+    // Per-layer mounting: footprint primitives route to the layer group of their
+    // own layerId (silk frame → silk group, pads → copper group) so component
+    // graphics stack with the doc's own per-layer content. Previously the whole
+    // footprint hung inside the face copper group, letting a later component's
+    // pads cover an earlier component's silk. `g` keeps the component transform
+    // for bbox/objects but stays off-tree; wrappers replicate its transform.
+    const wrappers = new Map<string, Group>();
+    const targetFor = (lid: unknown): Group => {
+      const key = lid != null ? String(lid) : String(d.layerId ?? LAYER.TOP);
+      let w = wrappers.get(key);
+      if (!w) {
+        const lm = layerMeta.get(key);
+        w = new Group({ name: `comp:${r.id}#${key}` });
+        w.x = g.x; w.y = g.y; w.rotation = g.rotation;
+        const alpha = BOTTOM_ALPHA[key];
+        if (alpha !== undefined) w.opacity = alpha;
+        api.layer(key, lm?.name, lm?.color ?? LAYER_FALLBACK[Number(key)] ?? '#888888', lm?.show ?? true).add(w);
+        wrappers.set(key, w);
+      }
+      return w;
+    };
+    if (fp) drawFootprint(g, fp, targetFor);
     else {
-      g.add(new Rect({ x: -12, y: -8, width: 24, height: 16, stroke: '#cc0000', strokeWidth: 1, dashPattern: [3, 3] }));
+      targetFor(d.layerId ?? LAYER.TOP).add(new Rect({ x: -12, y: -8, width: 24, height: 16, stroke: '#cc0000', strokeWidth: 1, dashPattern: [3, 3] }));
       if (fpUuid) api.reportDiagnostics.push(`未解析封装 ${fpUuid.slice(0, 10)} (line ${r.lineNo})`);
     }
     // designator / visible attrs: doc-scaled text at the record's own fontSize so
