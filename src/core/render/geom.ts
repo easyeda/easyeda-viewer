@@ -129,8 +129,12 @@ export function pathToSvg(item: any[], xf: Xf, closed: boolean): string {
     const x = Number(v), y = Number(item[i + 1]);
     i += 2;
     const [px, py] = P(x, y, xf);
-    if (!firstPt) { parts.push(`M ${px} ${py}`); firstPt = [px, py]; }
+    if (!firstPt) parts.push(`M ${px} ${py}`);
     else parts.push(`L ${px} ${py}`);
+    // track the current point even for plain line-tos: the next ARC's chord (and
+    // therefore radius) is derived from it — a stale start point silently turns
+    // arc detours (e.g. the pour outline's baked-in pad clearance) into flat lines
+    firstPt = [px, py];
   }
   let d = parts.join(' ');
   if (closed && d) d += ' Z';
