@@ -3,14 +3,14 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | easyeda-viewer(嘉立创EDA专业版工程轻量查看器) |
-| 文档版本 | v0.2(与代码同步) |
-| 日期 | 2026-09-15 |
-| 状态 | 核心 P0 已实现,持续打磨 |
+| 文档版本 | v0.2.1(与代码同步) |
+| 日期 | 2026-09-17 |
+| 状态 | 核心 P0 已实现,渲染保真持续打磨 |
 | 格式参考 | [easyeda/easyeda-eprj3-skill](https://github.com/easyeda/easyeda-eprj3-skill)(本地 `easyeda-pro-eprj3-format/`)、[easyeda/easyeda-pro-format-skill](https://github.com/easyeda/easyeda-pro-format-skill)(本地 `easyeda-pro-format-skill/`) |
 
 ## Abstract (for English readers)
 
-A lightweight, **single-HTML-file** viewer for EasyEDA Pro project formats (`.epro2` and folder-based `.eprj3`). Written in TypeScript, rendered with LeaferJS. Parse and render are 100% local — no server, no upload. It can be opened by double-clicking the HTML file, or embedded into any web page via a JS API / postMessage interface. Features: document tree + object tree (left, resizable split, both searchable), properties panel (right, click-to-reveal, translated key attributes only, with a file-named layer list for PCB/panel), canvas pan/zoom (wheel zoom, right-button or middle-button pan), click-to-locate between tree and canvas, bilingual UI (zh/en) with dark/light themes, resizable/hideable panels, icon-only toolbar with an editable zoom percentage, multi-page schematics, PCB preview and panel preview. An optional install-free **Windows desktop exe** (Go + WebView2, ~4 MB) ships the same single-file viewer with native file dialogs, drag-and-drop, an app icon and proper version metadata.
+A lightweight, **single-HTML-file** viewer for EasyEDA Pro project formats (`.epro2` and folder-based `.eprj3`). Written in TypeScript, rendered with LeaferJS. Parse and render are 100% local — no server, no upload. It can be opened by double-clicking the HTML file, or embedded into any web page via a JS API / postMessage interface. Features: document tree + object tree (left, resizable split, both searchable), properties panel (right, click-to-reveal, translated key attributes only, with a file-named layer list for PCB/panel), canvas pan/zoom (wheel zoom, right-button or middle-button pan), click-to-locate between tree and canvas, bilingual UI (zh/en) with dark/light themes, resizable/hideable panels, icon-only toolbar with an editable zoom percentage, multi-page schematics, PCB preview and panel preview. An optional install-free **Windows desktop exe** (Go + WebView2, ~4 MB) ships the same single-file viewer with native file dialogs, drag-and-drop, an app icon and proper version metadata. Rendering fidelity is tracked against official client PNG exports with an automated pixel-diff suite (`scripts/ref-diff.mjs`, 10 sample pages), and CBB **reuse-block** `.epro2` projects (repeated-DOCHEAD streams) parse correctly since v0.2.1.
 
 ---
 
@@ -110,6 +110,7 @@ MyProject/
 - **文档树重建**:因 `project2.json` 无 profile,文档树(Board→原理图→图页/PCB/面板)须从 `.epru` 内各文档的 `META` 记录(`title`、`docType`、`source` 引用)**重建** —— epro2 adapter 需要 SCAN 快路径:先只解 DOCHEAD/META/PRIMITIVE 关键行建树,几何行延后按文档打开时再解析。
 - **文件名编码陷阱**:`.epru` 的 ZIP 条目名可能为 GBK/CP437 编码(中文工程名场景,实测 `unzip` 显示乱码)。解包层必须:UTF-8 flag 检测 → GBK 解码兜底;条目名仅用于展示,不作为逻辑键。
 - 记录体系与 eprj3 完全同源(epru 内 `LAYER` 记录含 `id:"[\"LAYER\",1]"` 等复合 id,与 esch2 一致),因此 epro2 支持 = **ZIP 解包 + epru 文档切分 + META 建树** 一个 adapter,记录解析器/渲染层完全复用。
+- **复用块 / CBB 工程**(`cbb_project: true`,v0.2.1 起支持,样本 `samples/ReuseBlock_A3967-epro2/`):此类 `.epru` 流中每个文档的 `DOCHEAD` 重复出现 2~3 次 —— 工程级注册条目 → `DOCHEAD+META`(title/board 关联)→ 无 ticket 的 `DOCHEAD` + 真正文档体(CANVAS + 图元)。文档切分必须把同 uuid 且尚无正文记录的连续 DOCHEAD 前缀**合并为一个 segment**,否则 `openDoc` 命中空的头部 segment、所有页面渲染成空白。复用块内的 PCB 文档只有占位 META(PCB 内容在块被放入正式工程时才生成),属数据本身如此;原理图页内容完整可渲染。
 
 ### 3.4 输入通道(全部 P0,除非注明)
 
@@ -125,8 +126,12 @@ MyProject/
 
 | 样本 | 内容 | 用途 |
 | --- | --- | --- |
-| `RA6E2-eprj3.zip` / `RA6E2-eprj3-unzip/` | 文件夹工程:2 原理图(各含 P1)+ 4 PCB(含多板/PCB 变体)+ 1 面板 + 2 仿真;单原理图页 1.18 MB / 72 元件 / ~3600 图元记录 | eprj3 全管线、性能基准(NFR-2/3) |
+| `RA6E2-eprj3/` | 文件夹工程:2 原理图(各含 P1)+ 4 PCB(含多板/PCB 变体)+ 1 面板 + 2 仿真;单原理图页 1.18 MB / 72 元件 / ~3600 图元记录 | eprj3 全管线、性能基准(NFR-2/3) |
 | `RA6E2-epro2/RA6E2.epro2` | 同一工程的单文件形态:1.25 MB ZIP / 4.2 MB `.epru` / 7 个 webp 真彩图;`.epru` 条目名 GBK 编码 | epro2 容器、META 树重建、非 UTF-8 条目名 |
+| `viewer_fulltest-epro2/` | 专项混合样本:全类型图元、占位记录、多形态封装 | 记录覆盖面冒烟 |
+| `ESP32S31-epro2/`、`H610-eprj3/`、`H610-epro2/` | 中大型真实工程(10 页原理图 + PCB,含铺铜/拼板) | 视觉保真回归(ref-diff 主样本) |
+| `ReuseBlock_A3967-epro2/` | 复用块 / CBB 工程(`cbb_project`):重复 DOCHEAD 流、PCB 仅占位 | epro2 复用块切分(#cbb-epro2) |
+| `full-objects-epro2/` | 全对象类型样本 | 长尾图元冒烟 |
 | 官方示例 `easyeda-pro-eprj3-format/example/`、skill `examples/` 层 | 最小/专项记录样本 | 解析器单测 fixture |
 
 ---
@@ -169,7 +174,7 @@ MyProject/
 | FR-3.6 | 元件符号渲染:元件记录内联/内嵌的符号绘制数据(`OBJ`/path 等)完整绘制;若为外部引用导致缺数据,降级绘制位号占位框并提示 | P1 |
 | FR-3.7 | 字体:文本类图元使用 canvas 字体渲染,支持旋转/镜像/字号;BLOB 真彩图与自定义字体(TMFont)P2 | P1 |
 | FR-3.8 | 深色/浅色两种画布主题,默认跟随 EDA 习惯(原理图浅灰底、PCB 深底) | P1 |
-| FR-3.9 | PCB 走线/圆弧端点为**圆头**(strokeCap=round);长圆形焊盘的槽型孔按圆角矩形绘制(非尖角椭圆);钻孔填充跟随画布背景色(不用黑色) | P0 |
+| FR-3.9 | PCB 描边原语(走线/圆弧/多段线/矩形)**圆头圆角**(strokeCap=round、strokeJoin=round,与客户端一致);长圆形焊盘的槽型孔按圆角矩形绘制(非尖角椭圆);钻孔/槽孔渲染在最顶层(穿孔穿透焊盘);铺铜铜色与走线一致(全亮度);钻孔填充跟随画布背景色(不用黑色) | P0 |
 | FR-3.10 | PCB 文本(丝印等)按数据中的**路径/锚点/角度**还原渲染,与官方视觉一致;底面丝印的镜像重复副本(自动生成的 twins)跳过,只渲染独立文字 | P0 |
 | FR-3.11 | 焊盘编号/网络名等固定标签用**屏幕恒定小字号**(~9px)绘制,不随缩放放大缩小;元件内 STRING 文本仍按文档比例 | P0 |
 | FR-3.12 | 图层面板取文档内 `LAYER` 记录的**图层名称**展示,且只列出当前文档实际有图元的图层,带图元计数 | P0 |
@@ -307,7 +312,7 @@ iframe/postMessage 协议(`src/main.ts` 内置桥,**已实现**;消息均带 `so
 | UI | 原生 DOM + 轻量自研组件(树、面板、Tab) | 不引入框架:控制单文件体积;若评估后需框架,仅允许预编译无运行时组件方案 |
 | 解析 | 主线程行切分 + JSON 解析,文档级**懒解析 + 模型缓存** | RA6E2 全工程打开 <1 s,Worker 化列为量级增长后的 P1 |
 | ZIP | fflate(纯 JS,可内联) | `.epro2` 若为 ZIP / 用户打包 zip 的工程目录 |
-| 测试 | Vitest(解析单测)+ `vite-node` headless smoke(108 文档全量渲染零异常回归)+ 无头 Chrome 截图矩阵(`scripts/qa-screens.mjs`) | Playwright e2e(file:// 双击、拖放、API)为 P1 |
+| 测试 | Vitest(解析单测)+ `vite-node` headless smoke(122 文档全量渲染零异常回归)+ 无头 Chrome 截图矩阵(`scripts/qa-screens.mjs`)+ **视觉对照回归**(`scripts/ref-diff.mjs`:渲染样例页并与官方客户端 PNG 导出做像素 diff,10 页基线追踪) | Playwright e2e(file:// 双击、拖放、API)为 P1 |
 | 规范 | ESLint + Prettier;Conventional Commits | — |
 
 ### 6.2 分层架构
@@ -372,8 +377,9 @@ easyeda-viewer/
 │       ├── i18n.ts           # zh/en 文案表与 setLang
 │       └── icons.ts          # Lucide + EasyEDA 官方单色图标(构建期内联)
 ├── test/parse.spec.ts       # Vitest 解析单测
-├── scripts/                 # smoke.mjs / qa-screens.mjs / gen-icons.mjs / build-desktop.mjs
+├── scripts/                 # smoke.mjs / ref-diff.mjs(视觉对照) / qa-screens.mjs / gen-icons.mjs / build-desktop.mjs
 ├── qa/viewer.html           # 无头 Chrome 视觉 QA 宿主(URL 参数驱动)
+├── qa/diff/                 # ref-diff 输出(ours/ref/diff PNG + report.json 基线)
 ├── desktop/                 # Go + WebView2 免安装壳(main.go/dialogs.go/files.go/versioninfo.rc/app.ico)
 └── vite.config.ts           # singlefile + 版本注入(→ dist/index.html)
 ```
@@ -411,6 +417,7 @@ desktop/build/
 | M3 PCB/面板(2-3 周) | PCB/面板渲染器、图层体系(文件图层名)、覆铜/焊盘/丝印保真(圆头走线、槽孔、固定标签、丝印镜像去重) | 样例 PCB 可浏览可交互,视觉与官方截图一致 | ✅ 完成 |
 | M4 epro2 + 嵌入(1.5 周) | epro2 adapter(ZIP 解包 + `.epru` 切分 + META 建树 + GBK 条目名);createViewer API + postMessage 桥 | `RA6E2.epro2` 直开,与 eprj3 渲染一致;两种宿主方式全通 | ✅ 完成(独立库产物 `.d.ts` 为 P1) |
 | M5 体验批次 | 中英双语 UI、纯图标工具栏+可输入缩放、面板宽/高拖拽、初始隐藏侧栏、右键平移、EasyEDA 品牌图标、桌面 exe 图标+版本属性 | 33 项反馈全部关闭(见 README/提交记录) | ✅ 完成(v0.2) |
+| M5.5 渲染保真批次(v0.2.1) | 以官方 PNG 导出为基准逐页对照修偏:原理图边框/标题栏按文件属性、电源符号方向、顺时针旋转角、网络标签按格式位置+0.4em 抬升、文本拾取 bbox 画布实测、引脚标签对齐、隐藏文档/标题栏、跨页元件树、树方向键导航、三分类库图标、选中框恒定像素虚线、Top Paste 层序+透明度、铺铜全亮、钻孔/槽孔置顶、PCB 描边全圆头、复用块 epro2 支持、ref-diff 视觉回归管线 | 10 页样例 diff 基线建立(原理图页 1.75%~12.73%);smoke 122/122 | ✅ 完成(v0.2.1) |
 | M6 性能与发布(持续) | LOD/裁剪调优、Worker 化评估、Playwright e2e、npm 库产物、LICENSES.txt、演示页 | NFR 全表达标;v1.0 发布 | ⏳ 进行中 |
 
 ---
@@ -419,7 +426,8 @@ desktop/build/
 
 - [x] `dist/index.html` 单文件**双击打开**,拖入 `.eprj3` 文件夹/zip、`.epro2` 样本、单个 `.esch2/.epcb2/.epan2` 均可渲染(Windows Chrome;合成拖放回归 `qa/shots/drop-proj.png`)。
 - [x] 文档树/对象树/属性面板/画布交互四件套满足 §4 P0 全部条目(含双向定位、滚轮以指针为中心缩放、右键平移)。
-- [x] 无头 smoke:§3.5 两个 RA6E2 工程 + 单文档共 **108 个文档全量渲染 0 异常**;Vitest 解析单测 12 项;视觉对照 `samples/png/` 官方截图。
+- [x] 无头 smoke:§3.5 样本工程 + 单文档共 **122 个文档全量渲染 0 异常**(含复用块 epro2);Vitest 解析单测 12 项;视觉对照 `samples/png/` 官方截图。
+- [x] 视觉保真回归:`scripts/ref-diff.mjs` 对 10 页样例(9 页原理图 + 1 PCB)与官方客户端 PNG 导出像素 diff,基线留档 `qa/diff/report.json`,改动后跑对照防回归。
 - [ ] iframe postMessage 与 JS API 两条嵌入路径的**自动化 e2e**(Playwright)与协议示例页(P1)。
 - [ ] 性能实测数字留档:5 千图元页 ≥ 30fps(devtools trace)、打开 < 1.5 s、内存曲线(NFR-2/3/5)。
 - [ ] 每种已支持记录类型 ≥1 条真实 fixture 单测(现覆盖主要类型,长尾类型进行中);CI 化。
@@ -455,7 +463,7 @@ desktop/build/
 
 ## 13. 开放问题(评审前补充)
 
-1. ~~`.epro2` 容器与内部记录结构~~ **已确认**(RA6E2 样本实测):ZIP 容器 = `project2.json` + `<工程名>.epru` 全工程记录流 + `IMAGE/*.webp`,详见 §3.3。遗留跟进:更多工程名编码变体、`.epru` 是否存在分卷/加密场景(再放 2~3 个不同来源样本即可关闭)。
+1. ~~`.epro2` 容器与内部记录结构~~ **已确认**(RA6E2 样本实测):ZIP 容器 = `project2.json` + `<工程名>.epru` 全工程记录流 + `IMAGE/*.webp`,详见 §3.3。~~复用块变体~~ **已确认**(ReuseBlock_A3967 样本实测,v0.2.1 支持):`cbb_project` 工程的 `.epru` 每文档重复 DOCHEAD,见 §3.3。遗留跟进:更多工程名编码变体、`.epru` 是否存在分卷/加密场景。
 2. 旧工程 `eprj/.eprj2`(SQLite)是否需要支持?当前列为 P2,请确认用户诉求。
 3. ~~首版是否需要英文 UI~~ **已实现**:中英双语 UI(`?lang=zh|en` 参数 + 🌐 工具栏即时切换,FR-8.6)。
 4. 对外发布形态:GitHub Pages 在线演示 + Release 下载单文件,是否同步发布 npm 包(`@easyeda/viewer` 名称可用性待查,可先用 `easyeda-viewer`)。

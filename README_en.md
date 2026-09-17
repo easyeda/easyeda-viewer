@@ -11,9 +11,10 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro / 嘉立创EDA专业
 - **Single-file artifact**: `npm run build` produces `dist/index.html` (~334 kB, all JS/CSS inlined), ready to open directly or embed via iframe.
 - **Multiple input formats**:
   - `.eprj3` folder projects (also accepts the folder packaged as `.zip`)
-  - `.epro2` single-file projects (standard ZIP container)
+  - `.epro2` single-file projects (standard ZIP container), including **reuse-block / CBB projects** (`cbb_project`)
   - Single documents: `.esch2`, `.epcb2`, `.epan2`, `.esym2`, `.epru`
 - **Complete preview**: project tree, object tree, properties panel, and LeaferJS canvas rendering for schematics, PCBs, and panels.
+- **Visual fidelity**: pixel-level regression against official client PNG exports (sheet frames/title blocks, power-symbol orientation, net-label placement, PCB round-cap strokes, pour/drill layering — all aligned with the client).
 - **Two-way locate**: click an object-tree node to center it on canvas; click a canvas primitive to highlight the corresponding tree node.
 - **Modern UI**: dark/light themes, Chinese/English bilingual UI, resizable and hideable panels.
 - **Embeddable API**: `createViewer` JS API plus `postMessage` protocol for integration into third-party pages.
@@ -65,10 +66,10 @@ The Vite dev server starts; drop a project into the browser to preview live.
 
 ## UI and Interaction
 
-- **Project tree**: upper-left panel showing project → Board → schematics (with pages) / PCB / panel / simulation, with search filtering.
+- **Project tree**: upper-left panel showing project → Board → schematics (with pages) / PCB / panel / simulation, with search filtering; **arrow keys** select and open documents.
 - **Object tree**: lower-left panel grouping primitives by type (components, pads, tracks, text, etc.), with visibility toggles and search.
 - **Properties panel**: right panel that opens when you click a canvas primitive, showing translated key attributes (type, designator, value, net, layer, coordinates, etc.).
-- **Layer list**: bottom of the properties panel for PCB/panel documents, listing file-defined layers that actually contain primitives, with eye toggles and primitive counts.
+- **Layer list**: bottom of the properties panel for PCB/footprint/panel documents, listing file-defined layers that actually contain primitives, with eye toggles and primitive counts; layer stacking follows the copper stack (Top Paste below the Top copper, drills/slots on top).
 - **Canvas**:
   - Wheel zoom centered on the mouse pointer
   - Pan with right/middle mouse drag or space+left drag
@@ -200,8 +201,11 @@ npm run check
 # Run unit tests
 npm test
 
-# Run smoke tests (headless screenshot comparison)
+# Run smoke tests (headless full-render regression)
 npm run smoke
+
+# Visual reference diff (renders sample pages and pixel-diffs against official client PNGs)
+npx vite-node -c vite.smoke.config.ts scripts/ref-diff.mjs
 
 # Build artifact (dist/index.html)
 npm run build
@@ -237,15 +241,19 @@ easyeda-viewer/
 │   └── build/             # Built .exe
 ├── samples/               # Local test projects (not shipped)
 │   ├── RA6E2-eprj3/       # Folder project sample
-│   ├── RA6E2-epro2/       # Single-file project sample
-│   ├── png/               # Reference render screenshots
+│   ├── RA6E2-epro2/       # Single-file project sample (GBK entry names)
+│   ├── ReuseBlock_A3967-epro2/  # Reuse-block / CBB project sample
+│   ├── ESP32S31-epro2/    # Mid-size real project (main ref-diff regression sample)
+│   ├── png/               # Reference render screenshots (official client exports)
 │   └── ...
 ├── qa/                    # Smoke tests and screenshots
 │   ├── shots/             # UI screenshots
+│   ├── diff/              # ref-diff output (ours/ref/diff PNGs + report.json baseline)
 │   └── viewer.html        # QA test page
 ├── scripts/               # Build and test scripts
 │   ├── build-desktop.mjs  # Desktop build script
-│   ├── smoke.mjs          # Smoke tests
+│   ├── smoke.mjs          # Smoke tests (headless full-render regression)
+│   ├── ref-diff.mjs       # Visual reference diff (render vs official PNG)
 │   └── gen-icons.mjs      # Icon generation
 ├── src/
 │   ├── main.ts            # Standalone app entry (includes postMessage bridge)
