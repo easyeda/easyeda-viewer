@@ -31,7 +31,7 @@ export function scalePathItem(item: any[], k: number): any[] {
   for (let i = 0; i < item.length; i++) {
     const v = item[i];
     if (typeof v === 'string') { out.push(v); continue; }
-    if (out[out.length - 1] === 'ARC') { out.push(v); continue; } // degrees, not a coord
+    if (out[out.length - 1] === 'ARC' || out[out.length - 1] === 'CARC') { out.push(v); continue; } // degrees, not a coord
     out.push(Number(v) * k);
   }
   return out;
@@ -92,7 +92,9 @@ export function pathToSvg(item: any[], xf: Xf, closed: boolean): string {
     if (typeof v === 'string') {
       i += 1;
       if (v === 'L') continue; // line-to: subsequent number pairs handled below
-      if (v === 'ARC' && typeof item[i] === 'number') {
+      // ARC / CARC share the token signature `angle endX endY` (CARC is just the
+      // center-arc interaction variant — see easyeda-pro-file-format pcb/shape.md)
+      if ((v === 'ARC' || v === 'CARC') && typeof item[i] === 'number') {
         const deg = Number(item[i]);
         i += 1;
         const x = Number(item[i]), y = Number(item[i + 1]);
@@ -294,7 +296,7 @@ function collectPathPts(item: any[], raw: [number, number][]): void {
   if (item[0] === 'R') { raw.push([Number(item[1]), Number(item[2])], [Number(item[1]) + Number(item[3]), Number(item[2]) - Number(item[4])]); return; }
   for (let i = 0; i < item.length; i++) {
     const v = item[i];
-    if (typeof v === 'string') { if (v === 'ARC' && typeof item[i + 1] === 'number') i += 1; continue; }
+    if (typeof v === 'string') { if ((v === 'ARC' || v === 'CARC') && typeof item[i + 1] === 'number') i += 1; continue; }
     raw.push([Number(v), Number(item[i + 1])]);
     i += 1;
   }

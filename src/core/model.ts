@@ -212,7 +212,7 @@ function addPathPts(item: any[], add: (x: number, y: number) => void): void {
     const v = item[i];
     if (typeof v === 'string') {
       i += 1;
-      if (v === 'ARC' && typeof item[i] === 'number') i += 1; // leading value is sweep angle
+      if ((v === 'ARC' || v === 'CARC') && typeof item[i] === 'number') i += 1; // leading value is sweep angle
       continue;
     }
     add(Number(v), Number(item[i + 1]));
