@@ -397,9 +397,23 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     if (lm) return lm.color;
     return LAYER_FALLBACK[Number(id)] ?? '#999999';
   };
-  /** filled copper (pour fill / static fill) paints the SAME layer color as
-   *  tracks — user pref: pour must not look dimmed against the routing (#pour-col) */
+  /** filled copper (pour fill / static fill) paints a DIMMED layer color —
+   *  the client's 2D view shows pour fill darker than routing so the round-cap
+   *  edge wrap (full layer color) stays visible along the fill border (#pour-edge) */
   const pourColor = (id: unknown): string => layerColor(id);
+  /** brightness factor of pour/fill copper vs tracks — ~0.6 reads like the
+   *  client's dark-red fill against its bright-red wrap stroke */
+  const POUR_FILL_DIM = 0.6;
+  /** darken a #rrggbb hex toward black; non-hex colors pass through unchanged */
+  const dimHex = (c: string, f: number): string => {
+    const m = /^#([0-9a-f]{6})$/i.exec(c);
+    if (!m) return c;
+    const n = parseInt(m[1], 16);
+    const r = Math.round(((n >> 16) & 255) * f);
+    const g = Math.round(((n >> 8) & 255) * f);
+    const b = Math.round((n & 255) * f);
+    return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+  };
   /** drill/via holes punch through to the canvas background */
   const holeFill = api.bgColor;
   /** drill/slot holes hoist to the hole layer (47), the topmost group in the
@@ -1098,13 +1112,16 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         // width is millimetres (0.2mm ≈ 7.87mil ≈ the client's 8mil wrap); doc
         // coords are mil — 1mm = 39.37mil
         const edge = fw > 0 ? fw * 39.3701 : 0;
-        const fill = colorForNet(d.netName, pourColor(d.layerId));
+        const ink = colorForNet(d.netName, pourColor(d.layerId));
         for (const path of multiPathToSvg(d.path ?? [], xf, true)) {
-          // static copper fill paints the same full layer color as pour fill (see pourColor)
+          // fill paints dimmed; the round-cap edge wrap strokes FULL layer color
+          // so the border reads as a visible bright outline (client parity) —
+          // with no manufacturing wrap the dimmed fill alone still matches the
+          // client's dark fill against bright routing
           node.add(new Path({
             path,
-            fill,
-            stroke: edge > 0 ? fill : undefined,
+            fill: dimHex(ink, POUR_FILL_DIM),
+            stroke: edge > 0 ? ink : undefined,
             strokeWidth: edge > 0 ? edge : undefined, strokeCap: 'round', strokeJoin: 'round',
           }));
         }
@@ -1168,13 +1185,13 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           // 包边 entries are stroke-only (fill:false, strokeWidth>0): they
           // outline where the pour wraps the tracks. strokeWidth shares the
           // 0.1× doc unit of the path coords → scale it by 10 too (#pour-edge).
-          // pour copper paints the SAME full layer color as tracks (user pref:
-          // the pour must not look dimmed next to routing) — #pour-col
+          // Fill paints dimmed, the wrap strokes full layer color — the client's
+          // 2D view keeps them distinguishable along the fill border (#pour-edge)
           const sw = (Number(pf.strokeWidth) || 0) * 10;
           const pourInk = colorForNet(d.netName, pourColor(lid));
           node.add(new Path({
             path: ds.join(' '),
-            fill: pf.fill === false ? undefined : pourInk,
+            fill: pf.fill === false ? undefined : dimHex(pourInk, POUR_FILL_DIM),
             fillRule: 'nonzero',
             stroke: sw > 0 ? pourInk : undefined,
             strokeWidth: sw > 0 ? sw : undefined, strokeCap: 'round', strokeJoin: 'round',
