@@ -199,17 +199,26 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 .ev-wz {
   width: min(560px, 92%); display: flex; flex-direction: column; align-items: center; text-align: center;
   background: var(--ev-panel); border: 2px dashed var(--ev-border); border-radius: 16px;
-  padding: 42px 36px 38px; box-shadow: var(--ev-shadow); transition: border-color 0.15s ease, background 0.15s ease;
+  padding: 44px 40px 32px; box-shadow: var(--ev-shadow); transition: border-color 0.15s ease, background 0.15s ease;
 }
 .ev-wz.ev-dragover { border-color: var(--ev-accent); background: var(--ev-accent-weak); }
 .ev-wz.ev-dragover .ev-wz-ico { transform: translateY(-4px) scale(1.06); }
-.ev-wz-ico { display: grid; place-items: center; margin-bottom: 12px; transition: transform 0.18s ease; }
-.ev-wz-ico svg { filter: drop-shadow(0 6px 16px rgba(85, 136, 255, 0.35)); }
-.ev-wz h2 { margin: 0 0 6px; font-size: 18px; font-weight: 650; }
+.ev-wz-ico {
+  display: grid; place-items: center; width: 76px; height: 76px; margin-bottom: 16px;
+  background: var(--ev-accent-weak); border-radius: 20px; transition: transform 0.18s ease;
+}
+.ev-wz-ico svg { filter: drop-shadow(0 4px 10px rgba(85, 136, 255, 0.35)); }
+.ev-wz h2 { margin: 0 0 8px; font-size: 19px; font-weight: 650; }
 .ev-wz p { margin: 0 0 4px; color: var(--ev-dim); font-size: 13px; line-height: 1.7; }
-.ev-wz-ext { font-size: 12px !important; color: var(--ev-dim); opacity: 0.8; margin-bottom: 22px !important; }
-.ev-wz-btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-.ev-wz-or { color: var(--ev-dim); font-size: 12px; margin-top: 16px; }
+.ev-wz-ext { font-size: 12px !important; color: var(--ev-dim); opacity: 0.85; margin-bottom: 26px !important; }
+.ev-wz-btns { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.ev-btn-secondary {
+  background: var(--ev-panel-2); color: var(--ev-text); border: 1px solid var(--ev-border);
+  border-radius: var(--ev-radius-sm); padding: 9px 16px; font-weight: 600;
+}
+.ev-btn-secondary:hover { background: var(--ev-hover); border-color: color-mix(in srgb, var(--ev-dim) 45%, transparent); }
+.ev-wz-foot { width: 100%; margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--ev-border); }
+.ev-wz-or { color: var(--ev-dim); font-size: 12px; margin: 0 !important; }
 
 /* app-wide drop overlay */
 .ev-drop-mask {

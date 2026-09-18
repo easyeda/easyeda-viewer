@@ -151,9 +151,11 @@ export class Shell {
               <p class="ev-wz-ext" data-i18n="welcomeExt"></p>
               <div class="ev-wz-btns">
                 <button class="ev-btn ev-btn-primary" data-wz="files">${icon('folderOpen', 15)}<span data-i18n="btnOpenFiles"></span></button>
-                <button class="ev-btn" data-wz="folder">${icon('folderTree', 15)}<span data-i18n="btnOpenFolder"></span></button>
+                <button class="ev-btn ev-btn-secondary" data-wz="folder">${icon('folderTree', 15)}<span data-i18n="btnOpenFolder"></span></button>
               </div>
-              <p class="ev-wz-or" data-i18n="welcomeLocal"></p>
+              <div class="ev-wz-foot">
+                <p class="ev-wz-or" data-i18n="welcomeLocal"></p>
+              </div>
             </div>
           </div>
           <div class="ev-device-note ev-hidden" data-i18n="deviceNoGraphics"></div>
