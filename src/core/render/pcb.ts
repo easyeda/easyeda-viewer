@@ -750,6 +750,19 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         }
         case 'FILL': {
           const ds = multiPathToSvg(d.path ?? [], fxf, true);
+          // a footprint FILL on Multi-Layer is a plated slot / cutout (挖槽):
+          // the client punches it through the board like a drill — bg-colored
+          // ink on the topmost hole layer, never copper-gray. Path data is
+          // wrapper-local, so copying the wrapper's transform onto the hoisted
+          // node reproduces its exact world placement (incl. bottom-side flip).
+          if (Number(d.layerId) === LAYER.MULTI) {
+            for (const path of ds) {
+              const hole = new Path({ path, fill: holeFill });
+              hole.set({ x: Number(target.x) || 0, y: Number(target.y) || 0, rotation: Number(target.rotation) || 0, scaleX: Number(target.scaleX) || 1, scaleY: Number(target.scaleY) || 1 });
+              holeLayerGroup.add(hole);
+            }
+            break;
+          }
           for (const path of ds) {
             // static copper fill paints the same full layer color as pour fill (see pourColor)
             const p = new Path({ path, fill: pourColor(d.layerId) });
