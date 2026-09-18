@@ -22,6 +22,11 @@ const HIDDEN_LAYERS = new Set(['49', '50']);
  * activateTransparency on the LAYER record (0.7 in this project). */
 const BOTTOM_ALPHA: Record<string, number> = { '2': 0.7, '4': 0.5, '8': 0.5, '10': 0.5 };
 
+/** bottom-side layers the 2D view reads mirrored — looking at the underside
+ *  through the board flips every STRING/IMAGE on these layers horizontally
+ *  about its own box center (#bottom-mirror) */
+const BOTTOM_LAYERS = new Set(['2', '4', '6', '8', '10']);
+
 /** used only when a LAYER record is missing; files carry the real names+colors */
 const LAYER_FALLBACK: Record<number, string> = {
   1: '#ff0000',      // Top copper
@@ -89,8 +94,10 @@ function padNetIdParts(id: unknown): [string, string] | null {
 const NET_FONT_MIN = 6;
 /** client labels are a fixed ~6.5mil size regardless of copper width — labels
  *  hide when they don't fit along the copper's length, they never shrink to
- *  the track's width (#net-labels) */
-const NET_FONT_MAX = 7;
+ *  the track's width. Capped a step lower here (and the available run length
+ *  shrunk, see NET_LEN_SHRINK) so the copper reads through the labels
+ *  (user pref, #net-labels) */
+const NET_FONT_MAX = 6;
 /** average glyph width / fontSize for the sans face leafer measures with */
 const NET_CHAR_W = 0.62;
 /** biggest font size (doc units) at which `text` fits inside maxW×maxH, else
@@ -108,6 +115,23 @@ function contrastInk(copper: string): string {
   const n = parseInt(m[1], 16);
   const lum = (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
   return lum > 0.6 ? '#1c1c1c' : '#ffffff';
+}
+
+/** user pref: net labels read a touch smaller and dimmer than the client's so
+ *  the copper underneath stays legible (#net-labels) — the available text-run
+ *  length shrinks by this factor before fitting, and the ink dims by NET_INK_DIM */
+const NET_LEN_SHRINK = 0.8;
+const NET_INK_DIM = 0.75;
+
+/** darken a #rrggbb hex toward black; non-hex colors pass through unchanged */
+function dimHex(c: string, f: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(c);
+  if (!m) return c;
+  const n = parseInt(m[1], 16);
+  const r = Math.round(((n >> 16) & 255) * f);
+  const g = Math.round(((n >> 8) & 255) * f);
+  const b = Math.round((n & 255) * f);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
 /** Skip auto-generated element-id text on the document layer (#13).
@@ -300,7 +324,9 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   const num = d.num == null ? '' : String(d.num);
   if (num) {
     const t = new Text({
-      text: num, fontSize: Math.max(Math.min(w, h) * 0.6, 1), fill: '#c9ccd1',
+      // a step brighter than the client's gray so pad numbers stay readable
+      // over bright copper (user pref, #pad-num-ink)
+      text: num, fontSize: Math.max(Math.min(w, h) * 0.6, 1), fill: '#f2f4f7',
       textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false,
     } as any);
     t.x = cx; t.y = cy;
@@ -319,14 +345,16 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
     // FPC connector's tall pads get vertical text. Fixed ~7mil size; a pad too
     // short along that axis stays unlabeled (#net-labels)
     const along = h > w;
+    // available run length shrunk a step (NET_LEN_SHRINK) and the ink dimmed
+    // (NET_INK_DIM) so labels read quieter against the copper (user pref)
     const f = fitNetFont(
       opts.netName,
-      along ? h - numF - 2 : w * 0.9,
+      (along ? h - numF - 2 : w * 0.9) * NET_LEN_SHRINK,
       Math.min(NET_FONT_MAX, along ? w * 0.9 : h / 2 - numF / 2 - 1),
     );
     if (f != null) {
       const t = new Text({
-        text: opts.netName, fontSize: f, fill: contrastInk(color),
+        text: opts.netName, fontSize: f, fill: dimHex(contrastInk(color), NET_INK_DIM),
         textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false,
         rotation: along ? padAngleDeg - 90 : padAngleDeg,
       } as any);
@@ -340,6 +368,64 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
     }
   }
   return g;
+}
+
+/** exact world bbox of a glyph-rendered STRING (#string-bbox): FONT outline
+ *  subs are pure polyline coordinate pairs, so their ink bounds are exact —
+ *  placed through the same anchor/origin/angle/flip math as glyphLabel, the
+ *  pick box hugs the painted glyphs instead of the measured layout estimate.
+ *  Text-fallback strings (no FONT record) return undefined and keep the
+ *  generic objBBox estimate. */
+function stringBBox(d: any, glyphs: Map<string, FontGlyph>, xfc: Xf): BBox | undefined {
+  const text = String(d.text ?? d.value ?? '');
+  if (!text) return undefined;
+  const glyph = glyphs.get(glyphKey(text, String(d.fontFamily ?? ''), Number(d.fontSize) || 0));
+  if (!glyph) return undefined;
+  const s = String(d.origin ?? '').toUpperCase();
+  const ha = s.includes('CENTER') ? 0.5 : s.includes('RIGHT') ? 1 : 0;
+  const va = s.includes('TOP') ? 0 : s.includes('BOTTOM') ? 1 : 0.5;
+  let ux0 = Infinity, ux1 = -Infinity, uy0 = Infinity, uy1 = -Infinity;
+  for (const sub of glyph.subs) {
+    if (!Array.isArray(sub)) continue;
+    for (let i = 0; i < sub.length;) {
+      if (typeof sub[i] === 'string') { i += 1; continue; } // "L" marker — pairs follow
+      const x = Number(sub[i]), y = Number(sub[i + 1]);
+      i += 2;
+      if (!isFinite(x) || !isFinite(y)) continue;
+      if (x < ux0) ux0 = x;
+      if (x > ux1) ux1 = x;
+      if (y < uy0) uy0 = y;
+      if (y > uy1) uy1 = y;
+    }
+  }
+  if (!isFinite(ux0)) return undefined;
+  // glyph px space → node-local screen offsets (same mapping as glyphLabel):
+  // x right of the anchor minus the origin shift, y from the box top downward
+  const lx0 = ux0 * GLYPH_UNIT - ha * glyph.width, lx1 = ux1 * GLYPH_UNIT - ha * glyph.width;
+  const ly0 = (1 - va) * glyph.height - uy1 * GLYPH_UNIT, ly1 = (1 - va) * glyph.height - uy0 * GLYPH_UNIT;
+  const [ax, ay] = P(Number(d.x ?? 0), Number(d.y ?? 0), xfc);
+  const rr = (-Number(d.angle ?? d.rotation ?? 0) * Math.PI) / 180;
+  const cs = Math.cos(rr), sn = Math.sin(rr);
+  const kx = d.reverse ? -1 : 1, ky = d.mirror ? -1 : 1;
+  const corners: [number, number][] = ([[lx0, ly0], [lx1, ly0], [lx1, ly1], [lx0, ly1]] as [number, number][]).map(
+    ([lx, ly]) => [ax + (lx * kx) * cs - (ly * ky) * sn, ay + (lx * kx) * sn + (ly * ky) * cs] as [number, number],
+  );
+  return bboxFromPts(corners) ?? undefined;
+}
+
+/** bottom-face viewing flip (#bottom-mirror): the official 2D view reads records
+ *  on the board's underside mirrored when the board is seen from the top — each
+ *  object flips horizontally about its own rendered box center, so position and
+ *  size stay put and only the glyph/image content mirrors. A record authored
+ *  mirror:true already stores the flipped form (the two flips XOR out), so it
+ *  renders as-is. `center` is the rendered world box; the wrapper Group
+ *  {x: minX+maxX, scaleX: -1} mirrors every descendant about the vertical line
+ *  through the box center (T(2cx)·diag(-1,1) applied to the child's transform). */
+function bottomMirrorWrap(d: any, node: Group, center: BBox | undefined): Group | null {
+  if (!center || !BOTTOM_LAYERS.has(String(d.layerId)) || d.mirror) return null;
+  const wrap = new Group({ x: center.minX + center.maxX, scaleX: -1 });
+  wrap.add(node);
+  return wrap;
 }
 
 export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
@@ -436,16 +522,6 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   /** brightness factor of pour/fill copper vs tracks — ~0.6 reads like the
    *  client's dark-red fill against its bright-red wrap stroke */
   const POUR_FILL_DIM = 0.6;
-  /** darken a #rrggbb hex toward black; non-hex colors pass through unchanged */
-  const dimHex = (c: string, f: number): string => {
-    const m = /^#([0-9a-f]{6})$/i.exec(c);
-    if (!m) return c;
-    const n = parseInt(m[1], 16);
-    const r = Math.round(((n >> 16) & 255) * f);
-    const g = Math.round(((n >> 8) & 255) * f);
-    const b = Math.round((n & 255) * f);
-    return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
-  };
   /** drill/via holes punch through to the canvas background */
   const holeFill = api.bgColor;
   /** drill/slot holes hoist to the hole layer (47), the topmost group in the
@@ -454,7 +530,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   /** pad-number labels hoist to a per-face overlay that stacks between the
    *  face's copper and its silk (client stack: copper < pad numbers < silk) */
   const padNumLayer = (face: 1 | 2): Group =>
-    api.layer(`pn:${face}`, face === 1 ? '顶层焊盘编号' : '底层焊盘编号', '#c9ccd1', true);
+    api.layer(`pn:${face}`, face === 1 ? '顶层焊盘编号' : '底层焊盘编号', '#f2f4f7', true);
   /** net-name labels hoist to a per-face overlay above the face's copper —
    *  client stack: copper < net names < pad numbers < silk (see pcbStackKey) */
   const netNameLayer = (face: 1 | 2): Group =>
@@ -464,7 +540,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   const faceOf = (lid: unknown): 1 | 2 => {
     const key = String(lid);
     if (layerMeta.get(key)?.type.toUpperCase().startsWith('BOT')) return 2;
-    return ['2', '4', '6', '8', '10'].includes(key) ? 2 : 1;
+    return BOTTOM_LAYERS.has(key) ? 2 : 1;
   };
   /** fallback font size (doc units) when a record carries no fontSize */
   const LABEL_PX = 9;
@@ -536,11 +612,15 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
 
   // POUR carries the layerId of its generated fill (POURED id "POURED,<pourId>")
   const pourLayer = new Map<string, unknown>();
-  // and its border-wrap width in mm (client writes 0.2 = the 包边 trace gauge)
+  // and its border-wrap gauge: manufacturing-optimized pours write `pourType`
+  // as an object {"pourType":"SOLID","fineness":3|4} whose fineness IS the
+  // 包边 trace width in mil (3/4 = a 3/4mil wrap). Pours with a string pourType
+  // (older files) carry no gauge — record 0 so no synthetic wrap gets painted.
   const pourWidth = new Map<string, number>();
   for (const r of seg.recs) if (r.type === 'POUR') {
     pourLayer.set(String(r.id), r.data.layerId);
-    pourWidth.set(String(r.id), Number(r.data.width) || 0);
+    const pt = r.data.pourType;
+    pourWidth.set(String(r.id), pt && typeof pt === 'object' ? Number(pt.fineness) || 0 : 0);
   }
 
   // ---- solder-mask windows (#mask-window) ----
@@ -638,7 +718,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   const hasEdgeStrokes = (r: Rec): boolean =>
     ((r.data.pourFill ?? []) as any[]).some((pf) => pf.fill === false && Number(pf.strokeWidth) > 0);
   const pouredLid = new Map<object, unknown>();
-  /** paired/orphan-resolved POUR's own border-wrap width (mm) per POURED */
+  /** paired/orphan-resolved POUR's own border-wrap gauge (mil, pourType.fineness) per POURED */
   const pouredWidth = new Map<object, number>();
   /** orphan edge-caches render their 包边 strokes only — never their stale fill (#pour-gaps) */
   const edgeOnly = new Set<object>();
@@ -693,7 +773,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     }
   }
 
-  const addToLayer = (d: any, obj: Rec, node: Group, label: string, kind: RenderObject['kind'] = 'primitive') => {
+  const addToLayer = (d: any, obj: Rec, node: Group, label: string, kind: RenderObject['kind'] = 'primitive', bbox?: BBox) => {
     const lid = d.layerId != null ? String(d.layerId) : '0';
     if (HIDDEN_LAYERS.has(lid)) return; // never-painted utility layers (#27 area)
     const lm = layerMeta.get(lid);
@@ -702,7 +782,9 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     // from the official 2D export (#336619 = silk @50%, #000059 = copper @70%)
     const alpha = BOTTOM_ALPHA[lid];
     if (alpha !== undefined && node.opacity === undefined) node.opacity = alpha;
-    api.addObject({ id: obj.id, rec: obj, node, label, kind, bbox: objBBox(obj, xf) ?? undefined });
+    // `bbox` lets callers hand in an exact painted box (glyph ink / rotated
+    // image frame) instead of the generic estimate (#string-bbox, #image-bbox)
+    api.addObject({ id: obj.id, rec: obj, node, label, kind, bbox: bbox ?? objBBox(obj, xf) ?? undefined });
   };
 
   // ---- origin axes at the business origin (CANVAS originX/originY) (#11) ----
@@ -1041,12 +1123,14 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const net = d.netName != null ? String(d.netName) : '';
         const lk = layerIdOf(d);
         if (net && (lk === '1' || lk === '2')) {
-          const f = fitNetFont(net, Math.hypot(x2 - x1, y2 - y1) * 0.9, NET_FONT_MAX);
+          // run length shrunk a step (NET_LEN_SHRINK) and ink dimmed
+          // (NET_INK_DIM) so labels read quieter against the copper (user pref)
+          const f = fitNetFont(net, Math.hypot(x2 - x1, y2 - y1) * 0.9 * NET_LEN_SHRINK, NET_FONT_MAX);
           if (f != null) {
             let rot = (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI;
             if (rot > 90 || rot < -90) rot += 180; // never read upside-down (vertical wires read bottom-up)
             const t = new Text({
-              text: net, fontSize: f, fill: contrastInk(layerColor(d.layerId)),
+              text: net, fontSize: f, fill: dimHex(contrastInk(layerColor(d.layerId)), NET_INK_DIM),
               textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false, rotation: rot,
             } as any);
             t.x = (x1 + x2) / 2; t.y = (y1 + y2) / 2;
@@ -1213,10 +1297,10 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         // smallest live pour containing it (#pour-edge).
         const lid = pouredLid.get(d);
         if (lid === undefined) return;
-        // the paired POUR's border-wrap width (mm → mil, same gauge the FILL
-        // case uses): fill entries stroke with it too — the file keeps fill
-        // entries at strokeWidth 0, yet the client's 2D view still outlines
-        // the poured copper with a bright wrap (#pour-edge)
+        // the paired POUR's border-wrap gauge (pourType.fineness, already in
+        // mil): fill entries stroke with it too — the file keeps fill entries
+        // at strokeWidth 0, yet the client's 2D view still outlines the poured
+        // copper with a bright wrap (#pour-edge)
         // pourFill paths are authored in 0.1× PCB doc units → scale coords by 10
         const node = new Group();
         for (const pf of (d.pourFill ?? [])) {
@@ -1236,7 +1320,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           // wrap gauge; both paint the stroke FULL layer color over the dimmed
           // fill so the border reads as a bright outline (client parity)
           const sw = (Number(pf.strokeWidth) || 0) * 10;
-          const ew = sw > 0 ? sw : (pouredWidth.get(d) ?? 0) * 39.3701;
+          // fineness gauge is already mil doc units — used as-is (no mm conversion)
+          const ew = sw > 0 ? sw : (pouredWidth.get(d) ?? 0);
           const pourInk = colorForNet(d.netName, pourColor(lid));
           node.add(new Path({
             path: ds.join(' '),
@@ -1267,7 +1352,11 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         // layer color wins over specialColor — matches how EasyEDA shows silk strings;
         // doc-scaled so big silk words grow with the board like the reference export
         node.add(mkLabel(d, layerColor(d.layerId), xf, true));
-        addToLayer(d, r, node, `文本 ${r.id} "${String(d.text ?? d.value ?? '').slice(0, 16)}"`);
+        // exact glyph-ink box (#string-bbox) doubles as the bottom-mirror axis
+        const exact = stringBBox(d, fontGlyphs, xf);
+        const bb = exact ?? objBBox(r, xf) ?? undefined;
+        addToLayer(d, r, bottomMirrorWrap(d, node, bb) ?? node,
+          `文本 ${r.id} "${String(d.text ?? d.value ?? '').slice(0, 16)}"`, 'primitive', exact);
         return;
       }
       case 'OBJ': {
@@ -1347,7 +1436,9 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         // flip transform turns them into screen coords (body hanging below it)
         const ds = multiPathToSvg(mapped, { ox: 0, oy: 0, flip: true }, true);
         if (ds.length) node.add(new Path({ path: ds.join(' '), fill: layerColor(d.layerId), fillRule: 'nonzero' }));
-        addToLayer(d, r, node, `图形 ${r.id}`);
+        // rotated anchor box (#image-bbox) doubles as the bottom-mirror axis
+        const bb = objBBox(r, xf) ?? undefined;
+        addToLayer(d, r, bottomMirrorWrap(d, node, bb) ?? node, `图形 ${r.id}`, 'primitive', bb);
         return;
       }
       case 'DIMENSION': {

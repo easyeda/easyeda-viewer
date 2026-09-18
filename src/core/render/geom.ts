@@ -218,13 +218,22 @@ export function objBBox(r: { type: string; data: any }, xf: Xf, local = false): 
         }
       }
       break;
-    case 'IMAGE': // vector graphic anchored at its top-left like OBJ (#image-anchor)
-      if (typeof d.width === 'number' && isFinite(d.width)) {
-        const x1 = Number(d.startX), y0 = Number(d.startY), h = Number(d.height) || 0;
-        raw.push([x1, xf.flip ? y0 - h : y0]);
-        raw.push([x1 + Number(d.width), xf.flip ? y0 : y0 + h]);
-      } else raw.push(pt(d.startX, d.startY));
-      break;
+    case 'IMAGE': {
+      // vector graphic anchored at its top-left corner: the body spans the
+      // declared width×height below the anchor (doc y-up) and the whole box
+      // rotates about that anchor exactly like the render node does — the pick
+      // box must hug the painted result, not the unrotated frame (#image-bbox).
+      // Returned directly (no expand) like the TEXT case.
+      const w = Number(d.width) || 0, h = Number(d.height) || 0;
+      if (!(w > 0) || !(h > 0)) { raw.push(pt(d.startX, d.startY)); break; }
+      const [ax, ay] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), xf);
+      const rr = (-Number(d.angle ?? d.rotation ?? 0) * Math.PI) / 180;
+      const cs = Math.cos(rr), sn = Math.sin(rr);
+      const corners: [number, number][] = ([[0, 0], [w, 0], [w, h], [0, h]] as [number, number][]).map(
+        ([lx, ly]) => [ax + lx * cs - ly * sn, ay + lx * sn + ly * cs] as [number, number],
+      );
+      return bboxFromPts(corners);
+    }
     case 'OBJ': // imported bitmap, top-left corner at (startX, startY) — startY is the top edge
       if (typeof d.width === 'number' && isFinite(d.width)) {
         const x1 = Number(d.startX), y0 = Number(d.startY), h = Number(d.height) || 0;
