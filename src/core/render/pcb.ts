@@ -639,9 +639,13 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       }
       case 'POURED': {
         // the copper fill itself; its layer lives on the paired POUR record
-        // (POURED carries id ["POURED", "<pourId>"], not its own layerId)
+        // (POURED carries id ["POURED", "<pourId>"], not its own layerId).
+        // A POURED without a POUR is a partition-space fill (coords relative to
+        // a board partition origin) we cannot place — skip rather than paint it
+        // on the top layer at raw coords across the whole board (#pour-gaps).
         const key = String(r.id).split(',').pop() ?? '';
-        const lid = pourLayer.get(key) ?? LAYER.TOP;
+        const lid = pourLayer.get(key);
+        if (lid === undefined) return;
         // pourFill paths are authored in 0.1× PCB doc units → scale coords by 10
         const node = new Group();
         for (const pf of (d.pourFill ?? [])) {
