@@ -68,43 +68,48 @@ export interface RenderResult {
   constantStrokes: { node: Line; baseW: number }[];
 }
 
-/** numeric-id stacking fallback ([side, type]) for layers created without a file
- *  layerType (missing LAYER record): side 0 top · 1 inner · 2 bottom · 3 multi · 4 other */
-const NUM_STACK: Record<number, [number, number]> = {
-  1: [0, 0], 2: [2, 0], 3: [0, 2], 4: [2, 2], 5: [0, 1], 6: [2, 1], 7: [0, 3], 8: [2, 3],
-  9: [4, 4], 10: [4, 4], 12: [3, 0], 13: [4, 4], 19: [4, 4], 56: [4, 4],
+/** numeric-id stacking fallback (paint key) for layers created without a file
+ *  layerType (missing LAYER record) — same table the type-driven branch maps to */
+const NUM_STACK: Record<number, number> = {
+  1: 430, 2: 130, 3: 460, 4: 160, 5: 420, 6: 120, 7: 410, 8: 110, 9: 400, 10: 100,
+  11: 8000, 12: 470, 13: 0, 14: 0, 47: 9900,
 };
-for (let i = 14; i <= 46; i++) NUM_STACK[i] = [1, 0];
+for (let i = 15; i <= 46; i++) NUM_STACK[i] = 200 + (46 - i); // inner1(15)=231 … inner32(46)=200
 
-/** PCB stacking key — lower paints first / lower in the stack: board outline <
- *  top face < inner faces < bottom face < multi/all < annotation layers <
- *  origin-axes & ratsnest tools < drill holes (topmost, so copper never covers
- *  a hole). Within a face copper(0) → solder mask(1) → silk(2) → paste(3),
- *  mirroring the reference viewer's side*10+type sort; equal keys keep
- *  creation order (stable sort). */
+/** PCB stacking key — ascending key paints first / sits lower in the stack,
+ *  matching the client's 2D view (bottom → top):
+ *  annotation layers (mech / document / custom / pin / component / 3D …) <
+ *  bottom face (assembly → paste → mask → copper → net names → pad numbers →
+ *  silk) < inner faces (inner32 … inner1) < top face (same order as bottom) <
+ *  multi-layer (through-hole copper stays visible over both faces) <
+ *  board outline < origin-axes & ratsnest tools < drill holes (topmost, so
+ *  copper never covers a hole). Equal keys keep creation order (stable sort). */
 function pcbStackKey(l: RenderLayer): number {
   if (l.id === 'panel') return -100;
   if (l.id === 'axes') return 9000;
   if (l.id === 'rats') return 9100;
+  // synthetic per-face label overlays (see renderPcb's padNumLayer)
+  if (l.id.startsWith('pn:')) return l.id.endsWith(':2') ? 150 : 450;
+  if (l.id.startsWith('nn:')) return l.id.endsWith(':2') ? 140 : 440;
   const t = String(l.type ?? '').toUpperCase();
   const n = Number(l.id);
-  if (t === 'OUTLINE' || (!t && n === 11)) return 0;
-  if (t === 'HOLE' || t === 'DRILL' || t === 'DRILL_DRAWING' || (!t && n === 47)) return 9999;
-  let side: number, type: number;
+  if (t === 'HOLE' || t === 'DRILL' || (!t && n === 47)) return 9900;
+  if (t === 'OUTLINE' || (!t && n === 11)) return 8000;
+  if (t === 'MULTI' || (!t && n === 12)) return 470;
   if (t) {
-    // layerType is a compound token (TOP / TOP_SILK / BOT_SOLDER_MASK / SIGNAL /
-    // MULTI / OUTLINE …) — match the face by prefix, the kind by infix/suffix
-    side = t.startsWith('TOP') ? 0
-      : t === 'SIGNAL' || t === 'PLANE' || t.startsWith('INNER') ? 1
-      : t.startsWith('BOTTOM') ? 2 : t.startsWith('MULTI') ? 3 : 4;
-    type = t.endsWith('SILK') ? 2 : t.includes('SOLDER_MASK') ? 1 : t.includes('PASTE') ? 3
-      : t === 'TOP' || t === 'BOTTOM' || t === 'SIGNAL' || t === 'PLANE' || t.startsWith('MULTI') ? 0 : 4;
-  } else {
-    const e = NUM_STACK[n];
-    side = e?.[0] ?? 4;
-    type = e?.[1] ?? 4;
+    // stiffener films are documentation-like overlays, not a copper face
+    if (t.includes('STIFFENER')) return 0;
+    const kind = t.endsWith('ASSEMBLY') ? 0 : t.includes('PASTE') ? 10
+      : t.includes('SOLDER_MASK') ? 20 : t.endsWith('SILK') ? 60 : 30;
+    if (t.startsWith('TOP')) return 400 + kind;
+    if (t.startsWith('BOTTOM') || t.startsWith('BOT_')) return 100 + kind;
+    if (t === 'SIGNAL' || t === 'PLANE' || t.startsWith('INNER')) {
+      // inner1 paints above inner2 … inner32 sits just above the bottom face
+      return n >= 15 && n <= 46 ? 200 + (46 - n) : 200;
+    }
+    return 0; // document / mechanical / custom / pin / component / 3D / other …
   }
-  return 100 + side * 10 + type;
+  return NUM_STACK[n] ?? 0;
 }
 
 export function renderDoc(opened: OpenedDoc, bgColor = '#000000'): RenderResult {
@@ -154,11 +159,12 @@ export function renderDoc(opened: OpenedDoc, bgColor = '#000000'): RenderResult 
   let list: RenderLayer[];
   if (dt === 'PCB' || dt === 'PANEL' || dt === 'FOOTPRINT') {
     renderPcb(opened, api);
-    // stack like the reference gerber viewer: leafer paints later-added children
+    // stack like the client's 2D view: leafer paints later-added children
     // on top, so re-adding the layer groups in sorted order re-stacks them —
-    // outline bottommost, faces copper→mask→silk→paste (top/inner/bottom/multi),
-    // annotations, axes & ratsnest tools, drill holes on top. The sorted order is
-    // also what the layer panel lists, so the UI matches the real stacking.
+    // annotations bottommost, bottom face, inner faces, top face (silk on top
+    // of each face), multi-layer, board outline, axes & ratsnest tools, drill
+    // holes topmost (see pcbStackKey). The sorted order is also what the layer
+    // panel lists, so the UI matches the real stacking.
     list = [...layers.values()];
     const created = new Map(list.map((l, i) => [l, i] as const));
     list.sort((a, b) => pcbStackKey(a) - pcbStackKey(b) || created.get(a)! - created.get(b)!);

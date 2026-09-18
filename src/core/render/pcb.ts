@@ -101,9 +101,11 @@ function isDocIdText(d: any, ownerId?: string, allIds?: Set<string>, netNames?: 
  * its center (rotating a node placed at top-left would swing it off-target).
  * Pad numbers are drawn doc-scaled (they zoom with the canvas like the client).
  * `opts.holeSink` hoists the drill/slot group out of the pad group (caller adds
- * it to the topmost hole layer) — use for pads already in world coords. */
+ * it to the topmost hole layer) — use for pads already in world coords.
+ * `opts.numSink` likewise hoists the pad-number text to a per-face overlay
+ * between the face's copper and silk (caller maps it into world coords). */
 function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => string, holeFill: string,
-  opts?: { holeSink?: (hole: Group) => void }): Group {
+  opts?: { holeSink?: (hole: Group) => void; numSink?: (num: Text) => void }): Group {
   const g = new Group();
   const padAngleDeg = Number(d.padAngle ?? 0);
   const padAngle = (padAngleDeg * Math.PI) / 180;
@@ -164,7 +166,8 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false,
     } as any);
     t.x = cx; t.y = cy;
-    g.add(t);
+    if (opts?.numSink) opts.numSink(t);
+    else g.add(t);
   }
   return g;
 }
@@ -231,6 +234,17 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   /** drill/slot holes hoist to the hole layer (47), the topmost group in the
    *  stacking order, so drills always paint above every copper/silk group */
   const holeLayerGroup = api.layer(String(LAYER.HOLE), layerMeta.get(String(LAYER.HOLE))?.name, layerColor(LAYER.HOLE), true);
+  /** pad-number labels hoist to a per-face overlay that stacks between the
+   *  face's copper and its silk (client stack: copper < pad numbers < silk) */
+  const padNumLayer = (face: 1 | 2): Group =>
+    api.layer(`pn:${face}`, face === 1 ? '顶层焊盘编号' : '底层焊盘编号', '#c9ccd1', true);
+  /** which face (1 top / 2 bottom) a layer id belongs to — by LAYER record
+   *  layerType, falling back to the standard numeric layer ids */
+  const faceOf = (lid: unknown): 1 | 2 => {
+    const key = String(lid);
+    if (layerMeta.get(key)?.type.toUpperCase().startsWith('BOT')) return 2;
+    return ['2', '4', '6', '8', '10'].includes(key) ? 2 : 1;
+  };
   /** fallback font size (doc units) when a record carries no fontSize */
   const LABEL_PX = 9;
 
@@ -349,7 +363,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   // `targetFor` routes every primitive to the per-layer wrapper of its own
   // layerId — footprint silk stacks with the doc's silk, pads with the copper —
   // instead of the whole footprint living in one group (see drawComponent).
-  function drawFootprint(target: Group, fp: DocSegment, targetFor: (lid: unknown) => Group) {
+  function drawFootprint(target: Group, fp: DocSegment, targetFor: (lid: unknown) => Group, numFace: 1 | 2) {
     const fxf = xfOf(fp.canvas); // footprint-local canvas (origin likely 0)
     const fpAllIds = new Set(fp.recs.map((fr) => String(fr.id ?? '')));
     for (const r of sortZ(fp.recs)) {
@@ -372,6 +386,16 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
               // a flip negates the hole's own rotation relative to the component
               hg.rotation = (Number(target.rotation) || 0) + (flipY ? -1 : 1) * (Number(hg.rotation) || 0);
               holeLayerGroup.add(hg);
+            },
+            // the pad number rides the face's label overlay in world coords,
+            // replicating the wrapper's transform (rotation + Y flip) on the text
+            numSink: (t) => {
+              const tx = Number(t.x) || 0, ty = (flipY ? -1 : 1) * (Number(t.y) || 0);
+              t.x = gx + tx * gc - ty * gs;
+              t.y = gy + tx * gs + ty * gc;
+              t.rotation = Number(target.rotation) || 0;
+              if (flipY) t.scaleY = -1;
+              padNumLayer(numFace).add(t);
             },
           }));
           break;
@@ -519,7 +543,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       }
       return w;
     };
-    if (fp) drawFootprint(g, { ...fp, recs: remapRecs(fp.recs) }, targetFor);
+    if (fp) drawFootprint(g, { ...fp, recs: remapRecs(fp.recs) }, targetFor, mirror ? 2 : 1);
     else {
       targetFor(d.layerId ?? LAYER.TOP).add(new Rect({ x: -12, y: -8, width: 24, height: 16, stroke: '#cc0000', strokeWidth: 1, dashPattern: [3, 3] }));
       if (fpUuid) api.reportDiagnostics.push(`未解析封装 ${fpUuid.slice(0, 10)} (line ${r.lineNo})`);
@@ -632,9 +656,10 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       }
       case 'PAD': {
         // page-level pads are in world coords — the hoisted hole group plugs
-        // straight into the hole layer
+        // straight into the hole layer, the pad number into the face's overlay
         const node = padNode(d, xf, layerColor, holeFill, {
           holeSink: (hg) => holeLayerGroup.add(hg),
+          numSink: (t) => padNumLayer(faceOf(d.layerId)).add(t),
         });
         addToLayer(d, r, node, `焊盘 ${r.id} #${d.num ?? ''}`, 'pad');
         return;
