@@ -63,7 +63,16 @@ export function setupDnd(root: HTMLElement, opts: DndOptions): DndController {
     }
     if (!files.length) {
       const dt = e.dataTransfer;
-      if (dt) for (const f of [...dt.files]) files.push(f);
+      if (dt) {
+        // per-item getAsFile(): some engines (WebView2/Edge) hand out neither
+        // entries nor a populated dt.files, but still yield File per item
+        for (const it of [...dt.items]) {
+          if (it.kind !== 'file') continue;
+          const f = it.getAsFile();
+          if (f) files.push(f);
+        }
+        if (!files.length) for (const f of [...dt.files]) files.push(f);
+      }
     }
     if (files.length) opts.onFiles(files);
     else opts.onFiles([]); // surface "nothing readable" to the caller

@@ -25,28 +25,37 @@ export async function filesToMap(files: File[]): Promise<Map<string, Uint8Array>
   return m;
 }
 
-/** flatten zips into the file map (zipped eprj3 folders / epro2 stay intact for probe) */
+/** flatten zips into the file map (zipped eprj3 folders / epro2 stay intact for probe);
+ *  nested archives (e.g. a .zip containing an .epro2) expand recursively */
 export function expandZips(map: Map<string, Uint8Array>): Map<string, Uint8Array> {
-  const zips = [...map.entries()].filter(([, b]) => isZip(b));
-  if (!zips.length) return map;
   const out = new Map(map);
-  for (const [name, bytes] of zips) {
-    out.delete(name);
-    let inner: Map<string, Uint8Array>;
-    try {
-      inner = zipToFileMap(bytes);
-    } catch {
-      continue;
+  // each round expands one nesting level; depth cap guards against zip bombs
+  let frontier = [...out.entries()].filter(([, b]) => isZip(b));
+  for (let depth = 0; frontier.length && depth < 5; depth++) {
+    const next: [string, Uint8Array][] = [];
+    for (const [name, bytes] of frontier) {
+      let inner: Map<string, Uint8Array>;
+      try {
+        inner = zipToFileMap(bytes);
+      } catch {
+        continue; // unreadable archive: keep the original entry so probing reports it clearly
+      }
+      if (!inner.size) continue; // nothing decoded (e.g. zip64/unsupported method): keep original
+      out.delete(name);
+      const base = name.replace(/\.(zip|epro2)$/i, '');
+      for (const [p, b] of inner) {
+        // avoid clobbering when zip root equals an existing path
+        const key = out.has(p) ? `${base}/${p}` : p;
+        out.set(key, b);
+        if (isZip(b)) next.push([key, b]);
+      }
     }
-    const base = name.replace(/\.zip$/i, '');
-    for (const [p, b] of inner) {
-      // avoid clobbering when zip root equals an existing path
-      const key = out.has(p) ? `${base}/${p}` : p;
-      out.set(key, b);
-    }
+    frontier = next;
   }
   return out;
 }
+
+const ARCHIVE_RE = /\.(zip|epro2)$/i;
 
 export function loadFromMap(input: Map<string, Uint8Array>): ProjectModel {
   const files = expandZips(input);
@@ -54,6 +63,10 @@ export function loadFromMap(input: Map<string, Uint8Array>): ProjectModel {
   if (isEprj3(files)) return finish(buildEprj3(files));
   if (isEpro2(files)) return finish(buildEpro2(files));
   if (isSingleDoc(files)) return finish(buildSingle(files));
+  // an archive survived expansion (0-byte read from a dropped virtual file,
+  // truncated download, unsupported layout) — report IT instead of a generic format error
+  const stuck = [...files.keys()].find((p) => ARCHIVE_RE.test(p));
+  if (stuck) throw new Error(`压缩包读取失败:${stuck}（文件可能未完整下载或已损坏,请重新导出后重试）`);
   throw new Error('无法识别的工程格式（支持 .eprj3 目录/.zip、.epro2、单个 .esch2/.epcb2/.epan2/.epru）');
 }
 
