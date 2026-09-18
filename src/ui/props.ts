@@ -231,6 +231,9 @@ export class PropsView {
 
     // ---------- appearance ----------
     if (num(d.strokeWidth)) { row(attrLabel('strokeWidth'), mil(d.strokeWidth)); used.add('strokeWidth'); }
+    if (typeof d.fontFamily === 'string' && d.fontFamily && d.fontFamily !== 'default') {
+      row(attrLabel('fontFamily'), d.fontFamily); used.add('fontFamily');
+    }
     if (num(d.fontSize)) { row(attrLabel('fontSize'), mil(d.fontSize)); used.add('fontSize'); }
     colorRow(attrLabel('strokeColor'), d.strokeColor); used.add('strokeColor');
     colorRow(attrLabel('fillColor'), d.fillColor); used.add('fillColor');

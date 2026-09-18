@@ -369,6 +369,10 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       text: value,
       fontSize: Number(d.fontSize) || 10,
       fill: strokeOf({ strokeColor: d.color }, color),
+      // the record's own font name (e.g. 宋体) when the file names one — the
+      // browser falls back to its default face when it is not installed
+      fontFamily: (typeof d.fontFamily === 'string' && d.fontFamily && d.fontFamily !== 'default')
+        ? d.fontFamily : undefined,
       textAlign: alignX(d.align),
       verticalAlign: alignY(d.align),
       autoSizeAlign: true,

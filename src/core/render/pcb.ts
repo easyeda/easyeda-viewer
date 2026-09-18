@@ -2,7 +2,8 @@
 import { Group, Line, Rect, Path, Text, Ellipse, Image as LeaferImage } from 'leafer-ui';
 import type { OpenedDoc, Rec, DocSegment } from '../types';
 import type { RenderApi, RenderObject } from './layers';
-import { X, Y, P, ang, strokeOf, widthOf, xfOf, objBBox, bboxFromPts, multiPathToSvg, scalePourItems, type BBox } from './geom';
+import { X, Y, P, ang, strokeOf, widthOf, xfOf, objBBox, bboxFromPts, multiPathToSvg, scalePourItems, type BBox, type Xf } from './geom';
+import { glyphKey, glyphPathD, fontGlyphMap, GLYPH_UNIT, type FontGlyph } from './font';
 import { resolveLibGraphics } from '../model';
 
 /** standard EasyEDA layer ids (numeric layerId used by primitives) */
@@ -389,17 +390,30 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   /** fallback font size (doc units) when a record carries no fontSize */
   const LABEL_PX = 9;
 
-  /** PCB text node. `docScale` renders at the record's own font size so the
-   * text grows/shrinks with the board like EasyEDA does — silk (heavy display
-   * face) and designator labels (plain face) both zoom now (#pad-num-zoom).
-   * Origin token (LEFT_BOTTOM …) selects the anchor within the given point. */
-  function mkLabel(d: any, color: string, xfc: ReturnType<typeof xfOf>, docScale = false, heavy = docScale): Text {
+  // custom-font strings render from the file's own FONT glyph outlines (#font-glyph)
+  const fontGlyphs = fontGlyphMap(opened.libs);
+
+  /** PCB text node. Custom-font strings whose outline ships in the file's FONT
+   * document draw as vector paths (the exact typeface, no font binary needed —
+   * #font-glyph); everything else is a leafer Text. `docScale` renders at the
+   * record's own font size so the text grows/shrinks with the board like
+   * EasyEDA does — silk (heavy display face) and designator labels (plain
+   * face) both zoom now (#pad-num-zoom). Origin token (LEFT_BOTTOM …) selects
+   * the anchor within the given point. */
+  function mkLabel(d: any, color: string, xfc: ReturnType<typeof xfOf>, docScale = false, heavy = docScale): Text | Group {
     const fs = docScale ? (Number(d.fontSize) || LABEL_PX) : LABEL_PX;
+    const text = String(d.text ?? d.value ?? '');
+    const fam = String(d.fontFamily ?? '');
+    // glyph hit: the file carries this exact string/font/size as vector outlines
+    const glyph = text ? fontGlyphs.get(glyphKey(text, fam, Number(d.fontSize) || 0)) : undefined;
+    if (glyph) return glyphLabel(glyph, d, color, xfc);
     const t = new Text({
-      text: String(d.text ?? d.value ?? ''), fontSize: fs,
-      // silk uses heavy display fonts (e.g. 阿里巴巴普惠体 Heavy) — approximate
-      // with a bold sans face so weight/styles stay close to the reference
-      fontFamily: docScale && heavy ? 'Arial Black, Arial Bold, Microsoft YaHei, sans-serif' : undefined,
+      text, fontSize: fs,
+      // the record's own font name when the file names one (browser falls back
+      // when the typeface is not installed); silk strings without a named font
+      // approximate the heavy display face with a bold sans so weight/styles
+      // stay close to the reference
+      fontFamily: fam && fam !== 'default' ? fam : (docScale && heavy ? 'Arial Black, Arial Bold, Microsoft YaHei, sans-serif' : undefined),
       fill: color, bold: (docScale && heavy) || !!d.bold,
       textAlign: alignX(d.origin),
       verticalAlign: String(d.origin ?? '').toUpperCase().includes('BOTTOM') ? 'bottom'
@@ -411,6 +425,32 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     if (d.reverse) t.scaleX = -1;
     if (d.mirror) t.scaleY = -1;
     return t;
+  }
+
+  /** FONT glyph outline → Path group placed exactly where the Text fallback
+   *  would sit: anchor per the origin token, record angle, reverse/mirror
+   *  flips (#font-glyph). Glyph space is y-up with (0,0) at the layout box's
+   *  bottom-left and 1 unit = GLYPH_UNIT doc units (width/height are doc
+   *  units), so the box spans [0,W]×[0,H] in doc space — i.e.
+   *  [ha·W−W…ha·W]×[−va·H…(1−va)·H] around the anchor after the origin
+   *  token's shift (node space is y-down, hence the -py). */
+  function glyphLabel(g: FontGlyph, d: any, color: string, xfc: Xf): Group {
+    const s = String(d.origin ?? '').toUpperCase();
+    const ha = s.includes('CENTER') ? 0.5 : s.includes('RIGHT') ? 1 : 0;
+    const va = s.includes('TOP') ? 0 : s.includes('BOTTOM') ? 1 : 0.5;
+    const node = new Group({ name: 'glyph-text' });
+    node.add(new Path({
+      // all subpaths in ONE nonzero-filled Path — holes wind opposite to outers
+      path: glyphPathD(g.subs, (px, py) =>
+        [px * GLYPH_UNIT - ha * g.width, (1 - va) * g.height - py * GLYPH_UNIT]),
+      fill: color, windingRule: 'nonzero',
+    }));
+    node.x = X(Number(d.x ?? 0), xfc);
+    node.y = Y(Number(d.y ?? 0), xfc);
+    node.rotation = ang(Number(d.angle ?? d.rotation ?? 0));
+    if (d.reverse) node.scaleX = -1;
+    if (d.mirror) node.scaleY = -1;
+    return node;
   }
 
   const byParent = indexByParent(seg.recs);
