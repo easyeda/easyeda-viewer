@@ -18,7 +18,7 @@ import { setupDnd, pickFiles, pickFolder, type DndController } from './dnd';
 import { DocTreeView, ObjectListView, LayerListView, escapeHtml, type ObjectRow } from './tree';
 import { PropsView } from './props';
 import { icon, easyedaMark } from './icons';
-import { t, setLang as setI18nLang, getLang, type Lang } from './i18n';
+import { t, setLang as setI18nLang, getLang, layerLabel, type Lang } from './i18n';
 
 export interface ShellEvents {
   onReady?(): void;
@@ -411,6 +411,13 @@ export class Shell {
   // ---------- loading ----------
 
   async loadFiles(files: File[]): Promise<void> {
+    if (!files.length) {
+      // drag delivered nothing readable (OS interception / empty drop) — say so
+      // instead of the misleading "unrecognized format" parse error
+      this.setStatus(t('statusEmptyDrop'), true);
+      this.events.onError?.(new Error(t('statusEmptyDrop')));
+      return;
+    }
     try {
       const model = await loadFromFiles(files);
       this.setModel(model);
@@ -537,7 +544,12 @@ export class Shell {
       this.lastObjRows = rows;
       this.objList.setObjects(rows);
       if (this.docKind === 'pcb' || this.docKind === 'panel' || this.docKind === 'footprint') {
-        this.lastLayerItems = this.layers.map((l) => ({ id: l.id, name: l.name, color: l.color, show: l.show, count: l.count }));
+        // layer panel order follows human convention (top face first, drill/board
+        // outline/multi-layer after, mechanical & panel utility layers last) —
+        // NOT the renderer's paint order, which puts pour/annotation groups first
+        this.lastLayerItems = [...this.layers]
+          .sort((a, b) => uiLayerRank(a.id, a.name, a.type) - uiLayerRank(b.id, b.name, b.type))
+          .map((l) => ({ id: l.id, name: layerLabel(l.name), color: l.color, show: l.show, count: l.count }));
         this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
         this.props.setLayerNames(this.layers);
       } else {
@@ -789,6 +801,45 @@ function canvasBg(kind: 'sch' | 'pcb' | 'panel' | 'footprint' | 'other'): string
   if (kind === 'pcb' || kind === 'footprint') return '#14161a';
   if (kind === 'sch' || kind === 'panel') return '#ffffff';
   return '#f5f6f7';
+}
+
+/** layer-panel display rank — the order a person expects, mirroring the
+ *  嘉立创EDA专业版 layer list (NOT the renderer's paint order):
+ *  top face silk → pad numbers → paste → mask → copper, inner1..N, bottom face
+ *  copper → mask → paste → pad numbers → silk, drill, board outline, multi-layer,
+ *  document, misc overlays, mechanical/panel utility layers last, tools at the end.
+ *  Lower rank = higher in the list; ties keep the render stack order (stable sort). */
+const UI_LAYER_RANK: Record<string, number> = {
+  TOP_SILK: 0, TOP_PASTE_MASK: 2, TOP_SOLDER_MASK: 3, TOP: 4,
+  BOTTOM: 20, BOT_SOLDER_MASK: 21, BOT_PASTE_MASK: 22, BOT_SILK: 23,
+  HOLE: 30, DRILL: 30, OUTLINE: 31, MULTI: 32, DOCUMENT: 40,
+  TOP_ASSEMBLY: 41, BOT_ASSEMBLY: 42,
+  COMPONENT_SHAPE: 50, COMPONENT_MARKING: 51, COMPONENT_MODEL: 52,
+  PIN_FLOATING: 53, PIN_SOLDERING: 54, DRILL_DRAWING: 55, OTHER: 56, NET: 57,
+  TOP_STIFFENER: 58, BOTTOM_STIFFENER: 59, SUBSTRATE: 60,
+  MECHANICAL: 70,
+};
+/** fallback when a layer has no file layerType — same ids the renderer maps */
+const UI_LAYER_RANK_BY_ID: Record<number, number> = {
+  1: 4, 2: 20, 3: 0, 4: 23, 5: 3, 6: 21, 7: 2, 8: 22, 9: 41, 10: 42,
+  11: 31, 12: 32, 13: 40, 14: 70, 47: 30,
+};
+
+function uiLayerRank(id: string, name: string, type?: string): number {
+  // synthetic renderer layers
+  if (id === 'pn:1') return 1; // top pad-number overlay, just under top silk
+  if (id === 'pn:2') return 24; // bottom pad-number overlay, just under bottom silk
+  if (id === 'panel') return 800;
+  if (id === 'axes' || id === 'rats') return 900;
+  const n = Number(id);
+  const ty = String(type ?? '').toUpperCase();
+  // inner signal faces: 15..46 = Inner1..Inner32 in this format (name wins when parseable)
+  const inner = /^Inner(\d+)$/i.exec(name);
+  if (ty === 'SIGNAL' || ty === 'PLANE' || ty.startsWith('INNER') || inner || (!ty && n >= 15 && n <= 46)) {
+    return 10 + (inner ? Number(inner[1]) : n >= 15 && n <= 46 ? n - 14 : 99);
+  }
+  if (ty) return UI_LAYER_RANK[ty] ?? (ty.startsWith('3D_') ? 52 : ty.includes('PANEL') ? 70 : 50);
+  return UI_LAYER_RANK_BY_ID[n] ?? 50;
 }
 
 /** Exclude sheet borders, power/ground symbols, net labels and other non-component symbols

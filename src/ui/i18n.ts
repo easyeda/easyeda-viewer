@@ -34,6 +34,7 @@ const STR: Record<Lang, Record<string, string>> = {
     statusPlaceholders: '{n} 个占位符',
     statusUnknownTypes: '未支持类型: {types}',
     statusFail: '加载失败:',
+    statusEmptyDrop: '未读取到拖入的文件(可能被系统或其他程序拦截),请改用「打开文件…」按钮选择',
     paneTree: '文档树', paneObjects: '元件树', paneLayers: '图层',
     searchPh: '搜索…',
     noObjects: '暂无对象',
@@ -68,6 +69,7 @@ const STR: Record<Lang, Record<string, string>> = {
     statusPlaceholders: '{n} placeholders',
     statusUnknownTypes: 'Unsupported types: {types}',
     statusFail: 'Load failed: ',
+    statusEmptyDrop: 'No readable file in the drop (it may have been intercepted) — use the Open file… button instead',
     paneTree: 'Documents', paneObjects: 'Component tree', paneLayers: 'Layers',
     searchPh: 'Search…',
     noObjects: 'No objects',
@@ -171,6 +173,43 @@ const ATTRS: Record<Lang, Record<string, string>> = {
 };
 export function attrLabel(key: string): string {
   return ATTRS[current][key] ?? ATTRS.zh[key] ?? key;
+}
+
+/** standard PCB layer names carried by LAYER records (EasyEDA Pro English
+ *  names, matched case-insensitively) → translated labels for the layer panel.
+ *  Only recognizable standard names are translated; custom names pass through.
+ *  `Inner<n>` / `Dielectric<n>` get a pattern rule in layerLabel(). */
+const LAYER_NAMES: Record<string, string> = {
+  'top layer': '顶层', 'bottom layer': '底层',
+  'top silkscreen layer': '顶层丝印层', 'bottom silkscreen layer': '底层丝印层',
+  'top overlay': '顶层丝印层', 'bottom overlay': '底层丝印层',
+  'top solder mask layer': '顶层阻焊层', 'bottom solder mask layer': '底层阻焊层',
+  'top paste mask layer': '顶层助焊层', 'bottom paste mask layer': '底层助焊层',
+  'top assembly layer': '顶层装配层', 'bottom assembly layer': '底层装配层',
+  'multi-layer': '多层', 'multi layer': '多层',
+  'board outline layer': '板框层', 'keep-out layer': '禁止布线层',
+  'document layer': '文档层', 'hole layer': '钻孔层',
+  'mechanical layer': '机械层', 'drill drawing layer': '钻孔绘图层',
+  'component shape layer': '元件形状层', 'component marking layer': '元件标记层',
+  'component model layer': '元件模型层',
+  'pin soldering layer': '引脚焊接层', 'pin floating layer': '引脚悬浮层',
+  '3d shell outline layer': '3D 外壳轮廓层',
+  '3d shell top layer': '3D 外壳顶层', '3d shell bottom layer': '3D 外壳底层',
+  'top stiffener layer': '顶层补强层', 'bottom stiffener layer': '底层补强层',
+  'ratline layer': '飞线层', ratsnest: '飞线', 'net layer': '网络层',
+};
+
+/** translate a standard PCB layer name (zh); unknown / custom names and the
+ *  English UI pass through unchanged */
+export function layerLabel(name: string): string {
+  if (current === 'en') return name;
+  const std = LAYER_NAMES[name.trim().toLowerCase()];
+  if (std) return std;
+  let m = /^Inner(\d+)$/i.exec(name);
+  if (m) return `内层${m[1]}`;
+  m = /^Dielectric(\d+)$/i.exec(name);
+  if (m) return `绝缘层${m[1]}`;
+  return name;
 }
 
 /** enum-ish values worth translating in props */
