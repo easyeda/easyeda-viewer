@@ -81,14 +81,20 @@ export function setupDnd(root: HTMLElement, opts: DndOptions): DndController {
   window.addEventListener('dragover', onDragOver);
   overlay.addEventListener('dragenter', onDragEnter);
   overlay.addEventListener('dragleave', onDragLeave);
-  overlay.addEventListener('drop', onDrop);
+  // drop MUST be intercepted at window level: a drop landing outside the
+  // overlay (app not yet mounted, engine dispatching to another target) would
+  // run the browser default — navigating the frame to the dropped file:// URL,
+  // which Chrome/Edge block with "file: URLs are treated as unique security
+  // origins" instead of a usable error. dragover-preventDefault alone is not
+  // enough: an un-preventDefaulted drop still triggers the navigation.
+  window.addEventListener('drop', onDrop);
 
   return {
     destroy() {
       window.removeEventListener('dragover', onDragOver);
       overlay.removeEventListener('dragenter', onDragEnter);
       overlay.removeEventListener('dragleave', onDragLeave);
-      overlay.removeEventListener('drop', onDrop);
+      window.removeEventListener('drop', onDrop);
       mask.remove();
     },
   };
