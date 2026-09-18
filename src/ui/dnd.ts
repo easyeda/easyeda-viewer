@@ -42,40 +42,45 @@ export function setupDnd(root: HTMLElement, opts: DndOptions): DndController {
   const onDragOver = (e: DragEvent) => { e.preventDefault(); };
   const onDragEnter = (e: DragEvent) => { e.preventDefault(); showMask(); };
   const onDragLeave = (e: DragEvent) => { e.preventDefault(); hideMask(); };
-  const onDrop = async (e: DragEvent) => {
+  const onDrop = (e: DragEvent) => {
     e.preventDefault();
     hideMask();
-    const files: File[] = [];
-    const items = e.dataTransfer?.items;
-    if (items && items.length && 'webkitGetAsEntry' in items[0]) {
-      // WebView2/Edge can return null from webkitGetAsEntry() for Explorer drops —
-      // collect whatever entries DO resolve, then fall through to dataTransfer.files.
-      const entries = [...items]
-        .map((it) => {
-          try {
-            return (it as DataTransferItem & { webkitGetAsEntry(): FileSystemEntry | null }).webkitGetAsEntry();
-          } catch {
-            return null;
-          }
-        })
-        .filter((x): x is FileSystemEntry => !!x);
-      await Promise.all(entries.map((en) => walkEntry(en, files).catch(() => { /* per-entry failure: keep others */ })));
-    }
-    if (!files.length) {
-      const dt = e.dataTransfer;
-      if (dt) {
-        // per-item getAsFile(): some engines (WebView2/Edge) hand out neither
-        // entries nor a populated dt.files, but still yield File per item
-        for (const it of [...dt.items]) {
-          if (it.kind !== 'file') continue;
-          const f = it.getAsFile();
-          if (f) files.push(f);
+    const dt = e.dataTransfer;
+    // Snapshot EVERYTHING synchronously, before any await: DataTransfer enters
+    // protected mode (items/files read back empty) as soon as event dispatch
+    // completes — i.e. after the first await in an async handler. Edge/WebView2
+    // also return null from webkitGetAsEntry() for Explorer drops, which used to
+    // force the fallback read AFTER an await and always come up empty.
+    const files: File[] = [];            // resolved synchronously
+    const entries: FileSystemEntry[] = []; // walked asynchronously (folders)
+    const rescue: File[] = [];           // getAsFile backups, used if the walk yields nothing
+    if (dt) {
+      for (const it of [...dt.items]) {
+        if (it.kind !== 'file') continue;
+        let entry: FileSystemEntry | null = null;
+        try {
+          entry = (it as DataTransferItem & { webkitGetAsEntry(): FileSystemEntry | null }).webkitGetAsEntry();
+        } catch { /* fall through to getAsFile */ }
+        const f = it.getAsFile();
+        if (entry) {
+          entries.push(entry);
+          // file() can reject on locked/virtual items — keep the direct File
+          // as a rescue, but only for real files (folders yield a bogus File)
+          if (entry.isFile && f) rescue.push(f);
+        } else if (f) {
+          files.push(f);
         }
-        if (!files.length) for (const f of [...dt.files]) files.push(f);
+      }
+      if (!entries.length && !files.length) {
+        for (const f of [...dt.files]) files.push(f);
       }
     }
-    if (files.length) opts.onFiles(files);
-    else opts.onFiles([]); // surface "nothing readable" to the caller
+    Promise.all(entries.map((en) => walkEntry(en, files).catch(() => { /* per-entry failure: keep others */ })))
+      .then(() => {
+        if (!files.length && rescue.length) files.push(...rescue);
+        if (files.length) opts.onFiles(files);
+        else opts.onFiles([]); // surface "nothing readable" to the caller
+      });
   };
 
   window.addEventListener('dragover', onDragOver);
