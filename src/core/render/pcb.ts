@@ -359,15 +359,18 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         case 'PAD': {
           // drill/slot holes hoist to the hole layer in world coords: the pad
           // group's local (hx,hy) maps through the component's pos + rotation
+          // (+ Y flip for bottom-side components — see drawComponent)
+          const flipY = Number(target.scaleY) === -1;
           const gx = Number(target.x) || 0, gy = Number(target.y) || 0;
           const gr = ((Number(target.rotation) || 0) * Math.PI) / 180;
           const gc = Math.cos(gr), gs = Math.sin(gr);
           targetFor(d.layerId).add(padNode(d, fxf, layerColor, holeFill, {
             holeSink: (hg) => {
-              const hx = Number(hg.x) || 0, hy = Number(hg.y) || 0;
+              const hx = Number(hg.x) || 0, hy = (flipY ? -1 : 1) * (Number(hg.y) || 0);
               hg.x = gx + hx * gc - hy * gs;
               hg.y = gy + hx * gs + hy * gc;
-              hg.rotation = (Number(hg.rotation) || 0) + (Number(target.rotation) || 0);
+              // a flip negates the hole's own rotation relative to the component
+              hg.rotation = (Number(target.rotation) || 0) + (flipY ? -1 : 1) * (Number(hg.rotation) || 0);
               holeLayerGroup.add(hg);
             },
           }));
@@ -469,6 +472,19 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     g.x = X(Number(d.x ?? 0), xf);
     g.y = Y(Number(d.y ?? 0), xf);
     g.rotation = ang(Number(d.angle ?? 0));
+    // Bottom-side components are implicitly mirrored (the layer IS the mirror —
+    // the client stores no explicit flip flag). Measured against the official
+    // export, the doc-space rule is M_y·R(θ): rotate by the stored angle first,
+    // then flip Y about the component origin. CARD1 (TF slot, bottom, 795/380
+    // rot180) puts its main pad row on doc y 588.7 at x 706.4..1052.9 and corner
+    // #11 at (1100.1, 171.3) — both match the official preview, and nothing
+    // lands on the stray y≈171 row at x 706 that plain R(180) would draw. In
+    // leafer's scale-then-rotate composition the y flip absorbs the doc→world
+    // axis flip, leaving M_y·R(θ) = rotate by the *negated* angle after
+    // scaleY=-1 (verified: USB1 bottom rot90 renders the R(90)·M_x row the
+    // official export shows).
+    const mirror = Number(d.layerId) === LAYER.BOTTOM;
+    if (mirror) { g.scaleY = -1; g.rotation = ang(-Number(d.angle ?? 0)); }
     // Per-layer mounting: footprint primitives route to the layer group of their
     // own layerId (silk frame → silk group, pads → copper group) so component
     // graphics stack with the doc's own per-layer content. Previously the whole
@@ -476,13 +492,26 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     // pads cover an earlier component's silk. `g` keeps the component transform
     // for bbox/objects but stays off-tree; wrappers replicate its transform.
     const wrappers = new Map<string, Group>();
+    // footprint primitives are authored face-up in the footprint editor, so a
+    // bottom component's pads/silk carry top-side layer ids (1/3) but must paint
+    // on the component's own side — remap them onto the bottom copper/silk,
+    // otherwise CARD1's pads render red on the top copper layer (#2)
+    const faceRemap = mirror ? new Map([['1', '2'], ['3', '4']]) : null;
+    // remap the record data too so pad/shape fills take the bottom side's color
+    const remapRecs = (recs: Rec[]) =>
+      faceRemap ? recs.map((r) => {
+        const lid = faceRemap.get(String(r.data.layerId));
+        return lid ? { ...r, data: { ...r.data, layerId: Number(lid) } } : r;
+      }) : recs;
     const targetFor = (lid: unknown): Group => {
-      const key = lid != null ? String(lid) : String(d.layerId ?? LAYER.TOP);
+      let key = lid != null ? String(lid) : String(d.layerId ?? LAYER.TOP);
+      const mapped = faceRemap?.get(key);
+      if (mapped) key = mapped;
       let w = wrappers.get(key);
       if (!w) {
         const lm = layerMeta.get(key);
         w = new Group({ name: `comp:${r.id}#${key}` });
-        w.x = g.x; w.y = g.y; w.rotation = g.rotation;
+        w.x = g.x; w.y = g.y; w.rotation = g.rotation; w.scaleX = g.scaleX; w.scaleY = g.scaleY;
         const alpha = BOTTOM_ALPHA[key];
         if (alpha !== undefined) w.opacity = alpha;
         api.layer(key, lm?.name, lm?.color ?? LAYER_FALLBACK[Number(key)] ?? '#888888', lm?.show ?? true).add(w);
@@ -490,7 +519,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       }
       return w;
     };
-    if (fp) drawFootprint(g, fp, targetFor);
+    if (fp) drawFootprint(g, { ...fp, recs: remapRecs(fp.recs) }, targetFor);
     else {
       targetFor(d.layerId ?? LAYER.TOP).add(new Rect({ x: -12, y: -8, width: 24, height: 16, stroke: '#cc0000', strokeWidth: 1, dashPattern: [3, 3] }));
       if (fpUuid) api.reportDiagnostics.push(`未解析封装 ${fpUuid.slice(0, 10)} (line ${r.lineNo})`);
@@ -918,9 +947,14 @@ function footprintBBox(fp: DocSegment | undefined, g: Group): BBox | undefined {
     if (b) local.push([b.minX, b.minY], [b.minX, b.maxY], [b.maxX, b.minY], [b.maxX, b.maxY]);
   }
   if (!local.length) return { minX: cx - 15, minY: cy - 15, maxX: cx + 15, maxY: cy + 15 };
+  // bottom-side components carry a local Y flip with negated rotation (see drawComponent)
+  const flipY = Number(g.scaleY) === -1;
   const rad = (Number(g.rotation) || 0) * Math.PI / 180;
   const c = Math.cos(rad), s = Math.sin(rad);
-  const world = local.map(([x, y]) => [cx + x * c - y * s, cy + x * s + y * c] as [number, number]);
+  const world = local.map(([x, y]) => {
+    if (flipY) y = -y;
+    return [cx + x * c - y * s, cy + x * s + y * c] as [number, number];
+  });
   return bboxFromPts(world) ?? undefined;
 }
 
