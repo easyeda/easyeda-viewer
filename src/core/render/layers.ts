@@ -84,7 +84,7 @@ for (let i = 15; i <= 46; i++) NUM_STACK[i] = 200 + (46 - i); // inner1(15)=231 
  *  multi-layer (through-hole copper stays visible over both faces) <
  *  board outline < origin-axes & ratsnest tools < drill holes (topmost, so
  *  copper never covers a hole). Equal keys keep creation order (stable sort). */
-function pcbStackKey(l: RenderLayer): number {
+export function pcbStackKey(l: RenderLayer): number {
   if (l.id === 'panel') return -100;
   if (l.id === 'axes') return 9000;
   if (l.id === 'rats') return 9100;

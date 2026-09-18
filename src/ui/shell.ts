@@ -11,7 +11,7 @@ import '../styles.css';
 import type { ProjectModel, TreeNode, OpenedDoc } from '../core/types';
 import { loadFromFiles, loadFromMap } from '../core/parse/container';
 import { openDoc, collectAttrs, resolveAttrRef, resolveLibGraphics } from '../core/model';
-import { renderDoc, type RenderObject, type RenderLayer } from '../core/render/layers';
+import { renderDoc, pcbStackKey, type RenderObject, type RenderLayer } from '../core/render/layers';
 import type { Text as LeaferText, Line as LeaferLine } from 'leafer-ui';
 import { Camera } from './camera';
 import { setupDnd, pickFiles, pickFolder, type DndController } from './dnd';
@@ -221,11 +221,22 @@ export class Shell {
       // 点击行 = 激活层 (#active-layer):有实体图元的层把它的层组临时提到
       // 最前(重新 add 即移动到末尾 = 绘制顺序最上,与 renderDoc 的重排同一
       // 机制);没有实体图元的层优先级不变。选择框 overlay 挂在 doc root 之外,
-      // 不会被动
+      // 不会被动。
+      // 活跃层只盖住同层面的图元:钻孔层(孔永远可见)与多层铜皮(永远在
+      // 最上)连同其上的板框/工具层一起按栈序重新压回;再把活跃面的焊盘
+      // 编号 / 网络名标注置顶 —— 切顶层 → 顶层标注,切底层 → 底层标注。
       onActivate: (id) => {
         const l = this.layers.find((x) => x.id === id);
         if (!l || l.count <= 0 || !this.currentRoot) return;
-        this.currentRoot.add(l.group);
+        const root = this.currentRoot;
+        root.add(l.group);
+        const key = pcbStackKey(l);
+        for (const x of this.layers.filter((x) => x.count > 0 && pcbStackKey(x) > key).sort((a, b) => pcbStackKey(a) - pcbStackKey(b))) root.add(x.group);
+        const face = activeLayerFace(l);
+        if (face) for (const gid of [`nn:${face}`, `pn:${face}`]) {
+          const g = this.layers.find((x) => x.id === gid);
+          if (g) root.add(g.group);
+        }
       },
     });
     this.props = new PropsView(this.el.querySelector('.ev-props-host') as HTMLElement);
@@ -835,6 +846,19 @@ const UI_LAYER_RANK_BY_ID: Record<number, number> = {
   1: 4, 2: 20, 3: 0, 4: 23, 5: 3, 6: 21, 7: 2, 8: 22, 9: 41, 10: 42,
   11: 31, 12: 32, 13: 40, 14: 70, 47: 30,
 };
+
+/** which copper face (1=top, 2=bottom) a layer belongs to — drives the
+ *  active-layer raise: the face's pad-number / net-name overlays go topmost.
+ *  Inner faces / multi / hole / outline / tools belong to neither face. */
+function activeLayerFace(l: RenderLayer): 1 | 2 | null {
+  if (l.id === 'pn:1' || l.id === 'nn:1') return 1;
+  if (l.id === 'pn:2' || l.id === 'nn:2') return 2;
+  const t = String(l.type ?? '').toUpperCase();
+  const n = Number(l.id);
+  if (t.startsWith('TOP') || (!t && [1, 3, 5, 7, 9].includes(n))) return 1;
+  if (t.startsWith('BOTTOM') || t.startsWith('BOT_') || (!t && [2, 4, 6, 8, 10].includes(n))) return 2;
+  return null;
+}
 
 function uiLayerRank(id: string, name: string, type?: string): number {
   // synthetic renderer layers
