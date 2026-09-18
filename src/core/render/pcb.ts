@@ -87,6 +87,10 @@ function padNetIdParts(id: unknown): [string, string] | null {
  *  Labels are doc-scaled, so a fitting label stays inside its copper at any
  *  zoom; this floor only decides *which* primitives carry one at all. */
 const NET_FONT_MIN = 6;
+/** client labels are a fixed ~6.5mil size regardless of copper width — labels
+ *  hide when they don't fit along the copper's length, they never shrink to
+ *  the track's width (#net-labels) */
+const NET_FONT_MAX = 7;
 /** average glyph width / fontSize for the sans face leafer measures with */
 const NET_CHAR_W = 0.62;
 /** biggest font size (doc units) at which `text` fits inside maxW×maxH, else
@@ -147,6 +151,8 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
     pasteRule?: { padTop: number; padBot: number };
     /** net-name label for this pad (PAD_NET / pad data); absent = no label */
     netName?: string;
+    /** copper override for nets the user painted (#net-colors); absent = layer color */
+    copperColor?: string;
     /** hoists the in-copper net-name text to the face's `nn:` overlay in world
      *  coords (upright, like numSink) — caller maps it through the wrapper */
     netSink?: (t: Text) => void;
@@ -163,7 +169,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   const px = X(rawX, xf), py = Y(rawY, xf);
   const dp = d.defaultPad ?? {};
   const w = Number(dp.width ?? 10), h = Number(dp.height ?? 10);
-  const color = colorOf(d.layerId ?? LAYER.TOP);
+  const color = opts?.copperColor ?? colorOf(d.layerId ?? LAYER.TOP);
   const shape = String(dp.padType ?? 'RECT').toUpperCase();
   const pad = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
   if (shape === 'RECT' || shape === 'SQUARE') {
@@ -276,11 +282,21 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   // above) so the pair stays inside a rotated pad.
   if (opts?.netName) {
     const numF = num ? Math.max(Math.min(w, h) * 0.6, 1) : 0;
-    const f = fitNetFont(opts.netName, w * 0.9, h / 2 - numF / 2 - 1);
+    // the label runs along the pad's LONG axis like the client: horizontal pads
+    // read along padAngle, vertical pads (h > w) read up the long axis — an
+    // FPC connector's tall pads get vertical text. Fixed ~7mil size; a pad too
+    // short along that axis stays unlabeled (#net-labels)
+    const along = h > w;
+    const f = fitNetFont(
+      opts.netName,
+      along ? h - numF - 2 : w * 0.9,
+      Math.min(NET_FONT_MAX, along ? w * 0.9 : h / 2 - numF / 2 - 1),
+    );
     if (f != null) {
       const t = new Text({
         text: opts.netName, fontSize: f, fill: contrastInk(color),
         textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false,
+        rotation: along ? padAngleDeg - 90 : padAngleDeg,
       } as any);
       if (numF > 0) {
         const dy = numF / 2 + f / 2 + 1; // pad-local offset below the number
@@ -326,6 +342,23 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     const p = padNetIdParts(r.id);
     if (p && r.data.padNet) netOfPad.set(`${p[0]}:${p[1]}`, String(r.data.padNet));
   }
+
+  // per-net special color (#net-colors): NET id = flattened "NET,<name>" carries
+  // specialColor when the user paints a net in the client. #000000 is the
+  // unpainted default — everything stays on its layer color.
+  const netColor = new Map<string, string>();
+  for (const r of seg.recs) {
+    if (r.type !== 'NET') continue;
+    const c = r.data.specialColor;
+    if (typeof c !== 'string' || !/^#[0-9a-f]{6}$/i.test(c)) continue;
+    if (/^#000000$/i.test(c)) continue;
+    const m = String(r.id ?? '').match(/^NET,(.+)$/s);
+    if (m) netColor.set(m[1], c);
+  }
+  const colorForNet = (net: unknown, fallback: string): string => {
+    const c = net != null ? netColor.get(String(net)) : undefined;
+    return c ?? fallback;
+  };
 
   // layers from LAYER records
   const layerMeta = new Map<string, { name: string; color: string; show: boolean; type: string; trans: number }>();
@@ -684,6 +717,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           const gx = Number(target.x) || 0, gy = Number(target.y) || 0;
           const gr = ((Number(target.rotation) || 0) * Math.PI) / 180;
           const gc = Math.cos(gr), gs = Math.sin(gr);
+          const padNet = netOfPad.get(`${compId}:${d.num ?? ''}`) ?? (d.padNet != null ? String(d.padNet) : undefined);
           targetFor(d.layerId).add(padNode(d, fxf, layerColor, holeFill, {
             holeSink: (hg) => {
               const hx = Number(hg.x) || 0, hy = (flipY ? -1 : 1) * (Number(hg.y) || 0);
@@ -724,13 +758,17 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
               t.y = gy + tx * gs + ty * gc;
               padNumLayer(numFace).add(t);
             },
-            // in-copper net label: same world-position mapping as the number,
+            // in-copper net label: same world mapping as the other hoisted
+            // nodes (position AND rotation — the label reads along the pad's
+            // long axis, mirrored with the component on the bottom face),
             // hoisted to the face's nn: overlay above the copper (#net-labels)
-            netName: netOfPad.get(`${compId}:${d.num ?? ''}`) ?? (d.padNet != null ? String(d.padNet) : undefined),
+            netName: padNet,
+            copperColor: padNet ? netColor.get(padNet) : undefined,
             netSink: (t) => {
               const tx = Number(t.x) || 0, ty = (flipY ? -1 : 1) * (Number(t.y) || 0);
               t.x = gx + tx * gc - ty * gs;
               t.y = gy + tx * gs + ty * gc;
+              t.rotation = (Number(target.rotation) || 0) + (flipY ? -1 : 1) * (Number(t.rotation) || 0);
               netNameLayer(numFace).add(t);
             },
           }));
@@ -850,18 +888,17 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     g.y = Y(Number(d.y ?? 0), xf);
     g.rotation = ang(Number(d.angle ?? 0));
     // Bottom-side components are implicitly mirrored (the layer IS the mirror —
-    // the client stores no explicit flip flag). Measured against the official
-    // export, the doc-space rule is M_y·R(θ): rotate by the stored angle first,
-    // then flip Y about the component origin. CARD1 (TF slot, bottom, 795/380
-    // rot180) puts its main pad row on doc y 588.7 at x 706.4..1052.9 and corner
-    // #11 at (1100.1, 171.3) — both match the official preview, and nothing
-    // lands on the stray y≈171 row at x 706 that plain R(180) would draw. In
-    // leafer's scale-then-rotate composition the y flip absorbs the doc→world
-    // axis flip, leaving M_y·R(θ) = rotate by the *negated* angle after
-    // scaleY=-1 (verified: USB1 bottom rot90 renders the R(90)·M_x row the
-    // official export shows).
+    // the client stores no explicit flip flag). The doc-space rule is R(θ)·M_y:
+    // flip the footprint's Y first, then rotate by the stored angle. The
+    // alternative M_y·R(θ) (flip after rotating — leafer `rotation = -θ`)
+    // differs from it by R(2θ): identical at 0°/180°, off by 180° at 90°/270°.
+    // Data proof (pad→track endpoints, this sample): under M_y·R(θ) not a single
+    // 90°/270° bottom pad lands on its net's track end (USB1/USB2 0/12,
+    // U22 0/8, D3 0/6, Q1 0/6 …), while R(θ)·M_y lands dead-on (0.0 mil) for
+    // every one of them; 0°/180° parts (CN2, CARD1) agree under both. In leafer's
+    // scale-then-rotate composition, scaleY=-1 + rotation=+θ is exactly R(θ)·M_y.
     const mirror = Number(d.layerId) === LAYER.BOTTOM;
-    if (mirror) { g.scaleY = -1; g.rotation = ang(-Number(d.angle ?? 0)); }
+    if (mirror) { g.scaleY = -1; g.rotation = ang(Number(d.angle ?? 0)); }
     // Per-layer mounting: footprint primitives route to the layer group of their
     // own layerId (silk frame → silk group, pads → copper group) so component
     // graphics stack with the doc's own per-layer content. Previously the whole
@@ -939,15 +976,15 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const [x1, y1] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), xf);
         const [x2, y2] = P(Number(d.endX ?? 0), Number(d.endY ?? 0), xf);
         const node = new Group();
-        node.add(new Line({ points: [x1, y1, x2, y2], stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 6), strokeCap: 'round', hitStroke: 'all' }));
-        // net name inside the track copper (#net-labels): label reads along the
-        // wire, font shrunk until it fits inside the stroke's width×length —
-        // narrow/short tracks stay unlabeled instead of overflowing. Hoisted to
-        // the face's nn: overlay so later tracks never bury an earlier label.
+        node.add(new Line({ points: [x1, y1, x2, y2], stroke: colorForNet(d.netName, layerColor(d.layerId)), strokeWidth: widthOf(d, 6), strokeCap: 'round', hitStroke: 'all' }));
+        // net name on the track copper (#net-labels): the client stamps a fixed
+        // ~6.5mil label along the wire — width of the track is irrelevant, only
+        // a track too SHORT to carry the text stays unlabeled. Hoisted to the
+        // face's nn: overlay so later tracks never bury an earlier label.
         const net = d.netName != null ? String(d.netName) : '';
         const lk = layerIdOf(d);
         if (net && (lk === '1' || lk === '2')) {
-          const f = fitNetFont(net, Math.hypot(x2 - x1, y2 - y1) * 0.9, widthOf(d, 6) * 0.7);
+          const f = fitNetFont(net, Math.hypot(x2 - x1, y2 - y1) * 0.9, NET_FONT_MAX);
           if (f != null) {
             let rot = (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI;
             if (rot > 90 || rot < -90) rot += 180; // never read upside-down (vertical wires read bottom-up)
@@ -1028,17 +1065,19 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const [x1, y1] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), xf);
         const [x2, y2] = P(Number(d.endX ?? 0), Number(d.endY ?? 0), xf);
         const node = new Group();
-        node.add(new Path({ path: arcD(x1, y1, x2, y2, Number(d.angle ?? 0)), stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 6), strokeCap: 'round' }));
+        node.add(new Path({ path: arcD(x1, y1, x2, y2, Number(d.angle ?? 0)), stroke: colorForNet(d.netName, layerColor(d.layerId)), strokeWidth: widthOf(d, 6), strokeCap: 'round' }));
         addToLayer(d, r, node, `圆弧走线 ${r.id} ${d.netName ?? ''}`, 'track');
         return;
       }
       case 'PAD': {
         // page-level pads are in world coords — the hoisted hole group plugs
         // straight into the hole layer, the pad number into the face's overlay
+        const padNet = d.padNet != null ? String(d.padNet) : d.netName != null ? String(d.netName) : undefined;
         const node = padNode(d, xf, layerColor, holeFill, {
           holeSink: (hg) => holeLayerGroup.add(hg),
           numSink: (t) => padNumLayer(faceOf(d.layerId)).add(t),
-          netName: d.padNet != null ? String(d.padNet) : d.netName != null ? String(d.netName) : undefined,
+          netName: padNet,
+          copperColor: padNet ? netColor.get(padNet) : undefined,
           netSink: (t) => netNameLayer(faceOf(d.layerId)).add(t),
           maskRule,
           maskSink: (face, mg) => maskLayer(face).add(mg),
@@ -1050,9 +1089,24 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       }
       case 'FILL': {
         const node = new Group();
+        // 制造优化包边 (#pour-edge on FILL): a static fill / pour fill written
+        // with manufacturing optimization wraps its border in a round-cap trace
+        // (client default 0.2mm ≈ 8mil). The fill's `width` field carries that
+        // trace width in mm (doc coords are mil — 0.2 would be invisible);
+        // stroking the fill path straddles the border exactly like the client.
+        const fw = Number(d.width) || 0;
+        // width is millimetres (0.2mm ≈ 7.87mil ≈ the client's 8mil wrap); doc
+        // coords are mil — 1mm = 39.37mil
+        const edge = fw > 0 ? fw * 39.3701 : 0;
+        const fill = colorForNet(d.netName, pourColor(d.layerId));
         for (const path of multiPathToSvg(d.path ?? [], xf, true)) {
           // static copper fill paints the same full layer color as pour fill (see pourColor)
-          node.add(new Path({ path, fill: pourColor(d.layerId) }));
+          node.add(new Path({
+            path,
+            fill,
+            stroke: edge > 0 ? fill : undefined,
+            strokeWidth: edge > 0 ? edge : undefined, strokeCap: 'round', strokeJoin: 'round',
+          }));
         }
         addToLayer(d, r, node, `填充 ${r.id}`);
         return;
@@ -1061,7 +1115,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const cx = X(Number(d.centerX ?? 0), xf), cy = Y(Number(d.centerY ?? 0), xf);
         const vd = Number(d.viaDiameter ?? 20), hd = Number(d.holeDiameter ?? 12);
         const node = new Group();
-        node.add(new Ellipse({ x: cx - vd / 2, y: cy - vd / 2, width: vd, height: vd, fill: layerColor(LAYER.MULTI) }));
+        node.add(new Ellipse({ x: cx - vd / 2, y: cy - vd / 2, width: vd, height: vd, fill: colorForNet(d.netName, layerColor(LAYER.MULTI)) }));
         // the drill goes to the topmost hole layer like pad drills
         holeLayerGroup.add(new Ellipse({ x: cx - hd / 2, y: cy - hd / 2, width: hd, height: hd, fill: holeFill }));
         // solder-mask window per face: the via's own top/bottomSolderExpansion
@@ -1117,11 +1171,12 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           // pour copper paints the SAME full layer color as tracks (user pref:
           // the pour must not look dimmed next to routing) — #pour-col
           const sw = (Number(pf.strokeWidth) || 0) * 10;
+          const pourInk = colorForNet(d.netName, pourColor(lid));
           node.add(new Path({
             path: ds.join(' '),
-            fill: pf.fill === false ? undefined : pourColor(lid),
+            fill: pf.fill === false ? undefined : pourInk,
             fillRule: 'nonzero',
-            stroke: sw > 0 ? layerColor(lid) : undefined,
+            stroke: sw > 0 ? pourInk : undefined,
             strokeWidth: sw > 0 ? sw : undefined, strokeCap: 'round', strokeJoin: 'round',
           }));
         }

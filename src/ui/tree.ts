@@ -270,11 +270,15 @@ export class ObjectListView {
  *  a header eye shows/hides every layer at once */
 export class LayerListView {
   private host: HTMLElement;
-  constructor(host: HTMLElement, private cb: { onToggle(id: string, show: boolean): void; onToggleAll(show: boolean): void }) {
+  /** currently highlighted (active) layer row — clicking a row raises that
+   *  layer's group to the top of the paint order (#active-layer) */
+  private activeId: string | null = null;
+  constructor(host: HTMLElement, private cb: { onToggle(id: string, show: boolean): void; onToggleAll(show: boolean): void; onActivate?(id: string): void }) {
     this.host = host;
   }
   setLayers(items: { id: string; name: string; color: string; show: boolean; count: number }[], isSch = false): void {
     this.host.innerHTML = '';
+    if (this.activeId && !items.some((l) => l.id === this.activeId)) this.activeId = null;
     const rows = items.filter((l) => l.count > 0);
     if (rows.length) {
       const anyOn = rows.some((l) => l.show);
@@ -293,7 +297,7 @@ export class LayerListView {
     }
     for (const l of rows) {
       const row = document.createElement('div');
-      row.className = 'ev-layer-row' + (l.show ? ' ev-on' : ' ev-off');
+      row.className = 'ev-layer-row' + (l.show ? ' ev-on' : ' ev-off') + (l.id === this.activeId ? ' ev-active' : '');
       const eye = document.createElement('button');
       eye.className = 'ev-btn ev-btn-icon ev-layer-eye';
       eye.innerHTML = icon(l.show ? 'eye' : 'eyeOff', 14);
@@ -306,6 +310,17 @@ export class LayerListView {
         row.classList.toggle('ev-on', next);
         row.classList.toggle('ev-off', !next);
         this.cb.onToggle(l.id, next);
+      };
+      row.onclick = () => {
+        // click = activate: highlight the row and raise the layer's entities
+        // to the top of the stack; layers without entities keep their priority
+        if (this.activeId !== l.id) {
+          const prev = this.host.querySelector('.ev-layer-row.ev-active');
+          prev?.classList.remove('ev-active');
+          this.activeId = l.id;
+          row.classList.add('ev-active');
+        }
+        this.cb.onActivate?.(l.id);
       };
       const sw = document.createElement('span');
       sw.className = 'ev-layer-swatch';

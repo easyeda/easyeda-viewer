@@ -172,8 +172,9 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 .ev-obj-row.ev-active { background: var(--ev-accent-weak); border-left-color: var(--ev-accent); color: var(--ev-accent); }
 
 /* ---------- layer list (eye toggles, #19) ---------- */
-.ev-layer-row { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: var(--ev-radius-sm); opacity: 0.7; }
+.ev-layer-row { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: var(--ev-radius-sm); opacity: 0.7; cursor: pointer; }
 .ev-layer-row:hover { background: var(--ev-hover); }
+.ev-layer-row.ev-active { background: var(--ev-hover); box-shadow: inset 2px 0 0 var(--ev-accent, #4a9eff); opacity: 1; }
 .ev-layer-row.ev-on { opacity: 1; }
 .ev-layer-row.ev-off { color: var(--ev-dim); opacity: 0.55; }
 .ev-layer-head { display: flex; align-items: center; gap: 7px; padding: 2px 4px 5px; margin-bottom: 2px; border-bottom: 1px solid var(--ev-border); color: var(--ev-dim); font-size: 11px; }

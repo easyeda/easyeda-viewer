@@ -216,6 +216,15 @@ export class Shell {
         }
         this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
       },
+      // 点击行 = 激活层 (#active-layer):有实体图元的层把它的层组临时提到
+      // 最前(重新 add 即移动到末尾 = 绘制顺序最上,与 renderDoc 的重排同一
+      // 机制);没有实体图元的层优先级不变。选择框 overlay 挂在 doc root 之外,
+      // 不会被动
+      onActivate: (id) => {
+        const l = this.layers.find((x) => x.id === id);
+        if (!l || l.count <= 0 || !this.currentRoot) return;
+        this.currentRoot.add(l.group);
+      },
     });
     this.props = new PropsView(this.el.querySelector('.ev-props-host') as HTMLElement);
 
@@ -829,6 +838,8 @@ function uiLayerRank(id: string, name: string, type?: string): number {
   // synthetic renderer layers
   if (id === 'pn:1') return 1; // top pad-number overlay, just under top silk
   if (id === 'pn:2') return 24; // bottom pad-number overlay, just under bottom silk
+  if (id === 'nn:1') return 1.5; // top net-name overlay: under the top pad numbers
+  if (id === 'nn:2') return 24.5; // bottom net-name overlay: under the bottom pad numbers
   if (id === 'panel') return 800;
   if (id === 'axes' || id === 'rats') return 900;
   const n = Number(id);
