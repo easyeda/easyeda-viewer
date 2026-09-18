@@ -8,7 +8,7 @@ import { resolveLibGraphics } from '../model';
 /** standard EasyEDA layer ids (numeric layerId used by primitives) */
 export const LAYER = {
   TOP: 1, BOTTOM: 2, TOP_SILK: 3, BOT_SILK: 4, TOP_MASK: 5, BOT_MASK: 6,
-  TOP_PASTE: 7, OUTLINE: 11, MULTI: 12, DOCUMENT: 13, INNER1: 14,
+  TOP_PASTE: 7, BOTTOM_PASTE: 8, OUTLINE: 11, MULTI: 12, DOCUMENT: 13, INNER1: 14,
   KEEPIN: 19, HOLE: 47,
 };
 /** utility layers EasyEDA keeps in data but never paints in 2D view
@@ -80,6 +80,31 @@ function padNetIdParts(id: unknown): [string, string] | null {
   return m ? [m[1], m[2]] : null;
 }
 
+// ---- in-primitive net-name labels (#net-labels) ----
+/** doc-unit font floor: a net label that would render smaller than this stays
+ *  hidden — narrow tracks and small pads never grow a letter mush (#net-labels).
+ *  Labels are doc-scaled, so a fitting label stays inside its copper at any
+ *  zoom; this floor only decides *which* primitives carry one at all. */
+const NET_FONT_MIN = 6;
+/** average glyph width / fontSize for the sans face leafer measures with */
+const NET_CHAR_W = 0.62;
+/** biggest font size (doc units) at which `text` fits inside maxW×maxH, else
+ *  null — the primitive is too small to carry a readable label */
+function fitNetFont(text: string, maxW: number, maxH: number): number | null {
+  if (!text) return null;
+  const f = Math.min(maxH, maxW / (NET_CHAR_W * text.length));
+  return f >= NET_FONT_MIN ? f : null;
+}
+/** legible ink on a copper fill: dark text on light copper, white on dark
+ *  (WCAG-ish luminance of the layer color picks the side) */
+function contrastInk(copper: string): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(copper).trim());
+  if (!m) return '#ffffff';
+  const n = parseInt(m[1], 16);
+  const lum = (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+  return lum > 0.6 ? '#1c1c1c' : '#ffffff';
+}
+
 /** Skip auto-generated element-id text on the document layer (#13).
  *  `ownerId` is the parent component id; `allIds` is every record id in the current scope.
  *  Net names and pad numbers are preserved because they are semantically useful. */
@@ -107,13 +132,23 @@ function isDocIdText(d: any, ownerId?: string, allIds?: Set<string>, netNames?: 
  * `opts.numSink` likewise hoists the pad-number text to a per-face overlay
  * between the face's copper and silk (caller maps it into world coords).
  * `opts.maskSink` receives the per-face solder-mask opening group (copper shape
- * grown by the pad/rule expansion) for the caller to route to layer 5/6. */
+ * grown by the pad/rule expansion) for the caller to route to layer 5/6.
+ * `opts.pasteSink` likewise receives the per-face paste (钢网/助焊) opening —
+ * the pad shape grown by the pad's own / the PASTE rule expansion — for the
+ * caller to route to layer 7/8. */
 function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => string, holeFill: string,
   opts?: {
     holeSink?: (hole: Group) => void;
     numSink?: (num: Text) => void;
     maskSink?: (face: 1 | 2, mask: Group) => void;
     maskRule?: { padTop: number; padBot: number; viaTop: number; viaBot: number };
+    pasteSink?: (face: 1 | 2, paste: Group) => void;
+    pasteRule?: { padTop: number; padBot: number };
+    /** net-name label for this pad (PAD_NET / pad data); absent = no label */
+    netName?: string;
+    /** hoists the in-copper net-name text to the face's `nn:` overlay in world
+     *  coords (upright, like numSink) — caller maps it through the wrapper */
+    netSink?: (t: Text) => void;
   }): Group {
   const g = new Group();
   const padAngleDeg = Number(d.padAngle ?? 0);
@@ -166,6 +201,9 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       else g.add(hg);
     }
   }
+  // pad's own expansion field wins; null/absent falls back to the design rule
+  const pickExpan = (own: unknown, fb: number | undefined): number =>
+    own != null && Number.isFinite(Number(own)) ? Number(own) : Number(fb);
   // solder-mask opening (阻焊开窗): the copper shape grown by the pad's own
   // top/bottomSolderExpansion (mil doc units), falling back to the SOLDER
   // design rule. Negative values shrink the window; a fully closed shape
@@ -173,12 +211,10 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   // the client windows those from their special shapes themselves (#mask-window)
   if (opts?.maskSink && !(Array.isArray(d.specialPad) && d.specialPad.length)) {
     const rule = opts.maskRule;
-    const pick = (own: unknown, fb: number | undefined): number =>
-      own != null && Number.isFinite(Number(own)) ? Number(own) : Number(fb);
     const bottom = Number(d.layerId) === LAYER.BOTTOM;
     const faces: [1 | 2, number][] = hole
-      ? [[1, pick(d.topSolderExpansion, rule?.padTop)], [2, pick(d.bottomSolderExpansion, rule?.padBot)]]
-      : [[bottom ? 2 : 1, pick(bottom ? d.bottomSolderExpansion : d.topSolderExpansion, bottom ? rule?.padBot : rule?.padTop)]];
+      ? [[1, pickExpan(d.topSolderExpansion, rule?.padTop)], [2, pickExpan(d.bottomSolderExpansion, rule?.padBot)]]
+      : [[bottom ? 2 : 1, pickExpan(bottom ? d.bottomSolderExpansion : d.topSolderExpansion, bottom ? rule?.padBot : rule?.padTop)]];
     for (const [face, e0] of faces) {
       const e = Number(e0);
       if (!isFinite(e) || e <= -900) continue; // rule sentinel (≤ -1000): no window
@@ -192,6 +228,34 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       opts.maskSink(face, mg);
     }
   }
+  // paste opening (助焊/钢网): the pad shape grown by the pad's own
+  // top/bottomPasteExpansion (mil doc units), falling back to the PASTE design
+  // rule when the pad carries no field of its own. The file's "no paste"
+  // sentinel rides the same convention as the mask rule (≤ -1000; this project
+  // writes -3937 = -100mm on suppressed pads) — negative values shrink the
+  // opening. Through-hole pads open both faces (the client's default too —
+  // suppressing them is the per-pad -1000 custom from the official FAQ);
+  // SMD pads open only their own face. The paste shape paints UNDER the copper
+  // (see the layer stacking order), so an expansion of 0 hides beneath the pad.
+  if (opts?.pasteSink && !(Array.isArray(d.specialPad) && d.specialPad.length)) {
+    const rule = opts.pasteRule;
+    const bottom = Number(d.layerId) === LAYER.BOTTOM;
+    const faces: [1 | 2, number][] = hole
+      ? [[1, pickExpan(d.topPasteExpansion, rule?.padTop)], [2, pickExpan(d.bottomPasteExpansion, rule?.padBot)]]
+      : [[bottom ? 2 : 1, pickExpan(bottom ? d.bottomPasteExpansion : d.topPasteExpansion, bottom ? rule?.padBot : rule?.padTop)]];
+    for (const [face, e0] of faces) {
+      const e = Number(e0);
+      if (!isFinite(e) || e <= -900) continue; // "no paste" sentinel (-1000 / -3937)
+      const pw = w + 2 * e, ph = h + 2 * e;
+      if (pw <= 0 || ph <= 0) continue;
+      const cr = shape === 'RECT' || shape === 'SQUARE'
+        ? Math.min(Math.max(0, (Number(dp.radius) || 0) + e), Math.min(pw, ph) / 2)
+        : Math.min(pw, ph) / 2;
+      const pg = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
+      pg.add(new Rect({ x: -pw / 2, y: -ph / 2, width: pw, height: ph, fill: colorOf(face === 1 ? LAYER.TOP_PASTE : LAYER.BOTTOM_PASTE), cornerRadius: cr }));
+      opts.pasteSink(face, pg);
+    }
+  }
   // pad number: doc-scaled like the client's own labels — it grows with zoom
   // and its size follows the pad so it stays inside the copper (#pad-num-zoom)
   const num = d.num == null ? '' : String(d.num);
@@ -203,6 +267,28 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
     t.x = cx; t.y = cy;
     if (opts?.numSink) opts.numSink(t);
     else g.add(t);
+  }
+  // net name inside the pad copper (#net-labels): upright label under the pad
+  // number, font shrunk until both lines fit inside the copper — a pad too
+  // small for a NET_FONT_MIN label skips it instead of overflowing. "Under the
+  // number" follows the pad's own angle (same offset math as the copper shape
+  // above) so the pair stays inside a rotated pad.
+  if (opts?.netName) {
+    const numF = num ? Math.max(Math.min(w, h) * 0.6, 1) : 0;
+    const f = fitNetFont(opts.netName, w * 0.9, h / 2 - numF / 2 - 1);
+    if (f != null) {
+      const t = new Text({
+        text: opts.netName, fontSize: f, fill: contrastInk(color),
+        textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false,
+      } as any);
+      if (numF > 0) {
+        const dy = numF / 2 + f / 2 + 1; // pad-local offset below the number
+        t.x = X(Number(d.centerX ?? 0) - dy * Math.sin(padAngle), xf);
+        t.y = Y(Number(d.centerY ?? 0) - dy * Math.cos(padAngle), xf);
+      } else { t.x = cx; t.y = cy; }
+      if (opts?.netSink) opts.netSink(t);
+      else g.add(t);
+    }
   }
   return g;
 }
@@ -229,6 +315,15 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       if (p) padNumbers.add(p[1]);
     }
     if (r.type === 'PAD' && d.num != null) padNumbers.add(String(d.num));
+  }
+
+  // net per placed pad: PAD_NET id = ["PAD_NET", "<componentId>", "<padNum>", …]
+  // — shared by the in-copper net labels and the ratsnest builder
+  const netOfPad = new Map<string, string>();
+  for (const r of seg.recs) {
+    if (r.type !== 'PAD_NET') continue;
+    const p = padNetIdParts(r.id);
+    if (p && r.data.padNet) netOfPad.set(`${p[0]}:${p[1]}`, String(r.data.padNet));
   }
 
   // layers from LAYER records
@@ -280,6 +375,10 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
    *  face's copper and its silk (client stack: copper < pad numbers < silk) */
   const padNumLayer = (face: 1 | 2): Group =>
     api.layer(`pn:${face}`, face === 1 ? '顶层焊盘编号' : '底层焊盘编号', '#c9ccd1', true);
+  /** net-name labels hoist to a per-face overlay above the face's copper —
+   *  client stack: copper < net names < pad numbers < silk (see pcbStackKey) */
+  const netNameLayer = (face: 1 | 2): Group =>
+    api.layer(`nn:${face}`, face === 1 ? '顶层网络名' : '底层网络名', '#c9ccd1', true);
   /** which face (1 top / 2 bottom) a layer id belongs to — by LAYER record
    *  layerType, falling back to the standard numeric layer ids */
   const faceOf = (lid: unknown): 1 | 2 => {
@@ -325,19 +424,31 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   // ruleContext carries the expansions in its own unit (this file: mil doc
   // units; "mm" converts). -1000 marks "no window" — the via default here,
   // i.e. vias are tented (盖油) unless a via record overrides per face.
+  const ruleConv = (rc: any) => (v: unknown): number => {
+    const n = Number(v);
+    if (!isFinite(n)) return n;
+    return String(rc?.unit ?? '').toLowerCase() === 'mm' ? n * 39.3701 : n;
+  };
   const maskRule = { padTop: 0, padBot: 0, viaTop: -1000, viaBot: -1000 };
   for (const r of seg.recs) {
     if (r.type !== 'RULE' || !String(r.id).includes('solderMaskExpansion')) continue;
     const rc = (r.data.ruleContext ?? {}) as any;
-    const conv = (v: unknown): number => {
-      const n = Number(v);
-      if (!isFinite(n)) return n;
-      return String(rc.unit ?? '').toLowerCase() === 'mm' ? n * 39.3701 : n;
-    };
+    const conv = ruleConv(rc);
     maskRule.padTop = conv(rc.padTopExpan);
     maskRule.padBot = conv(rc.padBotExpan);
     maskRule.viaTop = conv(rc.viaTopExpan);
     maskRule.viaBot = conv(rc.viaBotExpan);
+  }
+  // PASTE design rule: RULE id ["RULE","PASTE","pasteMaskExpansion"] — same
+  // expansion convention as SOLDER; pads without their own paste-expansion
+  // field grow their opening by this (0 = paste shape equals the pad shape).
+  const pasteRule = { padTop: 0, padBot: 0 };
+  for (const r of seg.recs) {
+    if (r.type !== 'RULE' || !String(r.id).includes('pasteMaskExpansion')) continue;
+    const rc = (r.data.ruleContext ?? {}) as any;
+    const conv = ruleConv(rc);
+    pasteRule.padTop = conv(rc.padTopExpan);
+    pasteRule.padBot = conv(rc.padBotExpan);
   }
   /** solder-mask group (5 top / 6 bottom) — the file's activateTransparency
    *  (阻焊 0.7) was already applied to the layer group in the LAYER loop */
@@ -347,6 +458,13 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     return api.layer(String(lid), lm?.name, lm?.color ?? LAYER_FALLBACK[lid], lm?.show ?? true);
   };
   const maskColor = (face: 1 | 2): string => layerColor(face === 1 ? LAYER.TOP_MASK : LAYER.BOT_MASK);
+  /** paste group (7 top / 8 bottom) — the stencil/助焊 openings hoist here like
+   *  the mask windows; both sit UNDER their face's copper in the paint order */
+  const pasteLayer = (face: 1 | 2): Group => {
+    const lid = face === 1 ? LAYER.TOP_PASTE : LAYER.BOTTOM_PASTE;
+    const lm = layerMeta.get(String(lid));
+    return api.layer(String(lid), lm?.name, lm?.color ?? LAYER_FALLBACK[lid], lm?.show ?? true);
+  };
 
   // ---- POURED layer resolution, including the manufacturing-optimize 包边 ----
   // Flat EasyEDA path points (mirrors pathToSvg's token walk: ARC/CARC carry
@@ -510,12 +628,13 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   // `targetFor` routes every primitive to the per-layer wrapper of its own
   // layerId — footprint silk stacks with the doc's silk, pads with the copper —
   // instead of the whole footprint living in one group (see drawComponent).
-  function drawFootprint(target: Group, fp: DocSegment, targetFor: (lid: unknown) => Group, numFace: 1 | 2) {
+  function drawFootprint(target: Group, fp: DocSegment, targetFor: (lid: unknown) => Group, numFace: 1 | 2, compId: string) {
     const fxf = xfOf(fp.canvas); // footprint-local canvas (origin likely 0)
     const fpAllIds = new Set(fp.recs.map((fr) => String(fr.id ?? '')));
-    for (const r of sortZ(fp.recs)) {
+    const fpRecs = sortZ(fp.recs);
+    const drawFpRec = (r: Rec): void => {
       const d = r.data;
-      if (HIDDEN_LAYERS.has(String(d.layerId))) continue; // pin-soldering rose discs etc.
+      if (HIDDEN_LAYERS.has(String(d.layerId))) return; // pin-soldering rose discs etc.
       switch (r.type) {
         case 'PAD': {
           // drill/slot holes hoist to the hole layer in world coords: the pad
@@ -544,15 +663,35 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
               mg.rotation = (Number(target.rotation) || 0) + (flipY ? -1 : 1) * (Number(mg.rotation) || 0);
               maskLayer(face).add(mg);
             },
+            // paste openings ride their face's paste layer in world coords —
+            // same wrapper-transform replication as the mask above
+            pasteRule,
+            pasteSink: (face, pg) => {
+              const sx = Number(pg.x) || 0, sy = (flipY ? -1 : 1) * (Number(pg.y) || 0);
+              pg.x = gx + sx * gc - sy * gs;
+              pg.y = gy + sx * gs + sy * gc;
+              pg.rotation = (Number(target.rotation) || 0) + (flipY ? -1 : 1) * (Number(pg.rotation) || 0);
+              pasteLayer(face).add(pg);
+            },
             // the pad number rides the face's label overlay in world coords,
-            // replicating the wrapper's transform (rotation + Y flip) on the text
+            // replicating the wrapper's transform on the POSITION only — the
+            // text itself stays forward-facing: a top footprint's rotation and
+            // a bottom component's Y-mirror are NOT applied to the glyphs, so
+            // numbers never read skewed or mirrored (#pad-num-upright)
             numSink: (t) => {
               const tx = Number(t.x) || 0, ty = (flipY ? -1 : 1) * (Number(t.y) || 0);
               t.x = gx + tx * gc - ty * gs;
               t.y = gy + tx * gs + ty * gc;
-              t.rotation = Number(target.rotation) || 0;
-              if (flipY) t.scaleY = -1;
               padNumLayer(numFace).add(t);
+            },
+            // in-copper net label: same world-position mapping as the number,
+            // hoisted to the face's nn: overlay above the copper (#net-labels)
+            netName: netOfPad.get(`${compId}:${d.num ?? ''}`) ?? (d.padNet != null ? String(d.padNet) : undefined),
+            netSink: (t) => {
+              const tx = Number(t.x) || 0, ty = (flipY ? -1 : 1) * (Number(t.y) || 0);
+              t.x = gx + tx * gc - ty * gs;
+              t.y = gy + tx * gs + ty * gc;
+              netNameLayer(numFace).add(t);
             },
           }));
           break;
@@ -634,7 +773,11 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           }
         }
       }
-    }
+    };
+    // pads paint above the footprint's own fills/lines within the same layer
+    // group (#pad-top): two passes over the same z order, pads last
+    for (const r of fpRecs) if (r.type !== 'PAD') drawFpRec(r);
+    for (const r of fpRecs) if (r.type === 'PAD') drawFpRec(r);
   }
 
   // ---- component ----
@@ -676,8 +819,13 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     // footprint primitives are authored face-up in the footprint editor, so a
     // bottom component's pads/silk carry top-side layer ids (1/3) but must paint
     // on the component's own side — remap them onto the bottom copper/silk,
-    // otherwise CARD1's pads render red on the top copper layer (#2)
-    const faceRemap = mirror ? new Map([['1', '2'], ['3', '4']]) : null;
+    // otherwise CARD1's pads render red on the top copper layer (#2). The same
+    // face-up authoring applies to the other paired face layers: mask openings,
+    // paste (钢网) shapes and assembly drawings ride 5/7/9 in the data and must
+    // land on 6/8/10 for a bottom-side component (#paste-face)
+    const faceRemap = mirror
+      ? new Map([['1', '2'], ['3', '4'], ['5', '6'], ['7', '8'], ['9', '10']])
+      : null;
     // remap the record data too so pad/shape fills take the bottom side's color
     const remapRecs = (recs: Rec[]) =>
       faceRemap ? recs.map((r) => {
@@ -700,7 +848,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       }
       return w;
     };
-    if (fp) drawFootprint(g, { ...fp, recs: remapRecs(fp.recs) }, targetFor, mirror ? 2 : 1);
+    if (fp) drawFootprint(g, { ...fp, recs: remapRecs(fp.recs) }, targetFor, mirror ? 2 : 1, r.id);
     else {
       targetFor(d.layerId ?? LAYER.TOP).add(new Rect({ x: -12, y: -8, width: 24, height: 16, stroke: '#cc0000', strokeWidth: 1, dashPattern: [3, 3] }));
       if (fpUuid) api.reportDiagnostics.push(`未解析封装 ${fpUuid.slice(0, 10)} (line ${r.lineNo})`);
@@ -739,6 +887,25 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const [x2, y2] = P(Number(d.endX ?? 0), Number(d.endY ?? 0), xf);
         const node = new Group();
         node.add(new Line({ points: [x1, y1, x2, y2], stroke: layerColor(d.layerId), strokeWidth: widthOf(d, 6), strokeCap: 'round', hitStroke: 'all' }));
+        // net name inside the track copper (#net-labels): label reads along the
+        // wire, font shrunk until it fits inside the stroke's width×length —
+        // narrow/short tracks stay unlabeled instead of overflowing. Hoisted to
+        // the face's nn: overlay so later tracks never bury an earlier label.
+        const net = d.netName != null ? String(d.netName) : '';
+        const lk = layerIdOf(d);
+        if (net && (lk === '1' || lk === '2')) {
+          const f = fitNetFont(net, Math.hypot(x2 - x1, y2 - y1) * 0.9, widthOf(d, 6) * 0.7);
+          if (f != null) {
+            let rot = (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI;
+            if (rot > 90 || rot < -90) rot += 180; // never read upside-down (vertical wires read bottom-up)
+            const t = new Text({
+              text: net, fontSize: f, fill: contrastInk(layerColor(d.layerId)),
+              textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false, rotation: rot,
+            } as any);
+            t.x = (x1 + x2) / 2; t.y = (y1 + y2) / 2;
+            netNameLayer(lk === '2' ? 2 : 1).add(t);
+          }
+        }
         addToLayer(d, r, node, `走线 ${r.id} ${d.netName ?? ''}`, 'track');
         return;
       }
@@ -818,8 +985,12 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const node = padNode(d, xf, layerColor, holeFill, {
           holeSink: (hg) => holeLayerGroup.add(hg),
           numSink: (t) => padNumLayer(faceOf(d.layerId)).add(t),
+          netName: d.padNet != null ? String(d.padNet) : d.netName != null ? String(d.netName) : undefined,
+          netSink: (t) => netNameLayer(faceOf(d.layerId)).add(t),
           maskRule,
           maskSink: (face, mg) => maskLayer(face).add(mg),
+          pasteRule,
+          pasteSink: (face, pg) => pasteLayer(face).add(pg),
         });
         addToLayer(d, r, node, `焊盘 ${r.id} #${d.num ?? ''}`, 'pad');
         return;
@@ -1075,7 +1246,16 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     return lb - la; // higher layer number (bottom=2) drawn earlier
   });
   for (const r of pours) drawPrim(r);
-  for (const r of all) if (r.type !== 'POURED') drawPrim(r);
+  // pads paint above same-layer tracks/fills/pours (#pad-top): all copper
+  // routing & fills first, then components (whose pads join the same layer
+  // groups through their wrappers), then page-level pads — within each layer
+  // group, so the inter-layer stacking order is untouched
+  for (const r of all) {
+    if (r.type === 'POURED' || r.type === 'COMPONENT' || r.type === 'PAD') continue;
+    drawPrim(r);
+  }
+  for (const r of all) if (r.type === 'COMPONENT') drawPrim(r);
+  for (const r of all) if (r.type === 'PAD') drawPrim(r);
   drawRatsnest();
 
   /** ratsnest for unrouted boards: thin lines connecting same-net pads (MST per
@@ -1088,13 +1268,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       return l === '1' || l === '2' || l === '11' || l === '12';
     });
     if (hasTracks) return;
-    // net per placed pad: PAD_NET id = ["PAD_NET", "<componentId>", "<padNum>", …]
-    const netOfPad = new Map<string, string>();
-    for (const r of seg.recs) {
-      if (r.type !== 'PAD_NET') continue;
-      const p = padNetIdParts(r.id);
-      if (p && r.data.padNet) netOfPad.set(`${p[0]}:${p[1]}`, String(r.data.padNet));
-    }
+    // net per placed pad comes from the shared PAD_NET index (see renderPcb head)
     const padsByNet = new Map<string, [number, number][]>();
     for (const r of seg.recs) {
       if (r.type !== 'COMPONENT') continue;
