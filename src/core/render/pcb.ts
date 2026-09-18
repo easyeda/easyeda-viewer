@@ -16,8 +16,10 @@ export const LAYER = {
 const HIDDEN_LAYERS = new Set(['49', '50']);
 
 /** bottom-side layers seen through the board are semi-transparent in EasyEDA's
- * 2D view — alphas measured from the official export (#336619 silk @50%, #000059 copper @70%) */
-const BOTTOM_ALPHA: Record<string, number> = { '2': 0.7, '4': 0.5, '6': 0.5, '8': 0.5, '10': 0.5 };
+ * 2D view — alphas measured from the official export (#336619 silk @50%, #000059 copper @70%).
+ * Solder mask (5/6) is NOT here: its opacity comes from the file's own
+ * activateTransparency on the LAYER record (0.7 in this project). */
+const BOTTOM_ALPHA: Record<string, number> = { '2': 0.7, '4': 0.5, '8': 0.5, '10': 0.5 };
 
 /** used only when a LAYER record is missing; files carry the real names+colors */
 const LAYER_FALLBACK: Record<number, string> = {
@@ -103,9 +105,16 @@ function isDocIdText(d: any, ownerId?: string, allIds?: Set<string>, netNames?: 
  * `opts.holeSink` hoists the drill/slot group out of the pad group (caller adds
  * it to the topmost hole layer) — use for pads already in world coords.
  * `opts.numSink` likewise hoists the pad-number text to a per-face overlay
- * between the face's copper and silk (caller maps it into world coords). */
+ * between the face's copper and silk (caller maps it into world coords).
+ * `opts.maskSink` receives the per-face solder-mask opening group (copper shape
+ * grown by the pad/rule expansion) for the caller to route to layer 5/6. */
 function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => string, holeFill: string,
-  opts?: { holeSink?: (hole: Group) => void; numSink?: (num: Text) => void }): Group {
+  opts?: {
+    holeSink?: (hole: Group) => void;
+    numSink?: (num: Text) => void;
+    maskSink?: (face: 1 | 2, mask: Group) => void;
+    maskRule?: { padTop: number; padBot: number; viaTop: number; viaBot: number };
+  }): Group {
   const g = new Group();
   const padAngleDeg = Number(d.padAngle ?? 0);
   const padAngle = (padAngleDeg * Math.PI) / 180;
@@ -157,6 +166,32 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       else g.add(hg);
     }
   }
+  // solder-mask opening (阻焊开窗): the copper shape grown by the pad's own
+  // top/bottomSolderExpansion (mil doc units), falling back to the SOLDER
+  // design rule. Negative values shrink the window; a fully closed shape
+  // (w/h ≤ 0) paints nothing. Irregular pads (specialPad) are skipped —
+  // the client windows those from their special shapes themselves (#mask-window)
+  if (opts?.maskSink && !(Array.isArray(d.specialPad) && d.specialPad.length)) {
+    const rule = opts.maskRule;
+    const pick = (own: unknown, fb: number | undefined): number =>
+      own != null && Number.isFinite(Number(own)) ? Number(own) : Number(fb);
+    const bottom = Number(d.layerId) === LAYER.BOTTOM;
+    const faces: [1 | 2, number][] = hole
+      ? [[1, pick(d.topSolderExpansion, rule?.padTop)], [2, pick(d.bottomSolderExpansion, rule?.padBot)]]
+      : [[bottom ? 2 : 1, pick(bottom ? d.bottomSolderExpansion : d.topSolderExpansion, bottom ? rule?.padBot : rule?.padTop)]];
+    for (const [face, e0] of faces) {
+      const e = Number(e0);
+      if (!isFinite(e) || e <= -900) continue; // rule sentinel (≤ -1000): no window
+      const mw = w + 2 * e, mh = h + 2 * e;
+      if (mw <= 0 || mh <= 0) continue;
+      const cr = shape === 'RECT' || shape === 'SQUARE'
+        ? Math.min(Math.max(0, (Number(dp.radius) || 0) + e), Math.min(mw, mh) / 2)
+        : Math.min(mw, mh) / 2;
+      const mg = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
+      mg.add(new Rect({ x: -mw / 2, y: -mh / 2, width: mw, height: mh, fill: colorOf(face === 1 ? LAYER.TOP_MASK : LAYER.BOT_MASK), cornerRadius: cr }));
+      opts.maskSink(face, mg);
+    }
+  }
   // pad number: doc-scaled like the client's own labels — it grows with zoom
   // and its size follows the pad so it stays inside the copper (#pad-num-zoom)
   const num = d.num == null ? '' : String(d.num);
@@ -197,7 +232,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   }
 
   // layers from LAYER records
-  const layerMeta = new Map<string, { name: string; color: string; show: boolean; type: string }>();
+  const layerMeta = new Map<string, { name: string; color: string; show: boolean; type: string; trans: number }>();
   for (const r of seg.recs) {
     if (r.type !== 'LAYER') continue;
     const m = r.idVal;
@@ -218,8 +253,15 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       // layerType (TOP / SIGNAL / BOTTOM_SILK / OUTLINE / HOLE …) is the only
       // stable semantic — official docs say layer numbers themselves are not
       type: String(r.data.layerType ?? ''),
+      // activateTransparency is the file's own layer opacity (solder mask 0.7)
+      trans: Number(r.data.activateTransparency ?? 1) || 1,
     });
     api.layer(key, layerMeta.get(key)!.name, layerMeta.get(key)!.color, show, layerMeta.get(key)!.type);
+  }
+  // layers whose record carries a transparency paint at that opacity — applied
+  // to the whole layer group so every shape in it dims together (#mask-window)
+  for (const [key, lm] of layerMeta) {
+    if (lm.trans < 1) api.layer(key, lm.name, lm.color, lm.show, lm.type).opacity = lm.trans;
   }
   const layerColor = (id: unknown): string => {
     const lm = layerMeta.get(String(id));
@@ -277,6 +319,111 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   // POUR carries the layerId of its generated fill (POURED id "POURED,<pourId>")
   const pourLayer = new Map<string, unknown>();
   for (const r of seg.recs) if (r.type === 'POUR') pourLayer.set(String(r.id), r.data.layerId);
+
+  // ---- solder-mask windows (#mask-window) ----
+  // SOLDER design rule: RULE id ["RULE","SOLDER","solderMaskExpansion"] whose
+  // ruleContext carries the expansions in its own unit (this file: mil doc
+  // units; "mm" converts). -1000 marks "no window" — the via default here,
+  // i.e. vias are tented (盖油) unless a via record overrides per face.
+  const maskRule = { padTop: 0, padBot: 0, viaTop: -1000, viaBot: -1000 };
+  for (const r of seg.recs) {
+    if (r.type !== 'RULE' || !String(r.id).includes('solderMaskExpansion')) continue;
+    const rc = (r.data.ruleContext ?? {}) as any;
+    const conv = (v: unknown): number => {
+      const n = Number(v);
+      if (!isFinite(n)) return n;
+      return String(rc.unit ?? '').toLowerCase() === 'mm' ? n * 39.3701 : n;
+    };
+    maskRule.padTop = conv(rc.padTopExpan);
+    maskRule.padBot = conv(rc.padBotExpan);
+    maskRule.viaTop = conv(rc.viaTopExpan);
+    maskRule.viaBot = conv(rc.viaBotExpan);
+  }
+  /** solder-mask group (5 top / 6 bottom) — the file's activateTransparency
+   *  (阻焊 0.7) was already applied to the layer group in the LAYER loop */
+  const maskLayer = (face: 1 | 2): Group => {
+    const lid = face === 1 ? LAYER.TOP_MASK : LAYER.BOT_MASK;
+    const lm = layerMeta.get(String(lid));
+    return api.layer(String(lid), lm?.name, lm?.color ?? LAYER_FALLBACK[lid], lm?.show ?? true);
+  };
+  const maskColor = (face: 1 | 2): string => layerColor(face === 1 ? LAYER.TOP_MASK : LAYER.BOT_MASK);
+
+  // ---- POURED layer resolution, including the manufacturing-optimize 包边 ----
+  // Flat EasyEDA path points (mirrors pathToSvg's token walk: ARC/CARC carry
+  // `deg endX endY`, C six numbers, Q four — pour fills only use L/ARC).
+  const pathPts = (item: any[], out: [number, number][] = []): [number, number][] => {
+    if (!Array.isArray(item)) return out;
+    for (let i = 0; i < item.length;) {
+      const v = item[i];
+      if (typeof v === 'string') {
+        i += 1;
+        if ((v === 'ARC' || v === 'CARC') && typeof item[i] === 'number') { out.push([Number(item[i + 1]), Number(item[i + 2])]); i += 3; }
+        else if (v === 'C') i += 6;
+        else if (v === 'Q') i += 4;
+        continue;
+      }
+      out.push([Number(v), Number(item[i + 1])]);
+      i += 2;
+    }
+    return out;
+  };
+  /** doc-space bbox of a POURED record (pourFill coords are 0.1× doc units) */
+  const pouredBBox = (r: Rec): BBox | null => {
+    let bb: BBox | null = null;
+    for (const pf of (r.data.pourFill ?? []) as any[]) {
+      // path nests one level: [[tokens…], [tokens…]] — walk each subpath array
+      const paths: any[][] = Array.isArray(pf.path?.[0]) ? pf.path : [pf.path];
+      for (const sub of paths) {
+        for (const [x0, y0] of pathPts(sub)) {
+          const x = x0 * 10, y = y0 * 10;
+          if (!bb) bb = { minX: x, minY: y, maxX: x, maxY: y };
+          else {
+            if (x < bb.minX) bb.minX = x;
+            if (y < bb.minY) bb.minY = y;
+            if (x > bb.maxX) bb.maxX = x;
+            if (y > bb.maxY) bb.maxY = y;
+          }
+        }
+      }
+    }
+    return bb;
+  };
+  // A POURED without a POUR is a stale re-pour cache the file kept — drawing
+  // those raw would repaint whole-board regions (#pour-gaps). BUT the 导线包边
+  // of a manufacturing-optimized pour survives ONLY in such a cache (stroke-only
+  // pourFill entries): render a cache just when it carries 包边 strokes, on the
+  // layer of the smallest live pour whose fill region contains it (#pour-edge).
+  const hasEdgeStrokes = (r: Rec): boolean =>
+    ((r.data.pourFill ?? []) as any[]).some((pf) => pf.fill === false && Number(pf.strokeWidth) > 0);
+  const pouredLid = new Map<object, unknown>();
+  /** orphan edge-caches render their 包边 strokes only — never their stale fill (#pour-gaps) */
+  const edgeOnly = new Set<object>();
+  const liveBBox = new Map<string, BBox>();
+  for (const r of seg.recs) {
+    if (r.type !== 'POURED') continue;
+    const key = String(r.id).split(',').pop() ?? '';
+    if (!pourLayer.has(key)) continue;
+    const bb = pouredBBox(r);
+    if (bb) liveBBox.set(key, bb);
+  }
+  for (const r of seg.recs) {
+    if (r.type !== 'POURED') continue;
+    const key = String(r.id).split(',').pop() ?? '';
+    const paired = pourLayer.get(key);
+    if (paired !== undefined) { pouredLid.set(r.data, paired); continue; }
+    if (!hasEdgeStrokes(r)) continue;
+    const bb = pouredBBox(r);
+    if (!bb) continue;
+    let best: unknown, bestArea = Infinity;
+    for (const [pid, plid] of pourLayer) {
+      const pb = liveBBox.get(pid);
+      if (!pb) continue;
+      if (pb.minX > bb.minX || pb.minY > bb.minY || pb.maxX < bb.maxX || pb.maxY < bb.maxY) continue;
+      const area = (pb.maxX - pb.minX) * (pb.maxY - pb.minY);
+      if (area < bestArea) { bestArea = area; best = plid; }
+    }
+    if (best !== undefined) { pouredLid.set(r.data, best); edgeOnly.add(r.data); }
+  }
 
   // Bottom-silk strings are stored as auto-generated mirror copies of the
   // top-silk originals (same text/size, anchor offset along the text axis);
@@ -386,6 +533,16 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
               // a flip negates the hole's own rotation relative to the component
               hg.rotation = (Number(target.rotation) || 0) + (flipY ? -1 : 1) * (Number(hg.rotation) || 0);
               holeLayerGroup.add(hg);
+            },
+            // mask openings ride their face's mask layer in world coords —
+            // same wrapper-transform replication as the hole above
+            maskRule,
+            maskSink: (face, mg) => {
+              const mx = Number(mg.x) || 0, my = (flipY ? -1 : 1) * (Number(mg.y) || 0);
+              mg.x = gx + mx * gc - my * gs;
+              mg.y = gy + mx * gs + my * gc;
+              mg.rotation = (Number(target.rotation) || 0) + (flipY ? -1 : 1) * (Number(mg.rotation) || 0);
+              maskLayer(face).add(mg);
             },
             // the pad number rides the face's label overlay in world coords,
             // replicating the wrapper's transform (rotation + Y flip) on the text
@@ -549,14 +706,15 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       if (fpUuid) api.reportDiagnostics.push(`未解析封装 ${fpUuid.slice(0, 10)} (line ${r.lineNo})`);
     }
     // designator / visible attrs: doc-scaled text at the record's own fontSize so
-    // they zoom with the canvas. The designator shows even when valueVisible is
-    // false — the client paints every positioned Designator on the board (the
-    // reference export does), the flag only tracks the properties panel (#desig-zoom)
+    // they zoom with the canvas. Each attr paints only when its own valueVisible
+    // flag allows it — false hides it on the board exactly like the client
+    // (this sample's PCB doc carries valueVisible:false on every placed
+    // Designator, so none of them render — data-driven) (#attr-vis)
     for (const a of attrs) {
       const ad = a.data;
       if (isDocIdText(ad, r.id, allIds, netNames, padNumbers)) continue;
       const hasPos = typeof ad.x === 'number' && isFinite(ad.x);
-      const wantsShow = !!ad.valueVisible || String(ad.key) === 'Designator';
+      const wantsShow = ad.valueVisible !== false;
       if (hasPos && wantsShow) {
         const t = mkLabel(ad, layerColor(ad.layerId), xf, true, false);
         const al = BOTTOM_ALPHA[String(ad.layerId)];
@@ -660,6 +818,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const node = padNode(d, xf, layerColor, holeFill, {
           holeSink: (hg) => holeLayerGroup.add(hg),
           numSink: (t) => padNumLayer(faceOf(d.layerId)).add(t),
+          maskRule,
+          maskSink: (face, mg) => maskLayer(face).add(mg),
         });
         addToLayer(d, r, node, `焊盘 ${r.id} #${d.num ?? ''}`, 'pad');
         return;
@@ -680,6 +840,20 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         node.add(new Ellipse({ x: cx - vd / 2, y: cy - vd / 2, width: vd, height: vd, fill: layerColor(LAYER.MULTI) }));
         // the drill goes to the topmost hole layer like pad drills
         holeLayerGroup.add(new Ellipse({ x: cx - hd / 2, y: cy - hd / 2, width: hd, height: hd, fill: holeFill }));
+        // solder-mask window per face: the via's own top/bottomSolderExpansion
+        // (null → SOLDER rule). The -1000 sentinel = tented via (盖油), no window
+        const viaOwn = (v: unknown): number | undefined =>
+          v != null && Number.isFinite(Number(v)) ? Number(v) : undefined;
+        const openings: [1 | 2, number | undefined][] = [
+          [1, viaOwn(d.topSolderExpansion) ?? maskRule.viaTop],
+          [2, viaOwn(d.bottomSolderExpansion) ?? maskRule.viaBot],
+        ];
+        for (const [face, e] of openings) {
+          if (e == null || !isFinite(e) || e <= -900) continue;
+          const md = vd + 2 * e;
+          if (md <= 0) continue;
+          maskLayer(face).add(new Ellipse({ x: cx - md / 2, y: cy - md / 2, width: md, height: md, fill: maskColor(face) }));
+        }
         addToLayer({ layerId: LAYER.MULTI }, r, node, `过孔 ${r.id} ${d.netName ?? ''}`, 'pad');
         return;
       }
@@ -694,27 +868,37 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       case 'POURED': {
         // the copper fill itself; its layer lives on the paired POUR record
         // (POURED carries id ["POURED", "<pourId>"], not its own layerId).
-        // A POURED without a POUR is a partition-space fill (coords relative to
-        // a board partition origin) we cannot place — skip rather than paint it
-        // on the top layer at raw coords across the whole board (#pour-gaps).
-        const key = String(r.id).split(',').pop() ?? '';
-        const lid = pourLayer.get(key);
+        // A POURED without a POUR is a stale re-pour cache — skipped (drawing it
+        // raw would repaint whole-board regions, #pour-gaps) UNLESS it carries
+        // 导线包边 strokes: the manufacturing-optimize trace-wrapping outline
+        // survives only in such caches, and pouredLid then placed it on the
+        // smallest live pour containing it (#pour-edge).
+        const lid = pouredLid.get(d);
         if (lid === undefined) return;
         // pourFill paths are authored in 0.1× PCB doc units → scale coords by 10
         const node = new Group();
         for (const pf of (d.pourFill ?? [])) {
+          // orphan edge-caches contribute just their 包边 strokes — their fill
+          // is a stale re-pour leftover and must not repaint the board (#pour-gaps)
+          if (edgeOnly.has(d) && pf.fill !== false) continue;
           // merge the item's subpolygons into ONE nonzero-filled Path: the fill
           // bakes its clearances in as hole subpolygons (opposite winding — e.g.
           // circles around other-net vias/pads), which only punch through when
           // all subpaths share a single path (#pour-gaps)
           const ds = multiPathToSvg(scalePourItems(pf.path), xf, true);
           if (!ds.length) continue;
+          // 包边 entries are stroke-only (fill:false, strokeWidth>0): they
+          // outline where the pour wraps the tracks. strokeWidth shares the
+          // 0.1× doc unit of the path coords → scale it by 10 too (#pour-edge).
           // pour copper paints the SAME full layer color as tracks (user pref:
           // the pour must not look dimmed next to routing) — #pour-col
+          const sw = (Number(pf.strokeWidth) || 0) * 10;
           node.add(new Path({
-            path: ds.join(' '), fill: pourColor(lid), fillRule: 'nonzero',
-            stroke: pf.strokeWidth ? layerColor(lid) : undefined,
-            strokeWidth: Number(pf.strokeWidth) || undefined, strokeCap: 'round', strokeJoin: 'round',
+            path: ds.join(' '),
+            fill: pf.fill === false ? undefined : pourColor(lid),
+            fillRule: 'nonzero',
+            stroke: sw > 0 ? layerColor(lid) : undefined,
+            strokeWidth: sw > 0 ? sw : undefined, strokeCap: 'round', strokeJoin: 'round',
           }));
         }
         addToLayer({ layerId: lid }, r, node, `铺铜 ${r.id} ${d.netName ?? ''}`);
@@ -886,8 +1070,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   const all = sortZ(seg.recs);
   const pours = all.filter((r) => r.type === 'POURED');
   pours.sort((a, b) => {
-    const la = Number(pourLayer.get(String(a.id).split(',').pop() ?? '') ?? 0);
-    const lb = Number(pourLayer.get(String(b.id).split(',').pop() ?? '') ?? 0);
+    const la = Number(pouredLid.get(a.data) ?? 0);
+    const lb = Number(pouredLid.get(b.data) ?? 0);
     return lb - la; // higher layer number (bottom=2) drawn earlier
   });
   for (const r of pours) drawPrim(r);
