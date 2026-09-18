@@ -159,7 +159,13 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   }): Group {
   const g = new Group();
   const padAngleDeg = Number(d.padAngle ?? 0);
-  const padAngle = (padAngleDeg * Math.PI) / 180;
+  // relativeAngle is the pad shape's own rotation authored in the footprint
+  // editor (official R0603 pads: padAngle=0 + relativeAngle=90 everywhere);
+  // the visual rotation is the sum, applied to copper, drill, mask and paste
+  // alike (#pad-polygon — polygon pads store their path in the unrotated
+  // pad-local frame, so e.g. the MEMS-mic side pads lean the wrong way without it)
+  const relAngle = Number(d.relativeAngle ?? 0) || 0;
+  const padAngle = ((padAngleDeg + relAngle) * Math.PI) / 180;
   const offX = Number(d.padOffsetX ?? 0), offY = Number(d.padOffsetY ?? 0);
   // pad copper is offset from the pad center; the drill stays at the center (#13).
   // EasyEDA doc angles are clockwise, so rotate clockwise before the Y-flip transform.
@@ -191,7 +197,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       h = Math.max(...ys) - Math.min(...ys);
     }
   }
-  const pad = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
+  const pad = new Group({ x: px, y: py, rotation: ang(padAngleDeg + relAngle) });
   if (polyPath) {
     // the outline is pad-local y-up doc coords — flip into screen space inside
     // the pad group, which already carries the pad's position & rotation
@@ -215,8 +221,8 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
     if (hw > 0) {
       const ht = String(hole.holeType ?? 'ROUND').toUpperCase();
       // hole width runs along X, height along Y in the HOLE's own frame; the
-      // hole rotates relative to the pad by `relativeAngle` — e.g. a vertical
-      // slot in a horizontal pad is relAngle=90, NOT swapped w/h (#slot-dir)
+      // drill rotates with the pad's full angle — e.g. a vertical slot in a
+      // horizontal pad is relAngle=90, NOT swapped w/h (#slot-dir)
       let hn: any;
       if (ht === 'SLOT' || ht === 'ROUND') {
         // SLOT 挖槽 and ROUND 长圆孔 (schema) are round-cap drills — oblong when
@@ -228,7 +234,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       } else {
         hn = new Ellipse({ x: -hw / 2, y: -hh / 2, width: hw, height: hh, fill: holeFill });
       }
-      const hg = new Group({ x: cx, y: cy, rotation: ang(padAngleDeg + (Number(d.relativeAngle ?? 0) || 0)) });
+      const hg = new Group({ x: cx, y: cy, rotation: ang(padAngleDeg + relAngle) });
       hg.add(hn);
       if (opts?.holeSink) opts.holeSink(hg); // hoisted to the topmost hole layer
       else g.add(hg);
@@ -256,7 +262,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       const cr = shape === 'RECT' || shape === 'SQUARE'
         ? Math.min(Math.max(0, (Number(dp.radius) || 0) + e), Math.min(mw, mh) / 2)
         : Math.min(mw, mh) / 2;
-      const mg = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
+      const mg = new Group({ x: px, y: py, rotation: ang(padAngleDeg + relAngle) });
       mg.add(new Rect({ x: -mw / 2, y: -mh / 2, width: mw, height: mh, fill: colorOf(face === 1 ? LAYER.TOP_MASK : LAYER.BOT_MASK), cornerRadius: cr }));
       opts.maskSink(face, mg);
     }
@@ -284,7 +290,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       const cr = shape === 'RECT' || shape === 'SQUARE'
         ? Math.min(Math.max(0, (Number(dp.radius) || 0) + e), Math.min(pw, ph) / 2)
         : Math.min(pw, ph) / 2;
-      const pg = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
+      const pg = new Group({ x: px, y: py, rotation: ang(padAngleDeg + relAngle) });
       pg.add(new Rect({ x: -pw / 2, y: -ph / 2, width: pw, height: ph, fill: colorOf(face === 1 ? LAYER.TOP_PASTE : LAYER.BOTTOM_PASTE), cornerRadius: cr }));
       opts.pasteSink(face, pg);
     }
@@ -530,7 +536,12 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
 
   // POUR carries the layerId of its generated fill (POURED id "POURED,<pourId>")
   const pourLayer = new Map<string, unknown>();
-  for (const r of seg.recs) if (r.type === 'POUR') pourLayer.set(String(r.id), r.data.layerId);
+  // and its border-wrap width in mm (client writes 0.2 = the 包边 trace gauge)
+  const pourWidth = new Map<string, number>();
+  for (const r of seg.recs) if (r.type === 'POUR') {
+    pourLayer.set(String(r.id), r.data.layerId);
+    pourWidth.set(String(r.id), Number(r.data.width) || 0);
+  }
 
   // ---- solder-mask windows (#mask-window) ----
   // SOLDER design rule: RULE id ["RULE","SOLDER","solderMaskExpansion"] whose
@@ -627,6 +638,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   const hasEdgeStrokes = (r: Rec): boolean =>
     ((r.data.pourFill ?? []) as any[]).some((pf) => pf.fill === false && Number(pf.strokeWidth) > 0);
   const pouredLid = new Map<object, unknown>();
+  /** paired/orphan-resolved POUR's own border-wrap width (mm) per POURED */
+  const pouredWidth = new Map<object, number>();
   /** orphan edge-caches render their 包边 strokes only — never their stale fill (#pour-gaps) */
   const edgeOnly = new Set<object>();
   const liveBBox = new Map<string, BBox>();
@@ -641,19 +654,23 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     if (r.type !== 'POURED') continue;
     const key = String(r.id).split(',').pop() ?? '';
     const paired = pourLayer.get(key);
-    if (paired !== undefined) { pouredLid.set(r.data, paired); continue; }
+    if (paired !== undefined) {
+      pouredLid.set(r.data, paired);
+      pouredWidth.set(r.data, pourWidth.get(key) ?? 0);
+      continue;
+    }
     if (!hasEdgeStrokes(r)) continue;
     const bb = pouredBBox(r);
     if (!bb) continue;
-    let best: unknown, bestArea = Infinity;
+    let best: unknown, bestW = 0, bestArea = Infinity;
     for (const [pid, plid] of pourLayer) {
       const pb = liveBBox.get(pid);
       if (!pb) continue;
       if (pb.minX > bb.minX || pb.minY > bb.minY || pb.maxX < bb.maxX || pb.maxY < bb.maxY) continue;
       const area = (pb.maxX - pb.minX) * (pb.maxY - pb.minY);
-      if (area < bestArea) { bestArea = area; best = plid; }
+      if (area < bestArea) { bestArea = area; best = plid; bestW = pourWidth.get(pid) ?? 0; }
     }
-    if (best !== undefined) { pouredLid.set(r.data, best); edgeOnly.add(r.data); }
+    if (best !== undefined) { pouredLid.set(r.data, best); pouredWidth.set(r.data, bestW); edgeOnly.add(r.data); }
   }
 
   // Bottom-silk strings are stored as auto-generated mirror copies of the
@@ -1196,6 +1213,10 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         // smallest live pour containing it (#pour-edge).
         const lid = pouredLid.get(d);
         if (lid === undefined) return;
+        // the paired POUR's border-wrap width (mm → mil, same gauge the FILL
+        // case uses): fill entries stroke with it too — the file keeps fill
+        // entries at strokeWidth 0, yet the client's 2D view still outlines
+        // the poured copper with a bright wrap (#pour-edge)
         // pourFill paths are authored in 0.1× PCB doc units → scale coords by 10
         const node = new Group();
         for (const pf of (d.pourFill ?? [])) {
@@ -1211,16 +1232,18 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           // 包边 entries are stroke-only (fill:false, strokeWidth>0): they
           // outline where the pour wraps the tracks. strokeWidth shares the
           // 0.1× doc unit of the path coords → scale it by 10 too (#pour-edge).
-          // Fill paints dimmed, the wrap strokes full layer color — the client's
-          // 2D view keeps them distinguishable along the fill border (#pour-edge)
+          // Fill entries carry no stroke of their own — they take the POUR's
+          // wrap gauge; both paint the stroke FULL layer color over the dimmed
+          // fill so the border reads as a bright outline (client parity)
           const sw = (Number(pf.strokeWidth) || 0) * 10;
+          const ew = sw > 0 ? sw : (pouredWidth.get(d) ?? 0) * 39.3701;
           const pourInk = colorForNet(d.netName, pourColor(lid));
           node.add(new Path({
             path: ds.join(' '),
             fill: pf.fill === false ? undefined : dimHex(pourInk, POUR_FILL_DIM),
             fillRule: 'nonzero',
-            stroke: sw > 0 ? pourInk : undefined,
-            strokeWidth: sw > 0 ? sw : undefined, strokeCap: 'round', strokeJoin: 'round',
+            stroke: ew > 0 ? pourInk : undefined,
+            strokeWidth: ew > 0 ? ew : undefined, strokeCap: 'round', strokeJoin: 'round',
           }));
         }
         addToLayer({ layerId: lid }, r, node, `铺铜 ${r.id} ${d.netName ?? ''}`);
