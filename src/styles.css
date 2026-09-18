@@ -203,9 +203,9 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 }
 .ev-wz.ev-dragover { border-color: var(--ev-accent); background: var(--ev-accent-weak); }
 .ev-wz.ev-dragover .ev-wz-ico { transform: translateY(-4px) scale(1.06); }
+/* welcome logo: the same wide brand mark as the toolbar logo — no tile behind it */
 .ev-wz-ico {
-  display: grid; place-items: center; width: 76px; height: 76px; margin-bottom: 16px;
-  background: var(--ev-accent-weak); border-radius: 20px; transition: transform 0.18s ease;
+  display: inline-flex; align-items: center; margin-bottom: 16px; transition: transform 0.18s ease;
 }
 .ev-wz-ico svg { filter: drop-shadow(0 4px 10px rgba(85, 136, 255, 0.35)); }
 .ev-wz h2 { margin: 0 0 8px; font-size: 19px; font-weight: 650; }

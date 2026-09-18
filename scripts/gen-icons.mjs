@@ -11,7 +11,7 @@ const names = {
   uploadCloud: 'upload-cloud', scanSearch: 'scan-search', globe: 'globe', search: 'search',
   folder: 'folder', packageOpen: 'package-open', waypoints: 'waypoints', circuitBoard: 'circuit-board',
   layoutTemplate: 'layout-template', activity: 'activity', library: 'library', fileText: 'file-text',
-  file: 'file', chevronRight: 'chevron-right', box: 'box', layers: 'layers', list: 'list', eye: 'eye', eyeOff: 'eye-off',
+  file: 'file', chevronRight: 'chevron-right', box: 'box', layers: 'layers', list: 'list', eye: 'eye', eyeOff: 'eye-off', rotateCcw: 'rotate-ccw',
 };
 const inner = (f) => {
   const s = readFileSync('node_modules/lucide-static/icons/' + f + '.svg', 'utf8');
@@ -75,8 +75,8 @@ const tpl = [
   '}',
   '',
   '/** EasyEDA brand mark (cloud + circuit), viewBox 0 0 405 300, #5588FF. */',
-  "export function easyedaMark(size = 22): string {",
-  "  return `<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 405 300\" width=\"${size}\" height=\"${size}\" aria-hidden=\"true\"><path d=\"" + EASYEDA_MARK + "\" fill=\"#5588FF\"/></svg>`;",
+  "export function easyedaMark(size = 22, height?: number): string {",
+  "  return `<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 405 300\" width=\"${size}\" height=\"${height ?? size}\" aria-hidden=\"true\"><path d=\"" + EASYEDA_MARK + "\" fill=\"#5588FF\"/></svg>`;",
   '}',
   '',
 ].join('\n');

@@ -168,11 +168,37 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   const cx = X(Number(d.centerX ?? 0), xf), cy = Y(Number(d.centerY ?? 0), xf);
   const px = X(rawX, xf), py = Y(rawY, xf);
   const dp = d.defaultPad ?? {};
-  const w = Number(dp.width ?? 10), h = Number(dp.height ?? 10);
   const color = opts?.copperColor ?? colorOf(d.layerId ?? LAYER.TOP);
   const shape = String(dp.padType ?? 'RECT').toUpperCase();
+  // polygon pads (irregular footprint copper — MEMS-mic sector pads etc.) carry
+  // no width/height: their outline lives in defaultPad.path, pad-local mil in
+  // the same token stream as FILL/POLY paths (#pad-polygon)
+  const polyPath = Array.isArray(dp.path) && dp.path.length > 2 ? (dp.path as any[]) : null;
+  let w = Number(dp.width ?? 10), h = Number(dp.height ?? 10);
+  if (polyPath) {
+    // estimate w/h from the path's coordinate pairs for the pad-number size
+    // (token payload numbers — ARC/C — only inflate the estimate slightly)
+    const DIM: Record<string, number> = { ARC: 3, CARC: 3, C: 6, Q: 4, R: 4 };
+    const xs: number[] = [], ys: number[] = [];
+    for (let i = 0; i < polyPath.length;) {
+      const v = polyPath[i];
+      if (typeof v === 'string') { i += 1 + (DIM[String(v).toUpperCase()] ?? 0); continue; }
+      if (typeof polyPath[i + 1] === 'number') { xs.push(Number(v)); ys.push(Number(polyPath[i + 1])); }
+      i += 2;
+    }
+    if (xs.length > 1) {
+      w = Math.max(...xs) - Math.min(...xs);
+      h = Math.max(...ys) - Math.min(...ys);
+    }
+  }
   const pad = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
-  if (shape === 'RECT' || shape === 'SQUARE') {
+  if (polyPath) {
+    // the outline is pad-local y-up doc coords — flip into screen space inside
+    // the pad group, which already carries the pad's position & rotation
+    for (const dd of multiPathToSvg(polyPath, { ox: 0, oy: 0, flip: true }, true)) {
+      pad.add(new Path({ path: dd, fill: color }));
+    }
+  } else if (shape === 'RECT' || shape === 'SQUARE') {
     pad.add(new Rect({ x: -w / 2, y: -h / 2, width: w, height: h, fill: color, cornerRadius: (Number(dp.radius) || 0) }));
   } else {
     // every round-family copper shape keeps round caps: ELLIPSE is the *round*
@@ -216,7 +242,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   // design rule. Negative values shrink the window; a fully closed shape
   // (w/h ≤ 0) paints nothing. Irregular pads (specialPad) are skipped —
   // the client windows those from their special shapes themselves (#mask-window)
-  if (opts?.maskSink && !(Array.isArray(d.specialPad) && d.specialPad.length)) {
+  if (opts?.maskSink && !(Array.isArray(d.specialPad) && d.specialPad.length) && !polyPath) {
     const rule = opts.maskRule;
     const bottom = Number(d.layerId) === LAYER.BOTTOM;
     const faces: [1 | 2, number][] = hole
@@ -244,7 +270,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   // suppressing them is the per-pad -1000 custom from the official FAQ);
   // SMD pads open only their own face. The paste shape paints UNDER the copper
   // (see the layer stacking order), so an expansion of 0 hides beneath the pad.
-  if (opts?.pasteSink && !(Array.isArray(d.specialPad) && d.specialPad.length)) {
+  if (opts?.pasteSink && !(Array.isArray(d.specialPad) && d.specialPad.length) && !polyPath) {
     const rule = opts.pasteRule;
     const bottom = Number(d.layerId) === LAYER.BOTTOM;
     const faces: [1 | 2, number][] = hole

@@ -146,7 +146,7 @@ export class Shell {
         <div class="ev-canvas">
           <div class="ev-welcome">
             <div class="ev-wz">
-              <div class="ev-wz-ico">${easyedaMark(64)}</div>
+              <div class="ev-wz-ico">${easyedaMark(108, 80)}</div>
               <h2 data-i18n="welcomeTitle"></h2>
               <p class="ev-wz-ext" data-i18n="welcomeExt"></p>
               <div class="ev-wz-btns">
@@ -237,6 +237,19 @@ export class Shell {
           const g = this.layers.find((x) => x.id === gid);
           if (g) root.add(g.group);
         }
+      },
+      // 重置 (#layer-reset):全部层重新可见,并按渲染器的默认栈序(pcbStackKey
+      // 升序 = 从底到顶)重新 add 所有层组,撤销激活置顶造成的层叠改动
+      onReset: () => {
+        if (!this.currentRoot) return;
+        const root = this.currentRoot;
+        for (const l of [...this.layers].sort((a, b) => pcbStackKey(a) - pcbStackKey(b))) {
+          l.group.visible = true;
+          this.layerVisible.set(l.id, true);
+          root.add(l.group);
+        }
+        for (const it of this.lastLayerItems) it.show = true;
+        this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
       },
     });
     this.props = new PropsView(this.el.querySelector('.ev-props-host') as HTMLElement);

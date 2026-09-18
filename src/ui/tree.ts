@@ -273,8 +273,13 @@ export class LayerListView {
   /** currently highlighted (active) layer row — clicking a row raises that
    *  layer's group to the top of the paint order (#active-layer) */
   private activeId: string | null = null;
-  constructor(host: HTMLElement, private cb: { onToggle(id: string, show: boolean): void; onToggleAll(show: boolean): void; onActivate?(id: string): void }) {
+  constructor(host: HTMLElement, private cb: { onToggle(id: string, show: boolean): void; onToggleAll(show: boolean): void; onActivate?(id: string): void; onReset?: () => void }) {
     this.host = host;
+  }
+  /** clear the highlighted (active) layer row highlight */
+  clearActive(): void {
+    this.activeId = null;
+    this.host.querySelector('.ev-layer-row.ev-active')?.classList.remove('ev-active');
   }
   setLayers(items: { id: string; name: string; color: string; show: boolean; count: number }[], isSch = false): void {
     this.host.innerHTML = '';
@@ -292,7 +297,16 @@ export class LayerListView {
       const lbl = document.createElement('span');
       lbl.className = 'ev-layer-name';
       lbl.textContent = t('paneLayers');
-      head.append(all, lbl);
+      const reset = document.createElement('button');
+      reset.className = 'ev-btn ev-btn-icon ev-layer-eye';
+      reset.innerHTML = icon('rotateCcw', 13);
+      reset.title = t('layerReset');
+      // reset: show every layer and restore the default paint-order stack
+      reset.onclick = () => {
+        this.activeId = null;
+        this.cb.onReset?.();
+      };
+      head.append(all, lbl, reset);
       this.host.appendChild(head);
     }
     for (const l of rows) {
