@@ -674,24 +674,23 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   }
 
   // ---- solder-mask windows (#mask-window) ----
-  // SOLDER design rule: RULE id ["RULE","SOLDER","solderMaskExpansion"] whose
-  // ruleContext carries the expansions in its own unit (this file: mil doc
-  // units; "mm" converts). -1000 marks "no window" — the via default here,
-  // i.e. vias are tented (盖油) unless a via record overrides per face.
-  const ruleConv = (rc: any) => (v: unknown): number => {
-    const n = Number(v);
-    if (!isFinite(n)) return n;
-    return String(rc?.unit ?? '').toLowerCase() === 'mm' ? n * 39.3701 : n;
-  };
+  // SOLDER design rule: RULE id ["RULE","SOLDER","solderMaskExpansion"].
+  // ruleContext values are mil doc units like every other length in the file —
+  // the `unit:"mm"` field is the authoring client's DISPLAY preference, not the
+  // storage unit: the default rule reads padTopExpan:2 (= 0.05mm, and pads
+  // with their own expansion store 1.9685/2 = 0.05mm in mil). Converting 2 as
+  // 2mm inflated every mask window ~40× (#mask-rule-unit). -1000 marks "no
+  // window" — the via default here, i.e. vias are tented (盖油) unless a via
+  // record overrides per face.
+  const ruleNum = (v: unknown): number => Number(v);
   const maskRule = { padTop: 0, padBot: 0, viaTop: -1000, viaBot: -1000 };
   for (const r of seg.recs) {
     if (r.type !== 'RULE' || !String(r.id).includes('solderMaskExpansion')) continue;
     const rc = (r.data.ruleContext ?? {}) as any;
-    const conv = ruleConv(rc);
-    maskRule.padTop = conv(rc.padTopExpan);
-    maskRule.padBot = conv(rc.padBotExpan);
-    maskRule.viaTop = conv(rc.viaTopExpan);
-    maskRule.viaBot = conv(rc.viaBotExpan);
+    maskRule.padTop = ruleNum(rc.padTopExpan);
+    maskRule.padBot = ruleNum(rc.padBotExpan);
+    maskRule.viaTop = ruleNum(rc.viaTopExpan);
+    maskRule.viaBot = ruleNum(rc.viaBotExpan);
   }
   // PASTE design rule: RULE id ["RULE","PASTE","pasteMaskExpansion"] — same
   // expansion convention as SOLDER; pads without their own paste-expansion
@@ -700,9 +699,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   for (const r of seg.recs) {
     if (r.type !== 'RULE' || !String(r.id).includes('pasteMaskExpansion')) continue;
     const rc = (r.data.ruleContext ?? {}) as any;
-    const conv = ruleConv(rc);
-    pasteRule.padTop = conv(rc.padTopExpan);
-    pasteRule.padBot = conv(rc.padBotExpan);
+    pasteRule.padTop = ruleNum(rc.padTopExpan);
+    pasteRule.padBot = ruleNum(rc.padBotExpan);
   }
   /** solder-mask group (5 top / 6 bottom) — the file's activateTransparency
    *  (阻焊 0.7) was already applied to the layer group in the LAYER loop */
