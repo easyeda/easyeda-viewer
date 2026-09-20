@@ -3,14 +3,14 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | easyeda-viewer(嘉立创EDA专业版工程轻量查看器) |
-| 文档版本 | v0.2.1(与代码同步) |
-| 日期 | 2026-09-17 |
+| 文档版本 | v0.2.2(与代码同步) |
+| 日期 | 2026-09-20 |
 | 状态 | 核心 P0 已实现,渲染保真持续打磨 |
 | 格式参考 | [easyeda/easyeda-eprj3-skill](https://github.com/easyeda/easyeda-eprj3-skill)(本地 `easyeda-pro-eprj3-format/`)、[easyeda/easyeda-pro-format-skill](https://github.com/easyeda/easyeda-pro-format-skill)(本地 `easyeda-pro-format-skill/`) |
 
 ## Abstract (for English readers)
 
-A lightweight, **single-HTML-file** viewer for EasyEDA Pro project formats (`.epro2` and folder-based `.eprj3`). Written in TypeScript, rendered with LeaferJS. Parse and render are 100% local — no server, no upload. It can be opened by double-clicking the HTML file, or embedded into any web page via a JS API / postMessage interface. Features: document tree + object tree (left, resizable split, both searchable), properties panel (right, click-to-reveal, translated key attributes only, with a file-named layer list for PCB/panel), canvas pan/zoom (wheel zoom, right-button or middle-button pan), click-to-locate between tree and canvas, bilingual UI (zh/en) with dark/light themes, resizable/hideable panels, icon-only toolbar with an editable zoom percentage, multi-page schematics, PCB preview and panel preview. An optional install-free **Windows desktop exe** (Go + WebView2, ~4 MB) ships the same single-file viewer with native file dialogs, drag-and-drop, an app icon and proper version metadata. Rendering fidelity is tracked against official client PNG exports with an automated pixel-diff suite (`scripts/ref-diff.mjs`, 10 sample pages), and CBB **reuse-block** `.epro2` projects (repeated-DOCHEAD streams) parse correctly since v0.2.1.
+A lightweight, **single-HTML-file** viewer for EasyEDA Pro project formats (`.epro2` and folder-based `.eprj3`). Written in TypeScript, rendered with LeaferJS. Parse and render are 100% local — no server, no upload. It can be opened by double-clicking the HTML file, or embedded into any web page via a JS API / postMessage interface. Features: document tree + object tree (left, resizable split, both searchable), properties panel (right, click-to-reveal, translated key attributes only, with a file-named layer list for PCB/panel), canvas pan/zoom (wheel zoom, right-button or middle-button pan), click-to-locate between tree and canvas, bilingual UI (zh/en) with dark/light themes, resizable/hideable panels, icon-only toolbar with an editable zoom percentage, multi-page schematics, PCB preview and panel preview. An optional install-free **Windows desktop exe** (Go + WebView2, ~4 MB) ships the same single-file viewer with native file dialogs, drag-and-drop, an app icon and proper version metadata. Rendering fidelity is tracked against official client PNG exports with an automated pixel-diff suite (`scripts/ref-diff.mjs`, 10 sample pages); CBB **reuse-block** `.epro2` projects (repeated-DOCHEAD streams) parse correctly since v0.2.1, and since v0.2.2 the PCB view matches the client's 2D stack (client layer order, active-layer raise with per-face label overlays, pad number + net-name blocks laid out along the pad's long axis, pour fills with bright edge wraps, polygon pads, embedded FONT glyph outlines, bottom-side mirror semantics).
 
 ---
 
@@ -174,10 +174,19 @@ MyProject/
 | FR-3.6 | 元件符号渲染:元件记录内联/内嵌的符号绘制数据(`OBJ`/path 等)完整绘制;若为外部引用导致缺数据,降级绘制位号占位框并提示 | P1 |
 | FR-3.7 | 字体:文本类图元使用 canvas 字体渲染,支持旋转/镜像/字号;BLOB 真彩图与自定义字体(TMFont)P2 | P1 |
 | FR-3.8 | 深色/浅色两种画布主题,默认跟随 EDA 习惯(原理图浅灰底、PCB 深底) | P1 |
-| FR-3.9 | PCB 描边原语(走线/圆弧/多段线/矩形)**圆头圆角**(strokeCap=round、strokeJoin=round,与客户端一致);长圆形焊盘的槽型孔按圆角矩形绘制(非尖角椭圆);钻孔/槽孔渲染在最顶层(穿孔穿透焊盘);铺铜铜色与走线一致(全亮度);钻孔填充跟随画布背景色(不用黑色) | P0 |
+| FR-3.9 | PCB 描边原语(走线/圆弧/多段线/矩形)**圆头圆角**(strokeCap=round、strokeJoin=round,与客户端一致);长圆形焊盘的槽型孔按圆角矩形绘制(非尖角椭圆);钻孔/槽孔渲染在最顶层(穿孔穿透焊盘);铺铜/填充**暗化填充 + 全亮包边**描线(对齐官方 2D 视觉,不再全亮平涂);钻孔填充比画布背景略浅(挖槽在铜面上可辨) | P0 |
 | FR-3.10 | PCB 文本(丝印等)按数据中的**路径/锚点/角度**还原渲染,与官方视觉一致;底面丝印的镜像重复副本(自动生成的 twins)跳过,只渲染独立文字 | P0 |
-| FR-3.11 | 焊盘编号/网络名等固定标签用**屏幕恒定小字号**(~9px)绘制,不随缩放放大缩小;元件内 STRING 文本仍按文档比例 | P0 |
-| FR-3.12 | 图层面板取文档内 `LAYER` 记录的**图层名称**展示,且只列出当前文档实际有图元的图层,带图元计数 | P0 |
+| FR-3.11 | 焊盘编号/网络名等网络标注按**文档比例**绘制(随焊盘尺寸与缩放同步缩放,非屏幕恒定像素):网络名按可用宽度 fit 字号、放不下自动隐藏;焊盘编号+网络名沿焊盘长轴双行居中(见 FR-3.15);元件内 STRING 文本按文档比例 | P0 |
+| FR-3.12 | 图层面板取文档内 `LAYER` 记录的**图层名称**展示,且只列出当前文档实际有图元的图层,带图元计数;支持图层重置(恢复文件内可见性);POLYGON 形状的焊盘归类到焊盘图层 | P0 |
+| FR-3.13 | PCB **图层栈序**(pcbStackKey,对齐客户端 2D 视觉,自底向上):标注层(机械/文档/自定义/pin/3D)< 底面(装配→助焊→阻焊→铜→网络名→编号→丝印)< 内层(inner32…inner1)< 顶面(同底面序)< 通孔铜(MULTI)< 板框< 原点轴/飞线< 钻孔(置顶,穿孔穿透焊盘);同 key 保持创建顺序 | P0 |
+| FR-3.14 | **图层激活**:点击图层面板行将活跃层组提至栈顶(置顶显示,内层/对面铜可见);常驻工具层(multi/板框/轴/飞线/钻孔)压回原序;对面标注浮层沉回不遮活跃层;每面独立的网络名(nn)/编号(pn)/铺铜(pour)合成子层组随活跃面整体提层,活跃层切换高亮 | P0 |
+| FR-3.15 | **焊盘标签布局**:编号+网络名沿焊盘长轴双行居中(块整体居中,行距 GAP=1);无网络时编号居中单行;竖焊盘(h>w)编号随焊盘方向旋转读向(不强制直立);网络名按长边 90%×0.8 收缩宽度与短边剩余高度 fit(字号 6 上下限),放不下隐藏不保底;文档坐标系内按焊盘角度做行偏移(docDelta) | P0 |
+| FR-3.16 | **网络名与网络专色**:顶/底/内层走线均绘制网络名(内层的挂在走线所在层组,随该层激活显示);按线长 fit 字号、沿线段角度旋转(±90° 内翻转保证可读);全部网络标注(编号/焊盘网络名/走线网络名)统一墨色 #f2f4f7(contrastInk 已废除);NET 记录携带的**网络专色**(#net-colors)覆盖走线/焊盘铜色 | P0 |
+| FR-3.17 | **铺铜保真**:fineness 决定填充质量;孤儿 POURED 缓存(无对应 POUR 记录)只画包边描线(避免错误黑块填充);nonzero 填充规则使铺铜间隙/孔洞自然穿透;POUR_FILL_DIM=0.6 暗化填充与全亮包边配合(见 FR-3.9) | P0 |
+| FR-3.18 | **焊盘保真**:POLYGON 轮廓焊盘按多边形锚定渲染并同步生成阻焊/助焊窗;ELLIPSE 圆头焊盘;槽孔按 relativeAngle 随焊盘旋转;padOffset 仅偏移钻孔不偏移铜皮;通孔焊盘挂 MULTI 层组(顶/底层之上);封装内 Multi-Layer 填充形状解析为挖槽到孔层 | P0 |
+| FR-3.19 | **阻焊/助焊窗**:按 SOLDER_MASK/PASTE 规则对焊盘/过孔开窗,扩展量按规则记录分面(顶/底)取值;−1000 哨兵=不开窗(过孔默认盖油 tented,记录可逐面覆盖;焊盘同 ≤−1000 哨兵约定) | P0 |
+| FR-3.20 | **底面透视**:底层铜/丝印以 BOTTOM_ALPHA 半透明透板显示,元件/焊盘按 M_y·R(θ) 镜像矩阵变换(与客户端一致);透板镜像文本/图片自动生成 twins,与 FR-3.10 去重规则一致 | P0 |
+| FR-3.21 | **文本保真**:内嵌 FONT 文档的 glyph 走**预矢量化轮廓**渲染(轮廓 path,不再回退 canvas 字体);STRING 支持 CARC(圆弧文本路径)token | P0 |
 
 ### 4.4 FR-4 画布交互
 
@@ -418,6 +427,7 @@ desktop/build/
 | M4 epro2 + 嵌入(1.5 周) | epro2 adapter(ZIP 解包 + `.epru` 切分 + META 建树 + GBK 条目名);createViewer API + postMessage 桥 | `RA6E2.epro2` 直开,与 eprj3 渲染一致;两种宿主方式全通 | ✅ 完成(独立库产物 `.d.ts` 为 P1) |
 | M5 体验批次 | 中英双语 UI、纯图标工具栏+可输入缩放、面板宽/高拖拽、初始隐藏侧栏、右键平移、EasyEDA 品牌图标、桌面 exe 图标+版本属性 | 33 项反馈全部关闭(见 README/提交记录) | ✅ 完成(v0.2) |
 | M5.5 渲染保真批次(v0.2.1) | 以官方 PNG 导出为基准逐页对照修偏:原理图边框/标题栏按文件属性、电源符号方向、顺时针旋转角、网络标签按格式位置+0.4em 抬升、文本拾取 bbox 画布实测、引脚标签对齐、隐藏文档/标题栏、跨页元件树、树方向键导航、三分类库图标、选中框恒定像素虚线、Top Paste 层序+透明度、铺铜全亮、钻孔/槽孔置顶、PCB 描边全圆头、复用块 epro2 支持、ref-diff 视觉回归管线 | 10 页样例 diff 基线建立(原理图页 1.75%~12.73%);smoke 122/122 | ✅ 完成(v0.2.1) |
+| M5.6 PCB 渲染保真批次(v0.2.2) | 客户端 2D 层序栈 pcbStackKey + 图层激活置顶/常驻层压回/对面标注沉回、每面 nn/pn/pour 合成子层组;焊盘编号+网络名沿长轴双行居中(编号随焊盘方向、网络名 fit 不足隐藏、统一墨色 #f2f4f7);顶/底/内层走线网络名;网络专色(#net-colors);铺铜暗化填充+全亮包边、fineness 包边宽、孤儿 POURED 只画包边、nonzero 间隙穿透;POLYGON 轮廓焊盘+开窗、ELLIPSE 圆头、槽孔 relativeAngle、padOffset 仅钻孔、通孔挂 MULTI、封装 Multi-Layer 填充=挖槽;阻焊/助焊窗 −1000 盖油哨兵;底面透视 BOTTOM_ALPHA + M_y·R(θ) 镜像+透板 twins;FONT glyph 预矢量化文本+CARC token;图层面板重置+POLYGON 焊盘归类;欢迎卡片、面板拖放(dnd)、桌面壳改进 | ESP32S31 样例截图对照(焊盘双行/内层网络名/铺铜包边逐点核验);npm test 12/12;tsc 无警告;smoke 全绿 | ✅ 完成(v0.2.2) |
 | M6 性能与发布(持续) | LOD/裁剪调优、Worker 化评估、Playwright e2e、npm 库产物、LICENSES.txt、演示页 | NFR 全表达标;v1.0 发布 | ⏳ 进行中 |
 
 ---
@@ -428,6 +438,7 @@ desktop/build/
 - [x] 文档树/对象树/属性面板/画布交互四件套满足 §4 P0 全部条目(含双向定位、滚轮以指针为中心缩放、右键平移)。
 - [x] 无头 smoke:§3.5 样本工程 + 单文档共 **122 个文档全量渲染 0 异常**(含复用块 epro2);Vitest 解析单测 12 项;视觉对照 `samples/png/` 官方截图。
 - [x] 视觉保真回归:`scripts/ref-diff.mjs` 对 10 页样例(9 页原理图 + 1 PCB)与官方客户端 PNG 导出像素 diff,基线留档 `qa/diff/report.json`,改动后跑对照防回归。
+- [x] PCB 渲染保真批次(v0.2.2):层序/激活置顶、焊盘标签双行布局、网络名墨色统一、铺铜包边、内层网络名等经无头 Chrome 分层截图逐点核验(`?file=` QA 宿主 + 图层面板行点击激活)。
 - [ ] iframe postMessage 与 JS API 两条嵌入路径的**自动化 e2e**(Playwright)与协议示例页(P1)。
 - [ ] 性能实测数字留档:5 千图元页 ≥ 30fps(devtools trace)、打开 < 1.5 s、内存曲线(NFR-2/3/5)。
 - [ ] 每种已支持记录类型 ≥1 条真实 fixture 单测(现覆盖主要类型,长尾类型进行中);CI 化。
