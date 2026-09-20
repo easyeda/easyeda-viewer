@@ -69,6 +69,8 @@ export class Shell {
   private zoomEl!: HTMLInputElement;
   private titleEl: HTMLElement;
   private welcomeEl: HTMLElement;
+  private loadingEl: HTMLElement;
+  private loadingMsgEl: HTMLElement;
   private deviceNoteEl!: HTMLElement;
   private dnd: DndController;
   private leftEl: HTMLElement;
@@ -169,7 +171,8 @@ export class Shell {
           <div class="ev-pane ev-pane-layers ev-hidden"><div class="ev-pane-cap" data-i18n="paneLayers"></div><div class="ev-pane-inner"></div></div>
         </aside>
       </div>
-      <div class="ev-status"><span class="ev-status-pos"></span><span class="ev-status-msg"></span></div>`;
+      <div class="ev-status"><span class="ev-status-pos"></span><span class="ev-status-msg"></span></div>
+      <div class="ev-loading ev-hidden"><div class="ev-loading-box"><div class="ev-loading-spin"></div><span class="ev-loading-msg"></span></div></div>`;
 
     this.canvasHost = this.el.querySelector('.ev-canvas') as HTMLElement;
     this.statusEl = this.el.querySelector('.ev-status') as HTMLElement;
@@ -177,6 +180,8 @@ export class Shell {
     this.statusMsgEl = this.el.querySelector('.ev-status-msg') as HTMLElement;
     this.titleEl = this.el.querySelector('.ev-title') as HTMLElement;
     this.welcomeEl = this.el.querySelector('.ev-welcome') as HTMLElement;
+    this.loadingEl = this.el.querySelector('.ev-loading') as HTMLElement;
+    this.loadingMsgEl = this.el.querySelector('.ev-loading-msg') as HTMLElement;
     this.deviceNoteEl = this.el.querySelector('.ev-device-note') as HTMLElement;
     this.toolbarEl = this.el.querySelector('.ev-toolbar') as HTMLElement;
     this.leftEl = this.el.querySelector('.ev-left') as HTMLElement;
@@ -213,7 +218,7 @@ export class Shell {
     this.camera.world.add(this.overlay);
 
     this.docTree = new DocTreeView(this.el.querySelector('.ev-pane-tree .ev-pane-inner') as HTMLElement, { onNode: (n) => this.onTreeNode(n) });
-    this.objList = new ObjectListView(this.el.querySelector('.ev-pane-objects .ev-pane-inner') as HTMLElement, { onPick: (id) => this.pickObject(id, true) });
+    this.objList = new ObjectListView(this.el.querySelector('.ev-pane-objects .ev-pane-inner') as HTMLElement, { onPick: (id) => void this.pickObject(id, true) });
     this.layerList = new LayerListView(this.layerPane.querySelector('.ev-pane-inner') as HTMLElement, {
       onToggle: (id, show) => {
         this.layerVisible.set(id, show);
@@ -484,20 +489,47 @@ export class Shell {
       this.events.onError?.(new Error(t('statusEmptyDrop')));
       return;
     }
+    // parsing a large project blocks the main thread for seconds — put the
+    // busy overlay on screen (and let it paint) BEFORE that work starts (#loading)
+    this.showLoading(t('loadingProject'));
+    await this.nextPaint();
     try {
       const model = await loadFromFiles(files);
-      this.setModel(model);
+      await this.setModel(model);
     } catch (err) {
       this.fail(err);
+    } finally {
+      this.hideLoading();
     }
   }
 
-  loadMap(map: Map<string, Uint8Array>): void {
+  async loadMap(map: Map<string, Uint8Array>): Promise<void> {
+    this.showLoading(t('loadingProject'));
+    await this.nextPaint();
     try {
-      this.setModel(loadFromMap(map));
+      await this.setModel(loadFromMap(map));
     } catch (err) {
       this.fail(err);
+    } finally {
+      this.hideLoading();
     }
+  }
+
+  // ---------- busy overlay (#loading) ----------
+
+  private showLoading(msg: string): void {
+    this.loadingMsgEl.textContent = msg;
+    this.loadingEl.classList.remove('ev-hidden');
+  }
+
+  private hideLoading(): void {
+    this.loadingEl.classList.add('ev-hidden');
+  }
+
+  /** two animation frames — one isn't enough: the rAF callback still runs
+   *  before that frame's paint, so the overlay would never reach the screen */
+  private nextPaint(): Promise<void> {
+    return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   }
 
   private fail(err: unknown): void {
@@ -511,7 +543,7 @@ export class Shell {
     this.setStatus(t('statusLoaded', { fmt: m.format.toUpperCase(), docs: m.openables.size, files: m.files.size }));
   }
 
-  private setModel(model: ProjectModel): void {
+  private async setModel(model: ProjectModel): Promise<void> {
     this.model = model;
     this.docLoaded = true;
     this.compRowsCache.clear();
@@ -526,13 +558,17 @@ export class Shell {
     this.applyChrome();
     // auto-open the first openable node (usually first sheet / pcb)
     const first = model.openables.values().next().value;
-    if (first) this.openNode(first);
+    if (first) await this.openNode(first);
   }
 
   // ---------- doc rendering ----------
 
-  private openNode(node: TreeNode): void {
+  private async openNode(node: TreeNode): Promise<void> {
     if (!this.model || !node.fileKey || !node.uuid) return;
+    // doc open (a large PCB takes seconds) blocks the main thread — show the
+    // busy overlay and let it paint before that work starts (#loading)
+    this.showLoading(t('loadingDoc'));
+    await this.nextPaint();
     try {
       this.deviceNoteEl.classList.add('ev-hidden');
       const opened = openDoc(this.model, node);
@@ -629,6 +665,8 @@ export class Shell {
       this.applyChrome();
     } catch (err) {
       this.fail(err);
+    } finally {
+      this.hideLoading();
     }
   }
 
@@ -657,7 +695,7 @@ export class Shell {
   private onTreeNode(node: TreeNode): void {
     if (!this.model) return;
     if (this.model.openables.has(node.id)) {
-      this.openNode(node);
+      void this.openNode(node);
       return;
     }
     if (node.docType === 'DEVICE' && node.fileKey && node.uuid) {
@@ -697,7 +735,7 @@ export class Shell {
   openNodeId(nodeId: string): boolean {
     const node = this.model?.openables.get(nodeId);
     if (!node) return false;
-    this.openNode(node);
+    void this.openNode(node);
     return true;
   }
 
@@ -723,9 +761,10 @@ export class Shell {
     return this.schematicWide && this.curNode ? `${this.curNode.id}::${objId}` : objId;
   }
 
-  private pickObject(id: string, center: boolean): void {
+  private async pickObject(id: string, center: boolean): Promise<void> {
     // schematic-wide list: rows carry their owning page's node id —
     // clicking a component that lives on another page opens that page first
+    // (await the open: the object lookup below must see the NEW doc's objects)
     let compId = id;
     const sep = id.indexOf('::');
     if (sep > 0) {
@@ -733,7 +772,7 @@ export class Shell {
       compId = id.slice(sep + 2);
       if (this.curNode?.id !== pageId) {
         const node = this.model?.openables.get(pageId);
-        if (node) this.openNode(node);
+        if (node) await this.openNode(node);
       }
     }
     const obj = this.objects.find((o) => o.id === compId) ?? null;

@@ -3,14 +3,14 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | easyeda-viewer(嘉立创EDA专业版工程轻量查看器) |
-| 文档版本 | v0.2.4(与代码同步) |
+| 文档版本 | v0.2.5(与代码同步) |
 | 日期 | 2026-09-20 |
 | 状态 | 核心 P0 已实现,渲染保真持续打磨 |
 | 格式参考 | [easyeda/easyeda-eprj3-skill](https://github.com/easyeda/easyeda-eprj3-skill)(本地 `easyeda-pro-eprj3-format/`)、[easyeda/easyeda-pro-format-skill](https://github.com/easyeda/easyeda-pro-format-skill)(本地 `easyeda-pro-format-skill/`) |
 
 ## Abstract (for English readers)
 
-A lightweight, **single-HTML-file** viewer for EasyEDA Pro project formats (`.epro2` and folder-based `.eprj3`). Written in TypeScript, rendered with LeaferJS. Parse and render are 100% local — no server, no upload. It can be opened by double-clicking the HTML file, or embedded into any web page via a JS API / postMessage interface. Features: document tree + object tree (left, resizable split, both searchable), properties panel (right, click-to-reveal, translated key attributes only, with a file-named layer list for PCB/panel), canvas pan/zoom (wheel zoom, right-button or middle-button pan), click-to-locate between tree and canvas, bilingual UI (zh/en) with dark/light themes, resizable/hideable panels, icon-only toolbar with an editable zoom percentage, multi-page schematics, PCB preview and panel preview. An optional install-free **Windows desktop exe** (Go + WebView2, ~7 MB) ships the same single-file viewer with native file dialogs, drag-and-drop, an app icon and proper version metadata; since v0.2.3 the artifact name carries the version (`easyeda-viewer_v{version}.exe`), the window title reads `EasyEDA 查看器 - v{version}`, a missing WebView2 runtime triggers a native download prompt for Microsoft's official installer, and the HTML favicon inlines the exe's own `.ico`; since v0.2.4 the host window shows immediately (DPI-sized, shell-colored) while WebView2 spins up, with the WebView2 profile pinned to `%LOCALAPPDATA%` for warm restarts. Rendering fidelity is tracked against official client PNG exports with an automated pixel-diff suite (`scripts/ref-diff.mjs`, 10 sample pages); CBB **reuse-block** `.epro2` projects (repeated-DOCHEAD streams) parse correctly since v0.2.1, and since v0.2.2 the PCB view matches the client's 2D stack (client layer order, active-layer raise with per-face label overlays, pad number + net-name blocks laid out along the pad's long axis, pour fills with bright edge wraps, polygon pads, embedded FONT glyph outlines, bottom-side mirror semantics).
+A lightweight, **single-HTML-file** viewer for EasyEDA Pro project formats (`.epro2` and folder-based `.eprj3`). Written in TypeScript, rendered with LeaferJS. Parse and render are 100% local — no server, no upload. It can be opened by double-clicking the HTML file, or embedded into any web page via a JS API / postMessage interface. Features: document tree + object tree (left, resizable split, both searchable), properties panel (right, click-to-reveal, translated key attributes only, with a file-named layer list for PCB/panel), canvas pan/zoom (wheel zoom, right-button or middle-button pan), click-to-locate between tree and canvas, bilingual UI (zh/en) with dark/light themes, resizable/hideable panels, icon-only toolbar with an editable zoom percentage, a busy overlay (spinner + stage text) shown while projects load and documents render, multi-page schematics, PCB preview and panel preview. An optional install-free **Windows desktop exe** (Go + WebView2, ~7 MB) ships the same single-file viewer with native file dialogs, drag-and-drop, an app icon and proper version metadata; since v0.2.3 the artifact name carries the version (`easyeda-viewer_v{version}.exe`), the window title reads `EasyEDA 查看器 - v{version}`, a missing WebView2 runtime triggers a native download prompt for Microsoft's official installer, and the HTML favicon inlines the exe's own `.ico`; since v0.2.4 the host window shows immediately (DPI-sized, shell-colored) while WebView2 spins up, with the WebView2 profile pinned to `%LOCALAPPDATA%` for warm restarts. Rendering fidelity is tracked against official client PNG exports with an automated pixel-diff suite (`scripts/ref-diff.mjs`, 10 sample pages); CBB **reuse-block** `.epro2` projects (repeated-DOCHEAD streams) parse correctly since v0.2.1, and since v0.2.2 the PCB view matches the client's 2D stack (client layer order, active-layer raise with per-face label overlays, pad number + net-name blocks laid out along the pad's long axis, pour fills with bright edge wraps, polygon pads, embedded FONT glyph outlines, bottom-side mirror semantics).
 
 ---
 
@@ -280,6 +280,7 @@ iframe/postMessage 协议(`src/main.ts` 内置桥,**已实现**;消息均带 `so
 | FR-8.8 | 左右面板宽度、文档树/对象树高度、属性区/图层区高度均可**拖拽分隔条调整**;初始界面(未打开文件)只显示工具栏与中央引导卡,左右面板收起 | P0 |
 | FR-8.9 | 品牌图标使用嘉立创EDA 官方云朵+电路标志(无字版,单一 path,#5588FF);库分组节点用官方图标包提取的 symbol/footprint/library 等语义图标 | P0 |
 | FR-8.10 | HTML 标签页 **favicon 与桌面 exe 同一图标**:构建期由 vite 插件 `appIconFavicon` 将 `desktop/app.ico` 以 base64 data URI 内联进 `index.html`(单文件产物与 dev server 均生效,无额外请求) | P1 |
+| FR-8.11 | **加载中过渡效果**(v0.2.5,#loading):解析工程与渲染文档(大 PCB 可达秒级)阻塞主线程,期间显示全 shell 忙碌遮罩(半透明底 + 旋转圆环 + 阶段文案「加载工程中…/渲染文档中…」,中英文随语言);遮罩必须在阻塞工作开始**前**到达屏幕——显示后让渡两个动画帧再启动重活(单帧不够,rAF 回调仍在该帧绘制前执行);覆盖路径:打开文件/拖放/desktop 桥接加载(loadFiles/loadMap)、文档树点击与跨页跳转(openNode)、postMessage 打开(openNodeId);pickObject 跨页定位 await 文档打开完成后再查找对象(异步化后保持查到新文档对象);完成后遮罩隐藏 | P0 |
 
 ### 4.9 FR-9 免安装桌面版(Go + webview)
 
@@ -452,6 +453,7 @@ desktop/build/
 - [x] Windows 免安装 exe:图标/文件属性(FileVersion 与 package.json 同步,0.3.0)正确、拖放与原生对话框可用;产物名带版本号、标题栏 `EasyEDA 查看器 - v{version}`、WebView2 缺失弹官方下载提示(FR-9.4/9.6/9.7)。
 - [x] v0.2.3 细节批次:文档切换无背景闪现(场景内 bgRect 原子重绘);网络名字号 5;阻焊外扩与官方客户端一致(规则 mil 直取);favicon=exe 同款 ico;缩放输入框位于适屏按钮右侧、无背景填充。
 - [x] v0.2.4 启动提速:宿主窗口先行显示(DPI 定尺居中、同色背景刷);WebView2 profile 固定 %LOCALAPPDATA% 并注入免首启参数;计时日志定位瓶颈(可见窗口 ~1s,WebView2 环境冷启 ~4-5s 为运行时固有开销)。
+- [x] v0.2.5 加载中过渡:忙碌遮罩覆盖工程加载与文档切换(SCH→PCB),阻塞前双帧让渡保证先渲染;铺铜填充亮度按官方导出实测 0.6→0.7 校正(FR-3.17)。
 
 ---
 

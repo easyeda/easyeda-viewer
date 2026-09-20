@@ -234,6 +234,27 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 }
 .ev-drop-pill svg { color: var(--ev-accent); }
 
+/* ---------- busy overlay (#loading) ---------- */
+/* parse + doc render block the main thread, so this must reach the screen
+   BEFORE the work starts — the shell yields two animation frames after
+   showing it; it covers the whole shell (project load and SCH→PCB switches) */
+.ev-loading {
+  position: absolute; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--ev-bg) 62%, transparent); backdrop-filter: blur(2px);
+}
+.ev-loading-box {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  background: var(--ev-panel); border: 1px solid var(--ev-border); border-radius: 14px;
+  padding: 26px 42px; box-shadow: var(--ev-shadow);
+  color: var(--ev-dim); font-size: 13px;
+}
+.ev-loading-spin {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 3px solid var(--ev-accent-weak); border-top-color: var(--ev-accent);
+  animation: ev-spin 0.8s linear infinite;
+}
+@keyframes ev-spin { to { transform: rotate(360deg); } }
+
 /* ---------- properties ---------- */
 .ev-props { flex: 1 1 auto; overflow: auto; min-height: 0; padding: 12px; }
 .ev-props-head { font-weight: 650; font-size: 14px; margin-bottom: 8px; word-break: break-all; }
