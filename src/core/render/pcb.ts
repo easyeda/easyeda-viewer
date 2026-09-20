@@ -107,21 +107,12 @@ function fitNetFont(text: string, maxW: number, maxH: number): number | null {
   const f = Math.min(maxH, maxW / (NET_CHAR_W * text.length));
   return f >= NET_FONT_MIN ? f : null;
 }
-/** legible ink on a copper fill: dark text on light copper, white on dark
- *  (WCAG-ish luminance of the layer color picks the side) */
-function contrastInk(copper: string): string {
-  const m = /^#([0-9a-f]{6})$/i.exec(String(copper).trim());
-  if (!m) return '#ffffff';
-  const n = parseInt(m[1], 16);
-  const lum = (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
-  return lum > 0.6 ? '#1c1c1c' : '#ffffff';
-}
-
-/** user pref: net labels read a touch smaller and dimmer than the client's so
- *  the copper underneath stays legible (#net-labels) — the available text-run
- *  length shrinks by this factor before fitting, and the ink dims by NET_INK_DIM */
+/** user pref: net labels keep a margin inside their copper — the available
+ *  text-run length shrinks by this factor before fitting (#net-labels) */
 const NET_LEN_SHRINK = 0.8;
-const NET_INK_DIM = 0.75;
+/** label ink shared by pad numbers, pad net names and track net names — all
+ *  net annotations read in the same light tone as the pad number (user pref) */
+const PAD_INK = '#f2f4f7';
 
 /** darken a #rrggbb hex toward black; non-hex colors pass through unchanged */
 function dimHex(c: string, f: number): string {
@@ -363,50 +354,63 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       opts.pasteSink(face, pg);
     }
   }
-  // pad number: doc-scaled like the client's own labels — it grows with zoom
-  // and its size follows the pad so it stays inside the copper (#pad-num-zoom)
+  // pad number + net name, one stacked label block centered inside the copper
+  // (user pref): the pair reads along the pad's LONG axis — wide pads read
+  // horizontally with the number above the net name, tall pads read up the
+  // axis with the number beside it (the whole block just rotates with the
+  // pad, the number is NOT forced upright, user pref). Alone, the number sits
+  // dead-center. The net name must FIT: the two lines span the pad's short
+  // axis (numF + gap + f ≤ shortLen) and the longer line runs the long axis
+  // (shrunk a step, NET_LEN_SHRINK) — a pad too small stays unlabeled (no
+  // floor fallback; a squeezed label reads worse than none, user pref).
   const num = d.num == null ? '' : String(d.num);
-  if (num) {
-    const t = new Text({
-      // a step brighter than the client's gray so pad numbers stay readable
-      // over bright copper (user pref, #pad-num-ink)
-      text: num, fontSize: Math.max(Math.min(w, h) * 0.6, 1), fill: '#f2f4f7',
-      textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false,
-    } as any);
-    t.x = cx; t.y = cy;
-    if (opts?.numSink) opts.numSink(t);
-    else g.add(t);
-  }
-  // net name inside the pad copper (#net-labels): stacked with the pad number
-  // (which sits at the pad center), both centered inside the copper. The label
-  // runs along the pad's LONG axis like the client — horizontal pads read
-  // along padAngle with the label below the number, vertical pads read up the
-  // axis with the label above it. It must FIT inside the copper: a pad too
-  // small along that axis stays unlabeled (width check like the client — no
-  // floor fallback, a squeezed label reads worse than none, user pref).
-  if (opts?.netName) {
-    const numF = num ? Math.max(Math.min(w, h) * 0.6, 1) : 0;
+  const netName = opts?.netName ?? '';
+  if (num || netName) {
     const along = h > w;
-    // available run length shrunk a step (NET_LEN_SHRINK) so labels keep a
-    // margin inside the copper (user pref)
-    const f = fitNetFont(
-      opts.netName,
-      (along ? h - numF - 2 : w * 0.9) * NET_LEN_SHRINK,
-      Math.min(NET_FONT_MAX, along ? w * 0.9 : h / 2 - numF / 2 - 1),
-    );
-    if (f != null) {
+    const rot = along ? padAngleDeg - 90 : padAngleDeg;
+    const shortLen = along ? w : h;
+    const numF = num ? Math.max(Math.min(w, h) * 0.6, 1) : 0;
+    const f = netName
+      ? fitNetFont(netName, (along ? h : w) * 0.9 * NET_LEN_SHRINK, Math.min(NET_FONT_MAX, shortLen - numF - 2))
+      : null;
+    // line centers in the block's rotated frame — block-centered when both
+    // lines show, centered alone when only one does
+    const GAP = 1;
+    const two = numF > 0 && f != null;
+    const numLy = two ? -(GAP + (f as number)) / 2 : 0;
+    const netLy = two ? (numF + GAP) / 2 : 0;
+    // text-frame vertical offset → doc-space delta for the block rotation
+    // (leafer ρ = −θ − 90° when along, screen delta = (ly·cosθ, −ly·sinθ) —
+    // doc space flips y): along pads put the second line beside the number,
+    // horizontal pads below it
+    const docDelta = (ly: number): [number, number] =>
+      along ? [ly * Math.cos(padAngle), ly * Math.sin(padAngle)]
+            : [ly * Math.sin(padAngle), -ly * Math.cos(padAngle)];
+    if (num) {
+      const t = new Text({
+        // doc-scaled like the client's own labels — grows with zoom, sized to
+        // stay inside the copper (#pad-num-zoom); PAD_INK, one step brighter
+        // than the client's gray, over bright copper (user pref #pad-num-ink)
+        text: num, fontSize: numF, fill: PAD_INK,
+        textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false,
+        rotation: rot,
+      } as any);
+      const [dx, dy] = docDelta(numLy);
+      t.x = X(Number(d.centerX ?? 0) + dx, xf);
+      t.y = Y(Number(d.centerY ?? 0) + dy, xf);
+      if (opts?.numSink) opts.numSink(t);
+      else g.add(t);
+    }
+    if (netName && f != null) {
       const t = new Text({
         // same ink as the pad number (user pref: 一致的颜色)
-        text: opts.netName, fontSize: f, fill: '#f2f4f7',
+        text: netName, fontSize: f, fill: PAD_INK,
         textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false,
-        rotation: along ? padAngleDeg - 90 : padAngleDeg,
+        rotation: rot,
       } as any);
-      if (numF > 0) {
-        const dy = numF / 2 + f / 2 + 1; // pad-local offset from the centered number
-        const sgn = along ? 1 : -1; // vertical pads: above (doc +y); horizontal: below
-        t.x = X(Number(d.centerX ?? 0) + sgn * dy * Math.sin(padAngle), xf);
-        t.y = Y(Number(d.centerY ?? 0) + sgn * dy * Math.cos(padAngle), xf);
-      } else { t.x = cx; t.y = cy; }
+      const [dx, dy] = docDelta(netLy);
+      t.x = X(Number(d.centerX ?? 0) + dx, xf);
+      t.y = Y(Number(d.centerY ?? 0) + dy, xf);
       if (opts?.netSink) opts.netSink(t);
       else g.add(t);
     }
@@ -942,14 +946,15 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
               pasteLayer(face).add(pg);
             },
             // the pad number rides the face's label overlay in world coords,
-            // replicating the wrapper's transform on the POSITION only — the
-            // text itself stays forward-facing: a top footprint's rotation and
-            // a bottom component's Y-mirror are NOT applied to the glyphs, so
-            // numbers never read skewed or mirrored (#pad-num-upright)
+            // replicating the wrapper's transform on position AND rotation —
+            // the number now reads along the pad's long axis like the net
+            // name (user pref: 编号不强制直立，随焊盘方向), mirrored with the
+            // component on the bottom face
             numSink: (t) => {
               const tx = Number(t.x) || 0, ty = (flipY ? -1 : 1) * (Number(t.y) || 0);
               t.x = gx + tx * gc - ty * gs;
               t.y = gy + tx * gs + ty * gc;
+              t.rotation = (Number(target.rotation) || 0) + (flipY ? -1 : 1) * (Number(t.rotation) || 0);
               padNumLayer(numFace).add(t);
             },
             // in-copper net label: same world mapping as the other hoisted
@@ -1173,23 +1178,29 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         node.add(new Line({ points: [x1, y1, x2, y2], stroke: colorForNet(d.netName, layerColor(d.layerId)), strokeWidth: widthOf(d, 6), strokeCap: 'round', hitStroke: 'all' }));
         // net name on the track copper (#net-labels): the client stamps a fixed
         // ~6.5mil label along the wire — width of the track is irrelevant, only
-        // a track too SHORT to carry the text stays unlabeled. Hoisted to the
-        // face's nn: overlay so later tracks never bury an earlier label.
+        // a track too SHORT to carry the text stays unlabeled. Top/bottom labels
+        // hoist to the face's nn: overlay so later tracks never bury an earlier
+        // one; INNER-layer labels ride the track's own layer group — they must
+        // occlude with that layer (hidden under the top face until the inner
+        // layer is activated, user report), which the hoisted overlays can't do.
         const net = d.netName != null ? String(d.netName) : '';
         const lk = layerIdOf(d);
-        if (net && (lk === '1' || lk === '2')) {
-          // run length shrunk a step (NET_LEN_SHRINK) and ink dimmed
-          // (NET_INK_DIM) so labels read quieter against the copper (user pref)
+        const ln = Number(lk);
+        const innerCopper = ln >= 15 && ln <= 46; // SIGNAL 15..46 (inner faces)
+        if (net && (lk === '1' || lk === '2' || innerCopper)) {
+          // run length shrunk a step (NET_LEN_SHRINK) so labels keep a margin
           const f = fitNetFont(net, Math.hypot(x2 - x1, y2 - y1) * 0.9 * NET_LEN_SHRINK, NET_FONT_MAX);
           if (f != null) {
             let rot = (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI;
             if (rot > 90 || rot < -90) rot += 180; // never read upside-down (vertical wires read bottom-up)
             const t = new Text({
-              text: net, fontSize: f, fill: dimHex(contrastInk(layerColor(d.layerId)), NET_INK_DIM),
+              // same ink as the pad numbers / pad net names (user pref: 全部网络名颜色一致)
+              text: net, fontSize: f, fill: PAD_INK,
               textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false, rotation: rot,
             } as any);
             t.x = (x1 + x2) / 2; t.y = (y1 + y2) / 2;
-            netNameLayer(lk === '2' ? 2 : 1).add(t);
+            if (innerCopper) node.add(t); // travels with the track's layer group
+            else netNameLayer(lk === '2' ? 2 : 1).add(t);
           }
         }
         addToLayer(d, r, node, `走线 ${r.id} ${d.netName ?? ''}`, 'track');
