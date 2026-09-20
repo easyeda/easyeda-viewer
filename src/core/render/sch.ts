@@ -210,7 +210,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           // pin name / number labels (attributes parented to the PIN record)
           for (const pa of attrsOf(sym, r.id)) {
             const ad = pa.data;
-            if (ad.key !== 'Pin Name' && ad.key !== 'Pin Number') continue;
+            // 'Pin Name'/'Pin Number' = classic format; 'NAME'/'NUMBER' = the
+            // uppercase historical keys written by newer client versions (#x86-pins)
+            if (ad.key !== 'Pin Name' && ad.key !== 'Pin Number' && ad.key !== 'NAME' && ad.key !== 'NUMBER') continue;
             const v = String(ad.value ?? '');
             // on pages, visibility follows the document's valueVisible flag;
             // standalone symbol previews force-show (page-level PIN case below)
@@ -740,7 +742,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         // ALWAYS show here, regardless of the valueVisible flag (#lib-2)
         for (const pa of byParent.get(r.id) ?? []) {
           const ad = pa.data;
-          if (ad.key !== 'Pin Name' && ad.key !== 'Pin Number') continue;
+          // 'Pin Name'/'Pin Number' = classic format; 'NAME'/'NUMBER' = the
+          // uppercase historical keys written by newer client versions (#x86-pins)
+          if (ad.key !== 'Pin Name' && ad.key !== 'Pin Number' && ad.key !== 'NAME' && ad.key !== 'NUMBER') continue;
           const v = String(ad.value ?? '');
           if (!v.trim() || typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
           const [lx, ly] = P(Number(ad.x), Number(ad.y), xf);
@@ -808,12 +812,58 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   drawJunctions(wireGroups);
   // no-connect flags: page ATTRs keyed NO_CONNECT on "{component}-{pin}" parents.
   // value "yes" marks the pin as intentionally unconnected — the client draws a
-  // green × at the pin tip (attr x/y already holds that world position).
+  // green × at the pin tip; any other value ("no") stays invisible. The attr
+  // x/y is only a display cache that goes stale when the component moves (the
+  // CPU page shows exact 5/10 mil lags), so resolve the live pin anchor from
+  // the parent ids instead. Those parents still carry pre-migration record ids
+  // — the migration renamed every id with an "i" prefix but never updated them
+  // (#x86-pins) — hence the "i"-prefixed fallback lookups.
+  const ncCompById = new Map<string, Rec>();
+  for (const r of seg.recs) if (r.type === 'COMPONENT') ncCompById.set(r.id, r);
+  const ncAnchorCache = new Map<string, { x: number; y: number } | null>();
+  const ncAnchor = (parentId: string): { x: number; y: number } | null => {
+    if (ncAnchorCache.has(parentId)) return ncAnchorCache.get(parentId)!;
+    let out: { x: number; y: number } | null = null;
+    const m = /^(.+?)-(.+)$/.exec(parentId);
+    const comp = m ? ncCompById.get(m[1]) ?? ncCompById.get('i' + m[1]) : undefined;
+    if (m && comp) {
+      const attrs = byParent.get(comp.id) ?? [];
+      const symUuid = attrValue(attrs, 'Symbol') ?? attrValue(attrs, 'Device');
+      let sym = resolveLibGraphics(opened.libs, symUuid ? opened.libs.get(symUuid) : undefined, 'Symbol');
+      if (!sym) {
+        const devUuid = attrValue(attrs, 'Device');
+        if (devUuid && devUuid !== symUuid) sym = resolveLibGraphics(opened.libs, opened.libs.get(devUuid), 'Symbol');
+      }
+      const pin = sym?.recs.find((pr) => pr.type === 'PIN' && (pr.id === m[2] || pr.id === 'i' + m[2]));
+      if (sym && pin) {
+        // same transform chain as drawComponent: symbol-canvas offset, mirror
+        // about the component origin, rotation, then component translation
+        const sxf = xfOf(sym.canvas, false);
+        const d = comp.data;
+        let lx = X(Number(pin.data.x ?? 0), sxf);
+        const ly = Y(Number(pin.data.y ?? 0), sxf);
+        if (d.isMirror) lx = -lx;
+        const ra = (ang(Number(d.rotation ?? 0), xf) * Math.PI) / 180;
+        const c = Math.cos(ra), s = Math.sin(ra);
+        out = {
+          x: X(Number(d.x ?? 0), xf) + lx * c - ly * s,
+          y: Y(Number(d.y ?? 0), xf) + lx * s + ly * c,
+        };
+      }
+    }
+    ncAnchorCache.set(parentId, out);
+    return out;
+  };
   for (const r of seg.recs) {
     if (r.type !== 'ATTR' || r.data.key !== 'NO_CONNECT' || String(r.data.value ?? '') !== 'yes') continue;
-    if (typeof r.data.x !== 'number' || typeof r.data.y !== 'number') continue;
-    const cx = X(Number(r.data.x), xf);
-    const cy = Y(Number(r.data.y), xf);
+    // resolved pin tip wins; unresolvable parents fall back to the cached x/y
+    const pos = ncAnchor(String(r.data.parentId ?? ''))
+      ?? (typeof r.data.x === 'number' && typeof r.data.y === 'number'
+        ? { x: X(Number(r.data.x), xf), y: Y(Number(r.data.y), xf) }
+        : null);
+    if (!pos) continue;
+    const cx = pos.x;
+    const cy = pos.y;
     const arm = 4.5;
     const cross = new Group({ hittable: false });
     cross.add(new Line({ points: [cx - arm, cy - arm, cx + arm, cy + arm], stroke: COLORS.net, strokeWidth: 1, strokeCap: 'round' }));
