@@ -56,6 +56,8 @@ export class Shell {
   private leafer: Leafer;
   private camera: Camera;
   private overlay: Group;
+  /** document background painted inside the scene, below the world (#bg-flash) */
+  private bgRect: Rect;
 
   private docTree: DocTreeView;
   private objList: ObjectListView;
@@ -188,6 +190,16 @@ export class Shell {
     this.leafer = new Leafer({ view: this.canvasHost, type: 'draw' });
     (window as any).__ev = { root: this.leafer, shell: this }; // QA dump hook
     this.camera = new Camera(this.canvasHost, this.leafer);
+    // document background lives INSIDE the leafer scene (a viewport-sized rect
+    // under the world), not CSS: a CSS class swap turns the host dark
+    // immediately while leafer still shows the previous frame — switching
+    // SCH → PCB flashed a dark schematic for one frame. Changing this rect's
+    // fill in the same task as the root swap repaints background + content
+    // atomically in leafer's next frame (#bg-flash). leafer.fill does NOT
+    // paint with type:'draw' (verified) — hence the rect.
+    this.bgRect = new Rect({ name: 'doc-bg', fill: '#f5f6f7', width: 1, height: 1, hittable: false });
+    this.leafer.add(this.bgRect);
+    this.leafer.add(this.camera.world); // keep the world above the bg rect
     this.camera.onView = () => {
       if (document.activeElement !== this.zoomEl) this.zoomEl.value = Math.round(this.camera.scale * 100) + '%';
       this.updateSelStroke();
@@ -278,6 +290,9 @@ export class Shell {
     // when the canvas resizes (panels opening, window resize) keep the initial
     // fit valid — otherwise the document gets cropped (#fit-after-layout)
     new ResizeObserver(() => {
+      // the scene bg rect always tracks the viewport (its fill is doc-kind);
+      // refitting the view stays gated on user interaction
+      this.syncDocBg(this.docKind);
       if (!this.userView && this.model && this.currentRoot) this.fitCurrent();
     }).observe(this.canvasHost);
 
@@ -451,6 +466,14 @@ export class Shell {
     (this.el.querySelector('[data-act="panelR"]') as HTMLElement).classList.toggle('ev-on', this.rightVisible());
   }
 
+  /** resize the scene bg rect to the viewport and paint the doc background
+   *  (called on doc open and on canvas resize; see the #bg-flash note) */
+  private syncDocBg(kind: 'sch' | 'pcb' | 'panel' | 'footprint' | 'other'): void {
+    this.bgRect.width = Math.max(this.canvasHost.clientWidth, 1);
+    this.bgRect.height = Math.max(this.canvasHost.clientHeight, 1);
+    this.bgRect.fill = canvasBg(kind);
+  }
+
   // ---------- loading ----------
 
   async loadFiles(files: File[]): Promise<void> {
@@ -528,8 +551,7 @@ export class Shell {
       this.layerVisible = new Map(this.layers.map((l) => [l.id, l.show]));
       this.curNode = node;
       this.docKind = kind;
-      // canvas keeps the document's native background regardless of UI theme
-      this.canvasHost.dataset.kind = kind;
+      this.syncDocBg(kind);
       // prefer what actually rendered (panel outline etc. are not data records)
       this.camera.fit(this.objBBoxUnion() ?? opened.bbox);
       this.select(null);
@@ -654,7 +676,7 @@ export class Shell {
         if (this.selRect) { this.selRect.remove(); this.selRect = null; }
         this.curNode = node;
         this.docKind = 'other';
-        delete this.canvasHost.dataset.kind;
+        this.syncDocBg('other');
         this.lastObjRows = [];
         this.lastLayerItems = [];
         this.objList.setObjects([]);

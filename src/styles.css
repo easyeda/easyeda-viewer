@@ -188,8 +188,8 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 
 /* ---------- canvas ---------- */
 .ev-canvas { flex: 1; min-width: 0; background: #f5f6f7; position: relative; touch-action: none; }
-.ev-canvas[data-kind="sch"], .ev-canvas[data-kind="panel"] { background: #ffffff; }
-.ev-canvas[data-kind="pcb"], .ev-canvas[data-kind="footprint"] { background: #14161a; }
+/* document backgrounds (sch white / pcb dark) are painted by the leafer scene
+   itself (leafer.fill, set on doc open) — see shell.ts openNode (#bg-flash) */
 
 /* ---------- welcome / drop zone (#16) ---------- */
 .ev-welcome {
