@@ -91,13 +91,13 @@ function padNetIdParts(id: unknown): [string, string] | null {
  *  hidden — narrow tracks and small pads never grow a letter mush (#net-labels).
  *  Labels are doc-scaled, so a fitting label stays inside its copper at any
  *  zoom; this floor only decides *which* primitives carry one at all. */
-const NET_FONT_MIN = 6;
+const NET_FONT_MIN = 5.5;
 /** client labels are a fixed ~6.5mil size regardless of copper width — labels
  *  hide when they don't fit along the copper's length, they never shrink to
  *  the track's width. Capped a step lower here (and the available run length
  *  shrunk, see NET_LEN_SHRINK) so the copper reads through the labels
- *  (user pref, #net-labels) */
-const NET_FONT_MAX = 6;
+ *  (user pref, #net-labels; dialed down another notch — global size tweak) */
+const NET_FONT_MAX = 5.5;
 /** average glyph width / fontSize for the sans face leafer measures with */
 const NET_CHAR_W = 0.62;
 /** biggest font size (doc units) at which `text` fits inside maxW×maxH, else

@@ -207,7 +207,7 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 .ev-wz-ico {
   display: inline-flex; align-items: center; margin-bottom: 16px; transition: transform 0.18s ease;
 }
-.ev-wz-ico svg { filter: drop-shadow(0 4px 10px rgba(85, 136, 255, 0.35)); }
+/* no blur/glow on the mark (user pref) */
 .ev-wz h2 { margin: 0 0 8px; font-size: 19px; font-weight: 650; }
 .ev-wz p { margin: 0 0 4px; color: var(--ev-dim); font-size: 13px; line-height: 1.7; }
 .ev-wz-ext { font-size: 12px !important; color: var(--ev-dim); opacity: 0.85; margin-bottom: 26px !important; }
