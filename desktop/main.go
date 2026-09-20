@@ -44,6 +44,15 @@ func main() {
 	}()
 	log.Printf("EasyEDA Viewer Desktop %s (%s)", version, platform)
 
+	// WebView2 is the rendering engine — without it the window would stay blank,
+	// so detect the runtime up front and offer the official download (#18). The
+	// user installs it, then re-runs the exe.
+	if !webView2Available() {
+		log.Printf("WebView2 runtime not found — prompting for download")
+		promptWebView2Download()
+		return
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -75,7 +84,7 @@ func main() {
 	wv = w
 	defer w.Destroy()
 
-	w.SetTitle("EasyEDA 查看器 " + version)
+	w.SetTitle("EasyEDA 查看器 - v" + version)
 	w.SetSize(winW, winH, webview.HintNone)
 	prepareWindow(w.Window(), winW, winH)
 

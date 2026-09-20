@@ -1,6 +1,6 @@
 {
   "name": "easyeda-viewer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Lightweight single-file viewer for EasyEDA Pro .epro2/.eprj3 projects (local parse & render with LeaferJS)",
   "type": "module",
   "license": "Apache-2.0",

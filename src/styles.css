@@ -79,13 +79,14 @@ html, body { margin: 0; height: 100%; background: var(--ev-bg, #eef0f3); color: 
 .ev-btn-primary svg { opacity: 1; }
 .ev-sep { width: 1px; height: 20px; background: var(--ev-border); margin: 0 6px; flex: none; }
 
-/* editable zoom percentage */
+/* editable zoom percentage — no fill of its own (user pref), just a hairline
+   border so it reads as an input next to the icon buttons */
 input.ev-zoom {
   width: 58px; height: 27px; text-align: center; color: var(--ev-text); font-size: 12px;
   font-variant-numeric: tabular-nums; font-family: inherit;
-  background: var(--ev-panel-2); border: 1px solid var(--ev-border); border-radius: var(--ev-radius-sm);
+  background: transparent; border: 1px solid var(--ev-border); border-radius: var(--ev-radius-sm);
 }
-input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background: var(--ev-panel); }
+input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background: transparent; }
 .ev-lang-code { font-size: 10px; font-weight: 700; opacity: 0.8; }
 .ev-title { margin-left: auto; color: var(--ev-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 12px; }
 .ev-title b { color: var(--ev-text); font-weight: 600; }

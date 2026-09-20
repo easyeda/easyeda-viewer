@@ -13,14 +13,14 @@ import (
 )
 
 var (
-	user32    = syscall.NewLazyDLL("user32.dll")
-	kernel32  = syscall.NewLazyDLL("kernel32.dll")
-	ole32     = syscall.NewLazyDLL("ole32.dll")
-	comdlg32  = syscall.NewLazyDLL("comdlg32.dll")
-	procCoInitializeEx      = ole32.NewProc("CoInitializeEx")
-	procCoCreateInstance    = ole32.NewProc("CoCreateInstance")
-	procCoTaskMemFree       = ole32.NewProc("CoTaskMemFree")
-	procGetOpenFileNameW    = comdlg32.NewProc("GetOpenFileNameW")
+	user32               = syscall.NewLazyDLL("user32.dll")
+	kernel32             = syscall.NewLazyDLL("kernel32.dll")
+	ole32                = syscall.NewLazyDLL("ole32.dll")
+	comdlg32             = syscall.NewLazyDLL("comdlg32.dll")
+	procCoInitializeEx   = ole32.NewProc("CoInitializeEx")
+	procCoCreateInstance = ole32.NewProc("CoCreateInstance")
+	procCoTaskMemFree    = ole32.NewProc("CoTaskMemFree")
+	procGetOpenFileNameW = comdlg32.NewProc("GetOpenFileNameW")
 
 	procRegisterClassExW         = user32.NewProc("RegisterClassExW")
 	procCreateWindowExW          = user32.NewProc("CreateWindowExW")
@@ -39,7 +39,15 @@ var (
 	procSetThreadDpiAwarenessCtx = user32.NewProc("SetThreadDpiAwarenessContext")
 	procIsWindow                 = user32.NewProc("IsWindow")
 	procIsIconic                 = user32.NewProc("IsIconic")
+	procMessageBoxW              = user32.NewProc("MessageBoxW")
 	procGetModuleHandleW         = kernel32.NewProc("GetModuleHandleW")
+
+	shell32              = syscall.NewLazyDLL("shell32.dll")
+	advapi32             = syscall.NewLazyDLL("advapi32.dll")
+	procShellExecuteW    = shell32.NewProc("ShellExecuteW")
+	procRegOpenKeyExW    = advapi32.NewProc("RegOpenKeyExW")
+	procRegQueryValueExW = advapi32.NewProc("RegQueryValueExW")
+	procRegCloseKey      = advapi32.NewProc("RegCloseKey")
 )
 
 // mainHwnd is the top-level window handed to WebView2. It starts hidden so the
@@ -47,26 +55,26 @@ var (
 var mainHwnd uintptr
 
 const (
-	wmSetIcon  = 0x0080
-	iconSmall  = 0
-	iconBig    = 1
-	imageIcon  = 1
-	lrDPISize  = 0x0040 // LR_DEFAULTSIZE
-	lrShared   = 0x8000 // LR_SHARED
-	swHide     = 0
-	swShow     = 5
-	wsOverlappedWindow = 0x00CF0000
-	cwUseDefault       = 0x80000000
-	swpNoSize       = 0x0001
-	swpNoZOrder     = 0x0004
-	swpNoActivate   = 0x0010
-	swpShowWindow   = 0x0040
+	wmSetIcon               = 0x0080
+	iconSmall               = 0
+	iconBig                 = 1
+	imageIcon               = 1
+	lrDPISize               = 0x0040 // LR_DEFAULTSIZE
+	lrShared                = 0x8000 // LR_SHARED
+	swHide                  = 0
+	swShow                  = 5
+	wsOverlappedWindow      = 0x00CF0000
+	cwUseDefault            = 0x80000000
+	swpNoSize               = 0x0001
+	swpNoZOrder             = 0x0004
+	swpNoActivate           = 0x0010
+	swpShowWindow           = 0x0040
 	coInitApartmentThreaded = 0x2
 
 	// Common Item Dialog (Vista+) for modern folder picker
-	clsctxInprocServer   = 1
-	fosPickFolders       = 0x00000020
-	sigdnFileSysPath     = 0x80058000
+	clsctxInprocServer    = 1
+	fosPickFolders        = 0x00000020
+	sigdnFileSysPath      = 0x80058000
 	hresultErrorCancelled = 0x800704C7
 )
 
@@ -118,7 +126,7 @@ func createHostWindow(width, height int) unsafe.Pointer {
 
 	hInstance, _, _ := procGetModuleHandleW.Call(0)
 	className, _ := syscall.UTF16PtrFromString("eextViewerParent")
-	title, _ := syscall.UTF16PtrFromString("EasyEDA 查看器 " + version)
+	title, _ := syscall.UTF16PtrFromString("EasyEDA 查看器 - v" + version)
 
 	wc := wndClassExW{
 		cbSize:        uint32(unsafe.Sizeof(wndClassExW{})),
@@ -237,6 +245,87 @@ func setWindowIcon(hwnd uintptr) {
 	procSendMessageW.Call(hwnd, uintptr(wmSetIcon), uintptr(iconBig), hIcon)
 }
 
+// ---------- WebView2 runtime detection & download prompt (#18) ----------
+
+// webView2RuntimeCLSID is the Evergreen WebView2 Runtime's client id under the
+// EdgeUpdate\Clients registry keys (official detection recipe).
+const webView2RuntimeCLSID = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+
+const (
+	hKeyLocalMachine = 0x80000002
+	hKeyCurrentUser  = 0x80000001
+	keyRead          = 0x20019
+	rrtRegSz         = 1
+)
+
+// webView2Available reports whether the WebView2 Evergreen runtime is
+// installed: any of the EdgeUpdate\Clients\<CLSID> keys (HKLM system-wide,
+// WOW6432Node for 32-bit EdgeUpdate writers, HKCU per-user) carrying a
+// non-empty pv value means the runtime is there.
+func webView2Available() bool {
+	for _, k := range []struct {
+		root uintptr
+		path string
+	}{
+		{hKeyLocalMachine, `SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\` + webView2RuntimeCLSID},
+		{hKeyLocalMachine, `SOFTWARE\Microsoft\EdgeUpdate\Clients\` + webView2RuntimeCLSID},
+		{hKeyCurrentUser, `Software\Microsoft\EdgeUpdate\Clients\` + webView2RuntimeCLSID},
+	} {
+		if regPvPresent(k.root, k.path) {
+			return true
+		}
+	}
+	return false
+}
+
+func regPvPresent(root uintptr, path string) bool {
+	name, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return false
+	}
+	var h uintptr
+	if ret, _, _ := procRegOpenKeyExW.Call(root, uintptr(unsafe.Pointer(name)), 0, keyRead, uintptr(unsafe.Pointer(&h))); ret != 0 {
+		return false
+	}
+	defer procRegCloseKey.Call(h)
+	val, _ := syscall.UTF16PtrFromString("pv")
+	var typ, n uint32
+	if ret, _, _ := procRegQueryValueExW.Call(h, uintptr(unsafe.Pointer(val)), 0,
+		uintptr(unsafe.Pointer(&typ)), 0, uintptr(unsafe.Pointer(&n))); ret != 0 || n == 0 {
+		return false
+	}
+	return typ == rrtRegSz
+}
+
+// promptWebView2Download shows the native "runtime missing" dialog. The OK
+// button (labelled 确定 in the message: 点击下载) opens Microsoft's official
+// Evergreen WebView2 download link in the default browser; Cancel just closes
+// the dialog. Returns true when the download page was opened.
+func promptWebView2Download() bool {
+	const (
+		mbOKCANCEL = 0x1
+		mbIconWarn = 0x30
+		idOK       = 1
+		swShownorm = 1
+	)
+	text, _ := syscall.UTF16PtrFromString(
+		"未检测到 Microsoft WebView2 运行时,无法显示界面。\n\n" +
+			"点击「确定(下载)」在浏览器中打开微软官方 WebView2 下载地址,\n" +
+			"安装完成后重新运行本程序;点击「取消」关闭此弹窗。")
+	caption, _ := syscall.UTF16PtrFromString("EasyEDA 查看器")
+	ret, _, _ := procMessageBoxW.Call(0,
+		uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(caption)), mbOKCANCEL|mbIconWarn)
+	if int(ret) != idOK {
+		return false // 取消 — close the dialog (the caller exits, webview cannot run)
+	}
+	// official Evergreen Bootstrapper fwlink from the WebView2 download page
+	url, _ := syscall.UTF16PtrFromString("https://go.microsoft.com/fwlink/p/?LinkId=2124703")
+	verb, _ := syscall.UTF16PtrFromString("open")
+	procShellExecuteW.Call(0, uintptr(unsafe.Pointer(verb)),
+		uintptr(unsafe.Pointer(url)), 0, 0, swShownorm)
+	return true
+}
+
 // ---------- native dialogs ----------
 
 type openFileName struct {
@@ -328,31 +417,31 @@ var (
 
 type iFileDialog struct{ vtbl *iFileDialogVtbl }
 type iFileDialogVtbl struct {
-	queryInterface        uintptr
-	addRef                uintptr
-	release               uintptr
-	show                  uintptr
-	setFileTypes          uintptr
-	setFileTypeIndex      uintptr
-	getFileTypeIndex      uintptr
-	advise                uintptr
-	unadvise              uintptr
-	setOptions            uintptr
-	getOptions            uintptr
-	setDefaultFolder      uintptr
-	setFileName           uintptr
-	setTitle              uintptr
-	setOkButtonLabel      uintptr
-	setFileNameLabel      uintptr
-	getResult             uintptr
-	addPlace              uintptr
-	setDefaultExtension   uintptr
-	close                 uintptr
-	setClientGuid         uintptr
-	clearClientData       uintptr
-	setFilter             uintptr
-	getResults            uintptr
-	getSelectedItems      uintptr
+	queryInterface      uintptr
+	addRef              uintptr
+	release             uintptr
+	show                uintptr
+	setFileTypes        uintptr
+	setFileTypeIndex    uintptr
+	getFileTypeIndex    uintptr
+	advise              uintptr
+	unadvise            uintptr
+	setOptions          uintptr
+	getOptions          uintptr
+	setDefaultFolder    uintptr
+	setFileName         uintptr
+	setTitle            uintptr
+	setOkButtonLabel    uintptr
+	setFileNameLabel    uintptr
+	getResult           uintptr
+	addPlace            uintptr
+	setDefaultExtension uintptr
+	close               uintptr
+	setClientGuid       uintptr
+	clearClientData     uintptr
+	setFilter           uintptr
+	getResults          uintptr
+	getSelectedItems    uintptr
 }
 
 func (d *iFileDialog) Show(hwnd uintptr) uintptr {
@@ -379,12 +468,12 @@ func (d *iFileDialog) Release() {
 
 type iShellItem struct{ vtbl *iShellItemVtbl }
 type iShellItemVtbl struct {
-	queryInterface  uintptr
-	addRef          uintptr
-	release         uintptr
-	getDisplayName  uintptr
-	getAttributes   uintptr
-	compare         uintptr
+	queryInterface uintptr
+	addRef         uintptr
+	release        uintptr
+	getDisplayName uintptr
+	getAttributes  uintptr
+	compare        uintptr
 }
 
 func (si *iShellItem) GetDisplayName(sigdn uint32, ppsz **uint16) uintptr {

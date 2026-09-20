@@ -11,6 +11,11 @@ import (
 
 func initialWindowSize() (int, int) { return 1280, 800 }
 
+// non-Windows shells ship WebView2-equivalent runtimes with the OS; the
+// download prompt is Windows-only (#18)
+func webView2Available() bool      { return true }
+func promptWebView2Download() bool { return false }
+
 func createHostWindow(width, height int) unsafe.Pointer { return nil }
 
 func prepareWindow(win unsafe.Pointer, width, height int) {}

@@ -3,14 +3,14 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | easyeda-viewer(嘉立创EDA专业版工程轻量查看器) |
-| 文档版本 | v0.2.2(与代码同步) |
+| 文档版本 | v0.2.3(与代码同步) |
 | 日期 | 2026-09-20 |
 | 状态 | 核心 P0 已实现,渲染保真持续打磨 |
 | 格式参考 | [easyeda/easyeda-eprj3-skill](https://github.com/easyeda/easyeda-eprj3-skill)(本地 `easyeda-pro-eprj3-format/`)、[easyeda/easyeda-pro-format-skill](https://github.com/easyeda/easyeda-pro-format-skill)(本地 `easyeda-pro-format-skill/`) |
 
 ## Abstract (for English readers)
 
-A lightweight, **single-HTML-file** viewer for EasyEDA Pro project formats (`.epro2` and folder-based `.eprj3`). Written in TypeScript, rendered with LeaferJS. Parse and render are 100% local — no server, no upload. It can be opened by double-clicking the HTML file, or embedded into any web page via a JS API / postMessage interface. Features: document tree + object tree (left, resizable split, both searchable), properties panel (right, click-to-reveal, translated key attributes only, with a file-named layer list for PCB/panel), canvas pan/zoom (wheel zoom, right-button or middle-button pan), click-to-locate between tree and canvas, bilingual UI (zh/en) with dark/light themes, resizable/hideable panels, icon-only toolbar with an editable zoom percentage, multi-page schematics, PCB preview and panel preview. An optional install-free **Windows desktop exe** (Go + WebView2, ~4 MB) ships the same single-file viewer with native file dialogs, drag-and-drop, an app icon and proper version metadata. Rendering fidelity is tracked against official client PNG exports with an automated pixel-diff suite (`scripts/ref-diff.mjs`, 10 sample pages); CBB **reuse-block** `.epro2` projects (repeated-DOCHEAD streams) parse correctly since v0.2.1, and since v0.2.2 the PCB view matches the client's 2D stack (client layer order, active-layer raise with per-face label overlays, pad number + net-name blocks laid out along the pad's long axis, pour fills with bright edge wraps, polygon pads, embedded FONT glyph outlines, bottom-side mirror semantics).
+A lightweight, **single-HTML-file** viewer for EasyEDA Pro project formats (`.epro2` and folder-based `.eprj3`). Written in TypeScript, rendered with LeaferJS. Parse and render are 100% local — no server, no upload. It can be opened by double-clicking the HTML file, or embedded into any web page via a JS API / postMessage interface. Features: document tree + object tree (left, resizable split, both searchable), properties panel (right, click-to-reveal, translated key attributes only, with a file-named layer list for PCB/panel), canvas pan/zoom (wheel zoom, right-button or middle-button pan), click-to-locate between tree and canvas, bilingual UI (zh/en) with dark/light themes, resizable/hideable panels, icon-only toolbar with an editable zoom percentage, multi-page schematics, PCB preview and panel preview. An optional install-free **Windows desktop exe** (Go + WebView2, ~7 MB) ships the same single-file viewer with native file dialogs, drag-and-drop, an app icon and proper version metadata; since v0.2.3 the artifact name carries the version (`easyeda-viewer_v{version}.exe`), the window title reads `EasyEDA 查看器 - v{version}`, a missing WebView2 runtime triggers a native download prompt for Microsoft's official installer, and the HTML favicon inlines the exe's own `.ico`. Rendering fidelity is tracked against official client PNG exports with an automated pixel-diff suite (`scripts/ref-diff.mjs`, 10 sample pages); CBB **reuse-block** `.epro2` projects (repeated-DOCHEAD streams) parse correctly since v0.2.1, and since v0.2.2 the PCB view matches the client's 2D stack (client layer order, active-layer raise with per-face label overlays, pad number + net-name blocks laid out along the pad's long axis, pour fills with bright edge wraps, polygon pads, embedded FONT glyph outlines, bottom-side mirror semantics).
 
 ---
 
@@ -180,11 +180,11 @@ MyProject/
 | FR-3.12 | 图层面板取文档内 `LAYER` 记录的**图层名称**展示,且只列出当前文档实际有图元的图层,带图元计数;支持图层重置(恢复文件内可见性);POLYGON 形状的焊盘归类到焊盘图层 | P0 |
 | FR-3.13 | PCB **图层栈序**(pcbStackKey,对齐客户端 2D 视觉,自底向上):标注层(机械/文档/自定义/pin/3D)< 底面(装配→助焊→阻焊→铜→网络名→编号→丝印)< 内层(inner32…inner1)< 顶面(同底面序)< 通孔铜(MULTI)< 板框< 原点轴/飞线< 钻孔(置顶,穿孔穿透焊盘);同 key 保持创建顺序 | P0 |
 | FR-3.14 | **图层激活**:点击图层面板行将活跃层组提至栈顶(置顶显示,内层/对面铜可见);常驻工具层(multi/板框/轴/飞线/钻孔)压回原序;对面标注浮层沉回不遮活跃层;每面独立的网络名(nn)/编号(pn)/铺铜(pour)合成子层组随活跃面整体提层,活跃层切换高亮 | P0 |
-| FR-3.15 | **焊盘标签布局**:编号+网络名沿焊盘长轴双行居中(块整体居中,行距 GAP=1);无网络时编号居中单行;竖焊盘(h>w)编号随焊盘方向旋转读向(不强制直立);网络名按长边 90%×0.8 收缩宽度与短边剩余高度 fit(字号 6 上下限),放不下隐藏不保底;文档坐标系内按焊盘角度做行偏移(docDelta) | P0 |
+| FR-3.15 | **焊盘标签布局**:编号+网络名沿焊盘长轴双行居中(块整体居中,行距 GAP=1);无网络时编号居中单行;竖焊盘(h>w)编号随焊盘方向旋转读向(不强制直立);网络名按长边 90%×0.8 收缩宽度与短边剩余高度 fit(字号 5 上下限,v0.2.3 由 6 降档),放不下隐藏不保底;文档坐标系内按焊盘角度做行偏移(docDelta) | P0 |
 | FR-3.16 | **网络名与网络专色**:顶/底/内层走线均绘制网络名(内层的挂在走线所在层组,随该层激活显示);按线长 fit 字号、沿线段角度旋转(±90° 内翻转保证可读);全部网络标注(编号/焊盘网络名/走线网络名)统一墨色 #f2f4f7(contrastInk 已废除);NET 记录携带的**网络专色**(#net-colors)覆盖走线/焊盘铜色 | P0 |
 | FR-3.17 | **铺铜保真**:fineness 决定填充质量;孤儿 POURED 缓存(无对应 POUR 记录)只画包边描线(避免错误黑块填充);nonzero 填充规则使铺铜间隙/孔洞自然穿透;POUR_FILL_DIM=0.6 暗化填充与全亮包边配合(见 FR-3.9) | P0 |
 | FR-3.18 | **焊盘保真**:POLYGON 轮廓焊盘按多边形锚定渲染并同步生成阻焊/助焊窗;ELLIPSE 圆头焊盘;槽孔按 relativeAngle 随焊盘旋转;padOffset 仅偏移钻孔不偏移铜皮;通孔焊盘挂 MULTI 层组(顶/底层之上);封装内 Multi-Layer 填充形状解析为挖槽到孔层 | P0 |
-| FR-3.19 | **阻焊/助焊窗**:按 SOLDER_MASK/PASTE 规则对焊盘/过孔开窗,扩展量按规则记录分面(顶/底)取值;−1000 哨兵=不开窗(过孔默认盖油 tented,记录可逐面覆盖;焊盘同 ≤−1000 哨兵约定) | P0 |
+| FR-3.19 | **阻焊/助焊窗**:按 SOLDER_MASK/PASTE 规则对焊盘/过孔开窗,扩展量按规则记录分面(顶/底)取值;规则记录(`ruleContext`)数值为 **mil 文档单位**——其 `unit:"mm"` 字段是客户端 UI 显示偏好而非存储单位,默认规则 padTopExpan:2 即 0.05mm,不得按 mm 换算(v0.2.3 修复,曾致外扩 ~40 倍);−1000 哨兵=不开窗(过孔默认盖油 tented,记录可逐面覆盖;焊盘同 ≤−1000 哨兵约定) | P0 |
 | FR-3.20 | **底面透视**:底层铜/丝印以 BOTTOM_ALPHA 半透明透板显示,元件/焊盘按 M_y·R(θ) 镜像矩阵变换(与客户端一致);透板镜像文本/图片自动生成 twins,与 FR-3.10 去重规则一致 | P0 |
 | FR-3.21 | **文本保真**:内嵌 FONT 文档的 glyph 走**预矢量化轮廓**渲染(轮廓 path,不再回退 canvas 字体);STRING 支持 CARC(圆弧文本路径)token | P0 |
 
@@ -273,12 +273,13 @@ iframe/postMessage 协议(`src/main.ts` 内置桥,**已实现**;消息均带 `so
 | FR-8.1 | 现代 UI:统一工具栏/面板视觉,明暗双主题令牌化(CSS 变量),圆角、层次阴影、悬停反馈 | P0 |
 | FR-8.2 | 起始页为醒目的拖放引导卡片:拖入文件时高亮(dashed→accent),并给出"打开文件/打开文件夹"按钮;文案说明解析渲染 100% 本地 | P0 |
 | FR-8.3 | 图标全部使用 Lucide(ISC 许可,免费可商用,构建期内联进单文件产物),语义贴切(文档树/对象/图层/面板开关/缩放/主题) | P0 |
-| FR-8.4 | 主题默认亮色;参数 `?theme=light|dark` 与工具栏🌙/️切换按钮均可控制;**画布与图元始终使用源文件原始颜色**(SCH/PANEL 白底、PCB 深色),不随主题变化 | P0 |
+| FR-8.4 | 主题默认亮色;参数 `?theme=light|dark` 与工具栏🌙/️切换按钮均可控制;**画布与图元始终使用源文件原始颜色**(SCH/PANEL 白底、PCB 深色),不随主题变化;文档背景由 Leafer 场景内背景矩形绘制并与内容替换**同任务原子切换**(v0.2.3 #bg-flash——CSS 同步换底色会与 Leafer 晚一帧的重绘混合,产生 SCH→PCB 深色闪现) | P0 |
 | FR-8.5 | 布局参数:`?toolbar=0&left=0&right=0&status=0` 或 `?chrome=canvas` 单独隐藏任一面板(纯画布场景);工具栏面板按钮可运行时切换;JS API `setChrome()`/`setTheme()`、postMessage `chrome`/`theme` 命令 | P0 |
 | FR-8.6 | **中英双语 UI**:工具栏 🌐 按钮即时切换(全部界面文案/树类型名/属性名经 i18n 表),参数 `?lang=zh|en` 与 API `setLang()` 可设定初始语言 | P0 |
-| FR-8.7 | 顶部工具栏**纯图标**无文字(打开文件/打开文件夹为图标按钮);缩放控件为**可点击输入的数字百分比**(直接键入缩放值回车生效)+ 放大/缩小/适应窗口 | P0 |
+| FR-8.7 | 顶部工具栏**纯图标**无文字(打开文件/打开文件夹为图标按钮);缩放控件为**可点击输入的数字百分比**(直接键入缩放值回车生效)+ 放大/缩小/适应窗口;缩放输入框位于**适应窗口按钮右侧**(v0.2.3 调整),自身**无背景填充**(仅细边框,避免与面板底色打架) | P0 |
 | FR-8.8 | 左右面板宽度、文档树/对象树高度、属性区/图层区高度均可**拖拽分隔条调整**;初始界面(未打开文件)只显示工具栏与中央引导卡,左右面板收起 | P0 |
 | FR-8.9 | 品牌图标使用嘉立创EDA 官方云朵+电路标志(无字版,单一 path,#5588FF);库分组节点用官方图标包提取的 symbol/footprint/library 等语义图标 | P0 |
+| FR-8.10 | HTML 标签页 **favicon 与桌面 exe 同一图标**:构建期由 vite 插件 `appIconFavicon` 将 `desktop/app.ico` 以 base64 data URI 内联进 `index.html`(单文件产物与 dev server 均生效,无额外请求) | P1 |
 
 ### 4.9 FR-9 免安装桌面版(Go + webview)
 
@@ -287,8 +288,10 @@ iframe/postMessage 协议(`src/main.ts` 内置桥,**已实现**;消息均带 `so
 | FR-9.1 | 单个自包含 `.exe`(Windows amd64,约 7 MB):`//go:embed` 内嵌单文件查看器,本机 127.0.0.1 随机端口 HTTP 服务加载,免安装、免联网 | P0 |
 | FR-9.2 | 原生能力桥接(webview Bind):`openFileDialog` / `openFolderDialog`(Win32 通用对话框,STA 线程)、`readProjectFiles`(文件/整个 .eprj3 目录 → base64 JSON);无桥接环境自动回退 `<input type=file>` | P0 |
 | FR-9.3 | 拖放本地工程文件进窗口可直接打开(WebView2 原生 File 支持) | P0 |
-| FR-9.4 | 构建:`node scripts/build-desktop.mjs`(vite 打包 → 复制到 `desktop/dist` → windres 编译资源 → `go build -H windowsgui`);`desktop/` 跨平台骨架(Win32 完整,macOS/Linux 用 osascript/zenity 对话框) | P1 |
-| FR-9.5 | exe 资源:`versioninfo.rc` 提供文件属性(版本号、作者、版权、中文描述,UTF-8 资源编译)与 EasyEDA 云朵 ICON(256/32px ICO);资源提交 `rsrc_windows_amd64.syso` 兜底(无 windres 环境可直接构建) | P0 |
+| FR-9.4 | 构建:`node scripts/build-desktop.mjs`(vite 打包 → 复制到 `desktop/dist` → windres 编译资源 → `go build -H windowsgui`),产物 **`desktop/build/easyeda-viewer_v{version}.exe`**(版本号取自 package.json,与 `-ldflags main.version` 同源,v0.2.3 起带版本后缀);`desktop/` 跨平台骨架(Win32 完整,macOS/Linux 用 osascript/zenity 对话框) | P1 |
+| FR-9.5 | exe 资源:`versioninfo.rc` 提供文件属性(版本号、作者、版权、中文描述,UTF-8 资源编译;版本号与 package.json 同步)与 EasyEDA 云朵 ICON(256/32px ICO);资源提交 `rsrc_windows_amd64.syso` 兜底(无 windres 环境可直接构建) | P0 |
+| FR-9.6 | **窗口标题栏**:`EasyEDA 查看器 - v{version}`(Win32 宿主窗口与 webview SetTitle 双处一致) | P0 |
+| FR-9.7 | **WebView2 运行时缺失提示**(v0.2.3):启动时按官方检测方式查 EdgeUpdate\Clients\{F3017226-…} 注册表键(HKLM×2 视图 / HKCU)的 `pv` 值;缺失时弹原生对话框——「确定(下载)」经 ShellExecute 用系统浏览器打开微软官方 Evergreen Bootstrapper 地址(fwlink 2124703),「取消」关闭弹窗;两条路径均退出程序(装好后重跑) | P0 |
 
 ---
 
@@ -428,6 +431,7 @@ desktop/build/
 | M5 体验批次 | 中英双语 UI、纯图标工具栏+可输入缩放、面板宽/高拖拽、初始隐藏侧栏、右键平移、EasyEDA 品牌图标、桌面 exe 图标+版本属性 | 33 项反馈全部关闭(见 README/提交记录) | ✅ 完成(v0.2) |
 | M5.5 渲染保真批次(v0.2.1) | 以官方 PNG 导出为基准逐页对照修偏:原理图边框/标题栏按文件属性、电源符号方向、顺时针旋转角、网络标签按格式位置+0.4em 抬升、文本拾取 bbox 画布实测、引脚标签对齐、隐藏文档/标题栏、跨页元件树、树方向键导航、三分类库图标、选中框恒定像素虚线、Top Paste 层序+透明度、铺铜全亮、钻孔/槽孔置顶、PCB 描边全圆头、复用块 epro2 支持、ref-diff 视觉回归管线 | 10 页样例 diff 基线建立(原理图页 1.75%~12.73%);smoke 122/122 | ✅ 完成(v0.2.1) |
 | M5.6 PCB 渲染保真批次(v0.2.2) | 客户端 2D 层序栈 pcbStackKey + 图层激活置顶/常驻层压回/对面标注沉回、每面 nn/pn/pour 合成子层组;焊盘编号+网络名沿长轴双行居中(编号随焊盘方向、网络名 fit 不足隐藏、统一墨色 #f2f4f7);顶/底/内层走线网络名;网络专色(#net-colors);铺铜暗化填充+全亮包边、fineness 包边宽、孤儿 POURED 只画包边、nonzero 间隙穿透;POLYGON 轮廓焊盘+开窗、ELLIPSE 圆头、槽孔 relativeAngle、padOffset 仅钻孔、通孔挂 MULTI、封装 Multi-Layer 填充=挖槽;阻焊/助焊窗 −1000 盖油哨兵;底面透视 BOTTOM_ALPHA + M_y·R(θ) 镜像+透板 twins;FONT glyph 预矢量化文本+CARC token;图层面板重置+POLYGON 焊盘归类;欢迎卡片、面板拖放(dnd)、桌面壳改进 | ESP32S31 样例截图对照(焊盘双行/内层网络名/铺铜包边逐点核验);npm test 12/12;tsc 无警告;smoke 全绿 | ✅ 完成(v0.2.2) |
+| M5.7 桌面交付与细节批次(v0.2.3) | 文档背景场景内原子切换(#bg-flash,消除 SCH↔PCB 深色闪现,像素级验证 SCH 白/PCB 深色无混合帧);网络名字号两连降至 5(mil 文档单位,焊盘/走线全局);阻焊/助焊规则外扩按 mil 直取(修 40 倍外扩,#mask-rule-unit);exe 产物名带版本号 easyeda-viewer_v{version}.exe;窗口标题栏 `EasyEDA 查看器 - v{version}`;WebView2 缺失原生弹窗 + 官方下载地址(FR-9.7);HTML favicon 内联 exe 同款 .ico(FR-8.10);缩放输入框移至适屏按钮右侧并去背景 | build-desktop 产出 v0.3.0.exe;tsc/npm test 12/12;注册表检测路径本机命中验证 | ✅ 完成(v0.2.3) |
 | M6 性能与发布(持续) | LOD/裁剪调优、Worker 化评估、Playwright e2e、npm 库产物、LICENSES.txt、演示页 | NFR 全表达标;v1.0 发布 | ⏳ 进行中 |
 
 ---
@@ -444,7 +448,8 @@ desktop/build/
 - [ ] 每种已支持记录类型 ≥1 条真实 fixture 单测(现覆盖主要类型,长尾类型进行中);CI 化。
 - [x] 运行期 Network 面板零请求(样例加载全程;`?file=` 为宿主显式发起,不算查看器请求)。
 - [x] 中英双语 UI + 明暗主题 + chrome 参数裁剪全部可用(截图矩阵 `qa/shots/`)。
-- [x] Windows 免安装 exe:图标/文件属性(FileVersion 0.2.0)正确、拖放与原生对话框可用(FR-9)。
+- [x] Windows 免安装 exe:图标/文件属性(FileVersion 与 package.json 同步,0.3.0)正确、拖放与原生对话框可用;产物名带版本号、标题栏 `EasyEDA 查看器 - v{version}`、WebView2 缺失弹官方下载提示(FR-9.4/9.6/9.7)。
+- [x] v0.2.3 细节批次:文档切换无背景闪现(场景内 bgRect 原子重绘);网络名字号 5;阻焊外扩与官方客户端一致(规则 mil 直取);favicon=exe 同款 ico;缩放输入框位于适屏按钮右侧、无背景填充。
 
 ---
 

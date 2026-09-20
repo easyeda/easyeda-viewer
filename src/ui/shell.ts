@@ -129,9 +129,9 @@ export class Shell {
         <button class="ev-btn ev-btn-icon" data-act="folder" data-tip="tipFolder">${icon('folderTree')}</button>
         <span class="ev-sep"></span>
         <button class="ev-btn ev-btn-icon" data-act="zoomout" data-tip="tipZoomOut">${icon('zoomOut')}</button>
-        <input class="ev-zoom" type="text" inputmode="decimal" spellcheck="false" data-tip="zoomPh"/>
         <button class="ev-btn ev-btn-icon" data-act="zoomin" data-tip="tipZoomIn">${icon('zoomIn')}</button>
         <button class="ev-btn ev-btn-icon" data-act="fit" data-tip="tipFit">${icon('fit')}</button>
+        <input class="ev-zoom" type="text" inputmode="decimal" spellcheck="false" data-tip="zoomPh"/>
         <span class="ev-title"></span>
         <button class="ev-btn ev-btn-icon ev-btn-lang" data-act="lang" data-tip="tipLang">${icon('globe')}<span class="ev-lang-code"></span></button>
         <button class="ev-btn ev-btn-icon" data-act="theme" data-tip="tipTheme">${icon('moon')}</button>

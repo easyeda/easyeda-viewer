@@ -33,7 +33,9 @@ try {
 console.log('[3/3] go build desktop exe');
 const outDir = resolve(root, 'desktop/build');
 mkdirSync(outDir, { recursive: true });
+// artifact name carries the version so multiple builds stay side by side
+const outName = `easyeda-viewer_v${version}.exe`;
 sh('go', ['build', '-ldflags', `-s -w -H windowsgui -X main.version=${version} -X main.platform=windows`,
-  '-o', resolve(outDir, 'easyeda-viewer.exe'), '.'], { cwd: resolve(root, 'desktop'), env: { ...process.env, CGO_ENABLED: '1' } });
+  '-o', resolve(outDir, outName), '.'], { cwd: resolve(root, 'desktop'), env: { ...process.env, CGO_ENABLED: '1' } });
 
-console.log('done ->', resolve(outDir, 'easyeda-viewer.exe'));
+console.log('done ->', resolve(outDir, outName));
