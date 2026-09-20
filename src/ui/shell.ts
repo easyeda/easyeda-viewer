@@ -610,8 +610,6 @@ export class Shell {
       // samples). Designator presence is NOT the criterion: components with a
       // blank Designator are still listed (#component-tree)
       const isComponentType = (od: OpenedDoc, map: Map<string, string>): boolean => {
-        const st = map.get('symbolType');
-        if (st !== undefined) return st === 'component';
         const sym = map.get('Symbol');
         let seg = typeof sym === 'string' && sym ? od.libs.get(sym) : undefined;
         if (!seg || seg.docType !== 'SYMBOL') {

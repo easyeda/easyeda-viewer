@@ -222,9 +222,10 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
             // uppercase historical keys written by newer client versions (#x86-pins)
             if (ad.key !== 'Pin Name' && ad.key !== 'Pin Number' && ad.key !== 'NAME' && ad.key !== 'NUMBER') continue;
             const v = String(ad.value ?? '');
-            // on pages, visibility follows the document's valueVisible flag;
+            // on pages, visibility follows the document's valueVisible flag:
+            // only an explicit true paints (false/null = hidden);
             // standalone symbol previews force-show (page-level PIN case below)
-            if (!v.trim() || (ad.valueVisible ?? true) === false) continue;
+            if (!v.trim() || ad.valueVisible !== true) continue;
             if (typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
             const [lx, ly] = P(Number(ad.x), Number(ad.y), sxf);
             const t = new Text({
@@ -539,30 +540,10 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
    */
   function drawComponentAttrs(g: Group, attrs: Rec[], sym: DocSegment, partId: string, opts: { gray: boolean; hideAll: boolean }): void {
     if (opts.hideAll) return; // border component with the title block switched off
-    const sxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
-    let lb: BBox | null = null;
-    const pts: [number, number][] = [];
-    for (const r of sym.recs) {
-      if (!DRAWABLE_TYPES.includes(r.type)) continue;
-      const rp = r.data.partId;
-      if (rp != null && rp !== '' && partId && String(rp) !== partId) continue;
-      const b = objBBox(r, sxf);
-      if (b) pts.push([b.minX, b.minY], [b.maxX, b.maxY]);
-    }
-    lb = bboxFromPts(pts);
     // multi-part symbol: designator gets ".N" from the part's position in the PART list
     const partList = sym.recs.filter((r) => r.type === 'PART').map((r) => String(r.id ?? ''));
     const pIdx = partList.indexOf(partId);
     const suffix = partList.length > 1 && pIdx >= 0 ? String(pIdx + 1) : undefined;
-    const th = ((Number(g.rotation) || 0) * Math.PI) / 180; // g.rotation is already the screen angle (ang)
-    const tc = Math.cos(th), ts = Math.sin(th);
-    const mirrorOf = (ox: number, oy: number): [number, number] => {
-      let x = ox, y = oy;
-      if (lb && Number(g.scaleX) < 0) x = (lb.minX + lb.maxX) - x; // mirror about body center
-      const cx = lb ? (lb.minX + lb.maxX) / 2 : 0, cy = lb ? (lb.minY + lb.maxY) / 2 : 0;
-      return [cx + (x - cx) * tc - (y - cy) * ts, cy + (x - cx) * ts + (y - cy) * tc];
-    };
-    const gx = Number(g.x) || 0, gy = Number(g.y) || 0;
     // device meta attributes: resolution floor for null instance values and the
     // scope for ={…} formulas; {Device} names the device title (U14 →
     // "BTB-24P(12x2)-0.4mm"), not the uuid the Device attr stores
@@ -591,7 +572,21 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       // unpositioned instance attrs are library metadata (R100's Value "0Ω",
       // Q5's Footprint uuid …) — EasyEDA does not paint them at all
       if (typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
-      if ((ad.valueVisible ?? true) === false) continue;
+      // valueVisible is the per-value display switch the client's property panel
+      // toggles: true = shown, false = unchecked, null = never checked (stored
+      // for every attr, e.g. OFFPAGELEFT_R's IREF or a CPU's Name — not painted).
+      // Verified across all samples: every painted attr carries an explicit flag.
+      // Exception — net flags & ports (symbol docType 18/19): the net name IS the
+      // symbol's label, the client paints a value-bearing Name / Global Net Name
+      // whatever the flag says. Older saves keep every GNN at null (327 across
+      // X86-PC's 71 sheets, vv=true 0) yet the official renders show the labels;
+      // newer client saves moved them to Name vv=true. A null-value Name (GND
+      // flags on the CPU sheet, the CPU's own Name) still stays hidden.
+      if (ad.valueVisible !== true) {
+        const dt = Number(sym.meta?.docType);
+        const flagLabel = (dt === 18 || dt === 19) && (key === 'Name' || key === 'Global Net Name') && String(ad.value ?? '').trim() !== '';
+        if (!flagLabel) continue;
+      }
       const def = libDefAttr(sym, partId, key);
       const raw = ad.value ?? def?.data.value ?? metaAttrs[key] ?? '';
       let value = resolveAttrRef(varMap, String(raw)) ?? '';
@@ -631,14 +626,6 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     if (!sawNetText && !suffix && firstToken && desPos) {
       const t = new Text({ text: firstToken, fontSize: 8, fill: grayColor ?? '#0000ff', textAlign: 'left', verticalAlign: 'top', autoSizeAlign: true });
       t.x = desPos[0]; t.y = desPos[1] + 8;
-      page.add(t);
-    }
-    // multi-part devices print their device title below the body
-    const devTitle = suffix ? String(devSeg?.meta?.title ?? '') : '';
-    if (devTitle && lb) {
-      const [rx, ry] = mirrorOf(lb.minX, lb.maxY + 4);
-      const t = new Text({ text: devTitle, fontSize: 8, fill: grayColor ?? '#0000ff', textAlign: 'left', verticalAlign: 'top', autoSizeAlign: true });
-      t.x = gx + rx; t.y = gy + ry;
       page.add(t);
     }
   }
@@ -824,9 +811,11 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   // green × at the pin tip; any other value ("no") stays invisible. The attr
   // x/y is only a display cache that goes stale when the component moves (the
   // CPU page shows exact 5/10 mil lags), so resolve the live pin anchor from
-  // the parent ids instead. Those parents still carry pre-migration record ids
-  // — the migration renamed every id with an "i" prefix but never updated them
-  // (#x86-pins) — hence the "i"-prefixed fallback lookups.
+  // the parent ids instead. Parents whose ids no longer exist in the page are
+  // treated as "not applied" by the client (the migrated X86-PC sheets left
+  // NO_CONNECT parents pointing at pre-migration ids; adding an "i"-prefixed
+  // fallback resolved them and wrongly painted × the client does not show) —
+  // so unresolvable parents are skipped, matching the client.
   const ncCompById = new Map<string, Rec>();
   for (const r of seg.recs) if (r.type === 'COMPONENT') ncCompById.set(r.id, r);
   const ncAnchorCache = new Map<string, { x: number; y: number } | null>();
@@ -834,7 +823,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     if (ncAnchorCache.has(parentId)) return ncAnchorCache.get(parentId)!;
     let out: { x: number; y: number } | null = null;
     const m = /^(.+?)-(.+)$/.exec(parentId);
-    const comp = m ? ncCompById.get(m[1]) ?? ncCompById.get('i' + m[1]) : undefined;
+    const comp = m ? ncCompById.get(m[1]) : undefined;
     if (m && comp) {
       const attrs = byParent.get(comp.id) ?? [];
       const symUuid = attrValue(attrs, 'Symbol') ?? attrValue(attrs, 'Device');
@@ -843,7 +832,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         const devUuid = attrValue(attrs, 'Device');
         if (devUuid && devUuid !== symUuid) sym = resolveLibGraphics(opened.libs, opened.libs.get(devUuid), 'Symbol');
       }
-      const pin = sym?.recs.find((pr) => pr.type === 'PIN' && (pr.id === m[2] || pr.id === 'i' + m[2]));
+      const pin = sym?.recs.find((pr) => pr.type === 'PIN' && pr.id === m[2]);
       if (sym && pin) {
         // same transform chain as drawComponent: symbol-canvas offset, mirror
         // about the component origin, rotation, then component translation
@@ -865,12 +854,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   };
   for (const r of seg.recs) {
     if (r.type !== 'ATTR' || r.data.key !== 'NO_CONNECT' || String(r.data.value ?? '') !== 'yes') continue;
-    // resolved pin tip wins; unresolvable parents fall back to the cached x/y
-    const pos = ncAnchor(String(r.data.parentId ?? ''))
-      ?? (typeof r.data.x === 'number' && typeof r.data.y === 'number'
-        ? { x: X(Number(r.data.x), xf), y: Y(Number(r.data.y), xf) }
-        : null);
-    if (!pos) continue;
+    const pos = ncAnchor(String(r.data.parentId ?? ''));
+    if (!pos) continue; // dangling parent — the client does not apply it either
     const cx = pos.x;
     const cy = pos.y;
     const arm = 4.5;
@@ -888,7 +873,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     if (parent && !pageRecIds.has(parent)) continue;
     const ad = r.data;
     const v = String(ad.value ?? '');
-    if (!v.trim() || (ad.valueVisible ?? true) === false || typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
+    if (!v.trim() || ad.valueVisible !== true || typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
     // no explicit align → EasyEDA parks the label just ABOVE the wire (left-aligned,
     // bottom edge lifted ~0.4em off the anchor; centered on the anchor overlaps the line)
     const plain = ad.align == null || ad.align === '';
