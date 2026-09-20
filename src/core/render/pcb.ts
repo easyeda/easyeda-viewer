@@ -377,38 +377,35 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
     if (opts?.numSink) opts.numSink(t);
     else g.add(t);
   }
-  // net name inside the pad copper (#net-labels): upright label under the pad
-  // number, font shrunk until both lines fit inside the copper — a pad too
-  // small for a NET_FONT_MIN label skips it instead of overflowing. "Under the
-  // number" follows the pad's own angle (same offset math as the copper shape
-  // above) so the pair stays inside a rotated pad.
+  // net name inside the pad copper (#net-labels): stacked with the pad number
+  // (which sits at the pad center), both centered inside the copper. The label
+  // runs along the pad's LONG axis like the client — horizontal pads read
+  // along padAngle with the label below the number, vertical pads read up the
+  // axis with the label above it. It must FIT inside the copper: a pad too
+  // small along that axis stays unlabeled (width check like the client — no
+  // floor fallback, a squeezed label reads worse than none, user pref).
   if (opts?.netName) {
     const numF = num ? Math.max(Math.min(w, h) * 0.6, 1) : 0;
-    // the label runs along the pad's LONG axis like the client: horizontal pads
-    // read along padAngle, vertical pads (h > w) read up the long axis — an
-    // FPC connector's tall pads get vertical text. Fixed ~7mil size; a pad too
-    // short along that axis stays unlabeled (#net-labels)
     const along = h > w;
-    // available run length shrunk a step (NET_LEN_SHRINK) and the ink dimmed
-    // (NET_INK_DIM) so labels read quieter against the copper (user pref)
-    // a pad WITH a net always carries the label: the fit pass only shrinks it;
-    // pads too small even for the floor keep the floor size — on 0402-class
-    // pads it may graze the number, but a missing net reads worse (user pref)
+    // available run length shrunk a step (NET_LEN_SHRINK) so labels keep a
+    // margin inside the copper (user pref)
     const f = fitNetFont(
       opts.netName,
       (along ? h - numF - 2 : w * 0.9) * NET_LEN_SHRINK,
       Math.min(NET_FONT_MAX, along ? w * 0.9 : h / 2 - numF / 2 - 1),
-    ) ?? NET_FONT_MAX;
-    {
+    );
+    if (f != null) {
       const t = new Text({
-        text: opts.netName, fontSize: f, fill: dimHex(contrastInk(color), NET_INK_DIM),
+        // same ink as the pad number (user pref: 一致的颜色)
+        text: opts.netName, fontSize: f, fill: '#f2f4f7',
         textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false,
         rotation: along ? padAngleDeg - 90 : padAngleDeg,
       } as any);
       if (numF > 0) {
-        const dy = numF / 2 + f / 2 + 1; // pad-local offset below the number
-        t.x = X(Number(d.centerX ?? 0) - dy * Math.sin(padAngle), xf);
-        t.y = Y(Number(d.centerY ?? 0) - dy * Math.cos(padAngle), xf);
+        const dy = numF / 2 + f / 2 + 1; // pad-local offset from the centered number
+        const sgn = along ? 1 : -1; // vertical pads: above (doc +y); horizontal: below
+        t.x = X(Number(d.centerX ?? 0) + sgn * dy * Math.sin(padAngle), xf);
+        t.y = Y(Number(d.centerY ?? 0) + sgn * dy * Math.cos(padAngle), xf);
       } else { t.x = cx; t.y = cy; }
       if (opts?.netSink) opts.netSink(t);
       else g.add(t);
@@ -1311,7 +1308,16 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
             strokeWidth: edge > 0 ? edge : undefined, strokeCap: 'round', strokeJoin: 'round',
           }));
         }
-        addToLayer(d, r, node, `填充 ${r.id}`);
+        // face-level static fills share the pour sub-groups:填充铜与铺铜同
+        // 栈序(阻焊之下、走线/焊盘之下),阻焊扩展沿同样要盖过它
+        const fn = Number(layerIdOf(d));
+        if (fn === LAYER.TOP || fn === LAYER.BOTTOM) {
+          if (fn === LAYER.BOTTOM && node.opacity === undefined) node.opacity = BOTTOM_ALPHA['2'];
+          addToLayer(d, r, node, `填充 ${r.id}`, 'primitive', undefined,
+            { key: fn === LAYER.TOP ? 'pour:1' : 'pour:2', name: fn === LAYER.TOP ? '顶层铺铜' : '底层铺铜' });
+        } else {
+          addToLayer(d, r, node, `填充 ${r.id}`);
+        }
         return;
       }
       case 'VIA': {

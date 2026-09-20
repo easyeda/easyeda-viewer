@@ -89,9 +89,10 @@ export function pcbStackKey(l: RenderLayer): number {
   if (l.id === 'axes') return 9000;
   if (l.id === 'rats') return 9100;
   // synthetic per-face pour groups (see renderPcb's POURED case): face pours
-  // sit above their solder-mask group (pad 阻焊扩展 rims read over the pour
-  // fill) but below the face copper group's tracks & pads
-  if (l.id.startsWith('pour:')) return l.id.endsWith(':2') ? 128 : 425;
+  // sit BELOW their solder-mask group (the pad 阻焊扩展 rims paint over the
+  // pour fill, user report) and below the face copper group's tracks & pads
+  // (which still cover the rims' inner half)
+  if (l.id.startsWith('pour:')) return l.id.endsWith(':2') ? 115 : 415;
   // synthetic per-face label overlays (see renderPcb's padNumLayer)
   if (l.id.startsWith('pn:')) return l.id.endsWith(':2') ? 150 : 450;
   if (l.id.startsWith('nn:')) return l.id.endsWith(':2') ? 140 : 440;

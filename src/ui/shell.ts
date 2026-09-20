@@ -229,6 +229,10 @@ export class Shell {
         const l = this.layers.find((x) => x.id === id);
         if (!l || l.count <= 0 || !this.currentRoot) return;
         const root = this.currentRoot;
+        // 先整体按栈序归位:撤销上一次激活遗留的置顶 —— 只提不沉会让切换
+        // 面层后,对面标注层(如切过底层再切顶层时的底层网络名)一直压在
+        // 最上,不再被顶层/内层铜皮遮挡
+        for (const x of [...this.layers].sort((a, b) => pcbStackKey(a) - pcbStackKey(b))) root.add(x.group);
         root.add(l.group);
         // 只有必须常驻顶部的层(多层铜皮 470 / 板框 8000 / 原点轴 9000 / 飞线
         // 9100 / 钻孔 9900)按栈序压回活跃层之上;其余层(同面的铜皮/阻焊/丝印
