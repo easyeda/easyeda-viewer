@@ -37,7 +37,7 @@ const CASES = [
   { name: 'Keys-RGB-EXT', ref: '立创·Candis-ESP32S31开发板_copy_image-sch_v0.5-Beta1_Schematic_Keys-RGB-EXT.png', open: 'Keys/RGB/EXT', kind: 'sch' },
   { name: 'USB-C1', ref: '立创·Candis-ESP32S31开发板_copy_image-sch_v0.5-Beta1_Schematic_USB-C1.png', open: 'USB-C1', kind: 'sch' },
   { name: 'USB-C2 OTG', ref: '立创·Candis-ESP32S31开发板_copy_image-sch_v0.5-Beta1_Schematic_USB-C2 OTG.png', open: 'USB-C2 OTG', kind: 'sch' },
-  { name: 'PCB', ref: 'PCB_PCB_2026-09-16.png', open: 'PCB', kind: 'pcb' },
+  { name: 'PCB', ref: 'PCB_PCB_2026-09-18.png', open: 'PCB', kind: 'pcb' },
 ];
 
 // ---------- image helpers (pngjs RGBA) ----------

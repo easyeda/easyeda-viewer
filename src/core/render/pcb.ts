@@ -567,9 +567,10 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
    *  the client's 2D view shows pour fill darker than routing so the round-cap
    *  edge wrap (full layer color) stays visible along the fill border (#pour-edge) */
   const pourColor = (id: unknown): string => layerColor(id);
-  /** brightness factor of pour/fill copper vs tracks — ~0.6 reads like the
-   *  client's dark-red fill against its bright-red wrap stroke */
-  const POUR_FILL_DIM = 0.6;
+  /** brightness factor of pour/fill copper vs tracks — 0.7 measured from the
+   *  client's exports (#B20000 fill vs #FF0000 routing on two projects; the
+   *  0.6 first guess read visibly darker than the real 2D view) */
+  const POUR_FILL_DIM = 0.7;
   /** drill/via holes punch through to the canvas background — lifted a touch
    *  lighter than it so 挖槽 cutouts and drills stay distinguishable from the
    *  empty space around the board (user pref) */
