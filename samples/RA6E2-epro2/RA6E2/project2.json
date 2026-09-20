@@ -1,0 +1,8 @@
+{
+  "title": "RA6E2",
+  "cbb_project": false,
+  "editorVersion": "4.1.46",
+  "introduction": "搭载Cortex-M33内核，Code flash 256KB、Data flash 4KB、SRAM 40KB，最高200MHz主频，可以提供高效的计算能力。",
+  "description": "<p><img src=\"https://image.lceda.cn/oshwhub/pullImage/c6ca641087124fbc89b0d1910dfb4c4d.jpg\" alt=\"\" width=\"1280\" height=\"9250\"></p>",
+  "custom_tags": "[]"
+}

@@ -1,0 +1,8 @@
+{
+  "title": "A3967",
+  "cbb_project": true,
+  "editorVersion": "4.1.46",
+  "introduction": "该模块是以A3967为核心的步进电机驱动",
+  "description": "该模块是以A3967为核心的步进电机驱动",
+  "custom_tags": "[\"电机驱动\",\"步进电机驱动\"]"
+}

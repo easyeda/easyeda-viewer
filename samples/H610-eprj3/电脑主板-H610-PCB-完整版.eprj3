@@ -1,0 +1,331 @@
+{
+  "name": "电脑主板-H610-PCB-完整版",
+  "owner_uuid": "52159e623a734559a92667bdcb3b3e5d",
+  "creator_uuid": "52159e623a734559a92667bdcb3b3e5d",
+  "created_at": "2026-09-16 09:02:04",
+  "updated_at": "2026-09-16 09:02:04",
+  "modifier_uuid": "52159e623a734559a92667bdcb3b3e5d",
+  "content": "",
+  "archive": false,
+  "cbb_project": 0,
+  "thumb": "",
+  "ticket": 1,
+  "g_ticket": 1,
+  "boards": [],
+  "block_symbol_attrs_groups": {},
+  "default_sheet": "",
+  "branch_uuid": "",
+  "pcb_count": 0,
+  "format": "folder",
+  "config": "{\"type\":\"DOCHEAD\",\"ticket\":2}||{\"docType\":\"BOARD\",\"client\":\"db62569296a67b89\",\"uuid\":\"5acd784bbf609f39\",\"updateTime\":1772791261971,\"version\":\"1772791261971\",\"editVersion\":\"3.2.91\",\"user\":{\"uuid\":\"50a0313012cf4b42a59feda974135d01\",\"nickname\":\"LCEDA技术支持\",\"username\":\"usersupport\",\"avatar\":\"//image.lceda.cn/avatars/2019/1/M7IOOqmnyhJi5qWQ800sun8QtqAnEzNvb7etG0VP.jpeg\"}}|\n{\"type\":\"META\",\"ticket\":1,\"id\":\"META\"}||{\"title\":\"X86电脑主板\",\"zIndex\":1}|\n{\"type\":\"DOCHEAD\",\"ticket\":7893}||{\"docType\":\"CONFIG\",\"client\":\"db62569296a67b89\",\"uuid\":\"CONFIG\",\"updateTime\":1772791261971,\"version\":\"1772791261971\",\"editVersion\":\"3.2.91\",\"user\":{\"uuid\":\"50a0313012cf4b42a59feda974135d01\",\"nickname\":\"LCEDA技术支持\",\"username\":\"usersupport\",\"avatar\":\"//image.lceda.cn/avatars/2019/1/M7IOOqmnyhJi5qWQ800sun8QtqAnEzNvb7etG0VP.jpeg\"}}|\n{\"type\":\"META\",\"ticket\":7894,\"id\":\"META\"}||{\"defaultSheet\":\"6fb576178e5c47b485a4054871968d4c\"}",
+  "profile": {
+    "boards": {
+      "5acd784bbf609f39": {
+        "uuid": "5acd784bbf609f39",
+        "title": "X86电脑主板",
+        "zIndex": 1
+      }
+    },
+    "schematics": {
+      "68abe64fe9a041f5966ab34826492ba6": {
+        "uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "name": "SCH_5",
+        "board": "5acd784bbf609f39",
+        "version": "1724155688000",
+        "updateTime": 1724155688000
+      }
+    },
+    "sheets": {
+      "eada3b858cc844cf8bcd30af7b818b08": {
+        "uuid": "eada3b858cc844cf8bcd30af7b818b08",
+        "title": "P1 PCIEX16",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 29,
+        "version": "1724155886000",
+        "updateTime": 1724155886000
+      },
+      "b0ed9151f1f24050b3b825748aac4062": {
+        "uuid": "b0ed9151f1f24050b3b825748aac4062",
+        "title": "P2 CPUDDR",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 30,
+        "version": "1724155886000",
+        "updateTime": 1724155886000
+      },
+      "a77f3278d6f64e3f98badca3b1d71369": {
+        "uuid": "a77f3278d6f64e3f98badca3b1d71369",
+        "title": "P3 CPUMISC",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 8,
+        "version": "1724155884000",
+        "updateTime": 1724155884000
+      },
+      "67bba0c1ad034a358577821d32f75ac1": {
+        "uuid": "67bba0c1ad034a358577821d32f75ac1",
+        "title": "P4 CPUPOWER",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 34,
+        "version": "1724155886000",
+        "updateTime": 1724155886000
+      },
+      "3aa4d13b2930412491464cdbd588fc57": {
+        "uuid": "3aa4d13b2930412491464cdbd588fc57",
+        "title": "P5 CPUGND",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 3,
+        "version": "1724155883000",
+        "updateTime": 1724155883000
+      },
+      "97d2a16d8a7941909229901f40c9343a": {
+        "uuid": "97d2a16d8a7941909229901f40c9343a",
+        "title": "P6 DDR4A",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 22,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      },
+      "2c47db7e952041d28808e9b468a0abd9": {
+        "uuid": "2c47db7e952041d28808e9b468a0abd9",
+        "title": "P7 DDR4B",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 7,
+        "version": "1724155884000",
+        "updateTime": 1724155884000
+      },
+      "474fb9b144c24cc6a575d316d50e8e6e": {
+        "uuid": "474fb9b144c24cc6a575d316d50e8e6e",
+        "title": "P8 PCHSTRAP",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 4,
+        "version": "1724155883000",
+        "updateTime": 1724155883000
+      },
+      "95023c880708413a903631ba06c709cd": {
+        "uuid": "95023c880708413a903631ba06c709cd",
+        "title": "P9 PCHPCIE",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 21,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      },
+      "f71d60bd5a35461fbe528ff5b834ef7c": {
+        "uuid": "f71d60bd5a35461fbe528ff5b834ef7c",
+        "title": "P10 PCHDMI",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 28,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      },
+      "9e10e4c3f51c41cb8f293e9c940b7356": {
+        "uuid": "9e10e4c3f51c41cb8f293e9c940b7356",
+        "title": "P11 PCHGPIO",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 27,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      },
+      "e99a20d2f8b949e58de1579239e28606": {
+        "uuid": "e99a20d2f8b949e58de1579239e28606",
+        "title": "P12 PCHSPI",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 1,
+        "version": "1724155883000",
+        "updateTime": 1724155883000
+      },
+      "c0d8d372ca7a430cb88d0a7458b362de": {
+        "uuid": "c0d8d372ca7a430cb88d0a7458b362de",
+        "title": "P13 PCHPWR",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 11,
+        "version": "1724155884000",
+        "updateTime": 1724155884000
+      },
+      "f412490e02bc46729d823fb43ac7fc7d": {
+        "uuid": "f412490e02bc46729d823fb43ac7fc7d",
+        "title": "P14 PCHGND",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 24,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      },
+      "a4f2cf07ae1845afbc4e5d2f711489f7": {
+        "uuid": "a4f2cf07ae1845afbc4e5d2f711489f7",
+        "title": "P15 SIO",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 5,
+        "version": "1724155884000",
+        "updateTime": 1724155884000
+      },
+      "a4e0d427e8c14985bd6b7190e0facfa8": {
+        "uuid": "a4e0d427e8c14985bd6b7190e0facfa8",
+        "title": "P16 HDMI",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 19,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      },
+      "a7431287c2a14194bb8c9fd5096f5951": {
+        "uuid": "a7431287c2a14194bb8c9fd5096f5951",
+        "title": "P17 RJ45LAN",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 2,
+        "version": "1724155883000",
+        "updateTime": 1724155883000
+      },
+      "70ce91003ddf44a9ac774da971842aeb": {
+        "uuid": "70ce91003ddf44a9ac774da971842aeb",
+        "title": "P18 AUDIO",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 26,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      },
+      "f81d65c91e2a4b31bccd0aa91fd4e774": {
+        "uuid": "f81d65c91e2a4b31bccd0aa91fd4e774",
+        "title": "P19 PCIE",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 20,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      },
+      "0687b7ae49ab4595b01a65a679469524": {
+        "uuid": "0687b7ae49ab4595b01a65a679469524",
+        "title": "P20 SATA",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 15,
+        "version": "1724155884000",
+        "updateTime": 1724155884000
+      },
+      "f21786c751564890a4cc70a23358d833": {
+        "uuid": "f21786c751564890a4cc70a23358d833",
+        "title": "P21 COM",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 6,
+        "version": "1724155884000",
+        "updateTime": 1724155884000
+      },
+      "2dd004238cbf453c8b5ab1e685f1d7a9": {
+        "uuid": "2dd004238cbf453c8b5ab1e685f1d7a9",
+        "title": "P22 USB32",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 32,
+        "version": "1724155886000",
+        "updateTime": 1724155886000
+      },
+      "e354de3ea97d43e7993650dc2c086774": {
+        "uuid": "e354de3ea97d43e7993650dc2c086774",
+        "title": "P23 USB20",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 10,
+        "version": "1724155884000",
+        "updateTime": 1724155884000
+      },
+      "1c43c790a4f74a7fbc92f7436d92f609": {
+        "uuid": "1c43c790a4f74a7fbc92f7436d92f609",
+        "title": "P24 RT3628",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 12,
+        "version": "1724155884000",
+        "updateTime": 1724155884000
+      },
+      "c3b2397569104e6081808f47256a43e1": {
+        "uuid": "c3b2397569104e6081808f47256a43e1",
+        "title": "P25 CPUPWR1",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 23,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      },
+      "68aa531050534c349f57001b44e16e0f": {
+        "uuid": "68aa531050534c349f57001b44e16e0f",
+        "title": "P26 CPUPWR2",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 9,
+        "version": "1724155884000",
+        "updateTime": 1724155884000
+      },
+      "b3da9e66fbcc44e88b70cabe0aed9e01": {
+        "uuid": "b3da9e66fbcc44e88b70cabe0aed9e01",
+        "title": "P27 CPUPWR3",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 18,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      },
+      "410b7fb86b304a9d9faa862658a6df17": {
+        "uuid": "410b7fb86b304a9d9faa862658a6df17",
+        "title": "P28 CPUPWRGT",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 17,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      },
+      "01e2e2201de14de39a78036c17babf93": {
+        "uuid": "01e2e2201de14de39a78036c17babf93",
+        "title": "P29 VCCIN AUX",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 25,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      },
+      "5a6262c3be2f4aa5968fa47a69360d09": {
+        "uuid": "5a6262c3be2f4aa5968fa47a69360d09",
+        "title": "P30 CPU IO",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 14,
+        "version": "1724155884000",
+        "updateTime": 1724155884000
+      },
+      "b03dbcfb7d95404c9421beb3ec371f5c": {
+        "uuid": "b03dbcfb7d95404c9421beb3ec371f5c",
+        "title": "P31 POWER SYS",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 13,
+        "version": "1724155884000",
+        "updateTime": 1724155884000
+      },
+      "c28fcdf6c4b24a729f56a4443f2b4e91": {
+        "uuid": "c28fcdf6c4b24a729f56a4443f2b4e91",
+        "title": "P32 VDDQ",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 33,
+        "version": "1724155886000",
+        "updateTime": 1724155886000
+      },
+      "f75805bb0f094841b797faf4a2f7a4f8": {
+        "uuid": "f75805bb0f094841b797faf4a2f7a4f8",
+        "title": "P33 PCH PWR",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 31,
+        "version": "1724155886000",
+        "updateTime": 1724155886000
+      },
+      "295f3e909d614ad5bb3583f75c5be0d8": {
+        "uuid": "295f3e909d614ad5bb3583f75c5be0d8",
+        "title": "P34 5V 5VDUA",
+        "schematic_uuid": "68abe64fe9a041f5966ab34826492ba6",
+        "zIndex": 16,
+        "version": "1724155885000",
+        "updateTime": 1724155885000
+      }
+    },
+    "pcbs": {
+      "21339f5bdd88441886f7ddfd0ae97f1c": {
+        "uuid": "21339f5bdd88441886f7ddfd0ae97f1c",
+        "title": "PCB",
+        "board": "5acd784bbf609f39",
+        "zIndex": null,
+        "parent_uuid": "",
+        "version": "1778575702708",
+        "updateTime": 1778575702708
+      }
+    },
+    "panels": {},
+    "blockSymbols": {},
+    "owner": {
+      "uuid": "D:\\Documents\\LCEDA-Pro\\projects",
+      "username": "",
+      "nickname": ""
+    }
+  }
+}

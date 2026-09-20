@@ -1,0 +1,126 @@
+{
+  "name": "RA6E2",
+  "owner_uuid": "52159e623a734559a92667bdcb3b3e5d",
+  "creator_uuid": "52159e623a734559a92667bdcb3b3e5d",
+  "created_at": "2026-09-16 09:01:45",
+  "updated_at": "2026-09-16 09:01:45",
+  "modifier_uuid": "52159e623a734559a92667bdcb3b3e5d",
+  "content": "<p><img src=\"https://image.lceda.cn/oshwhub/pullImage/c6ca641087124fbc89b0d1910dfb4c4d.jpg\" alt=\"\" width=\"1280\" height=\"9250\"></p>",
+  "archive": false,
+  "cbb_project": 0,
+  "thumb": "",
+  "ticket": 1,
+  "g_ticket": 1,
+  "boards": [],
+  "block_symbol_attrs_groups": {},
+  "default_sheet": "",
+  "branch_uuid": "",
+  "pcb_count": 0,
+  "format": "folder",
+  "config": "{\"type\":\"DOCHEAD\",\"ticket\":2}||{\"docType\":\"BOARD\",\"client\":\"565b7d97128f8cc8\",\"uuid\":\"0d6fdceced7bb345\",\"updateTime\":1778669406509,\"version\":\"1778669406509\",\"editVersion\":\"3.2.131\",\"user\":{\"uuid\":\"50a0313012cf4b42a59feda974135d01\",\"nickname\":\"LCEDA技术支持\",\"username\":\"usersupport\",\"avatar\":\"//image.lceda.cn/avatars/2019/1/M7IOOqmnyhJi5qWQ800sun8QtqAnEzNvb7etG0VP.jpeg\"}}|\n{\"type\":\"META\",\"ticket\":1,\"id\":\"META\"}||{\"title\":\"地奇星RA6E2\",\"zIndex\":1}|\n{\"type\":\"DOCHEAD\"}||{\"docType\":\"BOARD\",\"client\":\"565b7d97128f8cc8\",\"uuid\":\"bba5797d971f7fd8\",\"updateTime\":1789375389934,\"version\":\"1789375389934\",\"editVersion\":\"4.1.35\",\"user\":{}}|\n{\"type\":\"META\",\"ticket\":11165,\"id\":\"META\"}||{\"title\":\"Board1\",\"zIndex\":2}|\n{\"type\":\"DOCHEAD\",\"ticket\":229}||{\"docType\":\"CONFIG\",\"client\":\"565b7d97128f8cc8\",\"uuid\":\"CONFIG\",\"updateTime\":1778669406509,\"version\":\"1778669406509\",\"editVersion\":\"3.2.131\",\"user\":{\"uuid\":\"50a0313012cf4b42a59feda974135d01\",\"nickname\":\"LCEDA技术支持\",\"username\":\"usersupport\",\"avatar\":\"//image.lceda.cn/avatars/2019/1/M7IOOqmnyhJi5qWQ800sun8QtqAnEzNvb7etG0VP.jpeg\"}}|\n{\"type\":\"META\",\"ticket\":230,\"id\":\"META\"}||{\"defaultSheet\":\"cd403d2e6755484b99273d35374e164d\"}",
+  "profile": {
+    "boards": {
+      "0d6fdceced7bb345": {
+        "uuid": "0d6fdceced7bb345",
+        "title": "地奇星RA6E2",
+        "zIndex": 1
+      },
+      "bba5797d971f7fd8": {
+        "uuid": "bba5797d971f7fd8",
+        "title": "Board1",
+        "zIndex": 2
+      }
+    },
+    "schematics": {
+      "cb80613e63c347e58ccbc447b4a65b2a": {
+        "uuid": "cb80613e63c347e58ccbc447b4a65b2a",
+        "name": "Schematic1",
+        "board": "0d6fdceced7bb345",
+        "version": "1779795969153",
+        "updateTime": 1779795969153
+      },
+      "a3f02ae8238916b9": {
+        "uuid": "a3f02ae8238916b9",
+        "name": "Schematic2",
+        "board": "bba5797d971f7fd8",
+        "source": "",
+        "version": "1789375389950",
+        "updateTime": 1789375389950
+      }
+    },
+    "sheets": {
+      "7981a0a73859af77": {
+        "uuid": "7981a0a73859af77",
+        "title": "P1",
+        "schematic_uuid": "a3f02ae8238916b9",
+        "zIndex": 1,
+        "source": "",
+        "version": "1789375400259",
+        "updateTime": 1789375400259
+      },
+      "e6a2528e624140759706b28dea1a71e6": {
+        "uuid": "e6a2528e624140759706b28dea1a71e6",
+        "title": "P1",
+        "schematic_uuid": "cb80613e63c347e58ccbc447b4a65b2a",
+        "zIndex": 1,
+        "version": "1756711878000",
+        "updateTime": 1756711878000
+      }
+    },
+    "pcbs": {
+      "0826ab7fe62d4b7d": {
+        "uuid": "0826ab7fe62d4b7d",
+        "title": "PCB3",
+        "board": "bba5797d971f7fd8",
+        "zIndex": null,
+        "parent_uuid": "",
+        "source": "",
+        "version": "1789470900607",
+        "updateTime": 1789470900607
+      },
+      "ea7c232c881335e0": {
+        "uuid": "ea7c232c881335e0",
+        "title": "PCB2",
+        "board": "0d6fdceced7bb345",
+        "zIndex": null,
+        "parent_uuid": "",
+        "source": "",
+        "version": "1779850067903",
+        "updateTime": 1779850067903
+      },
+      "dd88ba56c6a8406e84b9fe4562b25cde": {
+        "uuid": "dd88ba56c6a8406e84b9fe4562b25cde",
+        "title": "PCB1",
+        "board": "",
+        "zIndex": null,
+        "parent_uuid": "",
+        "source": "",
+        "version": "1779795967042",
+        "updateTime": 1779795967042
+      },
+      "69a86c8ee108645c": {
+        "uuid": "69a86c8ee108645c",
+        "title": "PCB1_1",
+        "board": "",
+        "zIndex": null,
+        "parent_uuid": "",
+        "source": "",
+        "version": "1779845361801",
+        "updateTime": 1779845361801
+      }
+    },
+    "panels": {
+      "3716daec909b6e58": {
+        "uuid": "3716daec909b6e58",
+        "title": "Panel1",
+        "zIndex": null
+      }
+    },
+    "blockSymbols": {},
+    "owner": {
+      "uuid": "D:\\Documents\\LCEDA-Pro\\projects",
+      "username": "",
+      "nickname": ""
+    }
+  }
+}

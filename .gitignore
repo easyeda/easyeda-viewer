@@ -143,7 +143,7 @@ vite.config.ts.timestamp-*
 .vite/
 
 # local sample projects (private, never commit)
-samples/
+# samples/
 
 # QA harness artifacts
 qa/*.png
@@ -157,3 +157,4 @@ desktop/dist/*
 !desktop/dist/.gitkeep
 
 .bridge-work
+desktop/easyeda-viewer-desktop.exe
