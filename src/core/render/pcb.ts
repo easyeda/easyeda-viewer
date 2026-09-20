@@ -296,7 +296,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   // design rule. Negative values shrink the window; a fully closed shape
   // (w/h ≤ 0) paints nothing. Irregular pads (specialPad) are skipped —
   // the client windows those from their special shapes themselves (#mask-window)
-  if (opts?.maskSink && !(Array.isArray(d.specialPad) && d.specialPad.length) && !polyPath) {
+  if (opts?.maskSink && !(Array.isArray(d.specialPad) && d.specialPad.length)) {
     const rule = opts.maskRule;
     const bottom = Number(d.layerId) === LAYER.BOTTOM;
     const faces: [1 | 2, number][] = hole
@@ -307,11 +307,22 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       if (!isFinite(e) || e <= -900) continue; // rule sentinel (≤ -1000): no window
       const mw = w + 2 * e, mh = h + 2 * e;
       if (mw <= 0 || mh <= 0) continue;
-      const cr = shape === 'RECT' || shape === 'SQUARE'
-        ? Math.min(Math.max(0, (Number(dp.radius) || 0) + e), Math.min(mw, mh) / 2)
-        : Math.min(mw, mh) / 2;
       const mg = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
-      mg.add(new Rect({ x: -mw / 2, y: -mh / 2, width: mw, height: mh, fill: colorOf(face === 1 ? LAYER.TOP_MASK : LAYER.BOT_MASK), cornerRadius: cr }));
+      if (polyPath) {
+        // POLYGON pads window from their own outline: fill it and stroke it by
+        // the expansion — a 2e round-join stroke dilates the polygon by e the
+        // way the client grows the special shape (a negative expansion cannot
+        // shrink a fill, so the window then equals the pad outline itself)
+        const ds = multiPathToSvg(polyPath, { ox: pbx, oy: pby, flip: true }, true);
+        const sw = Math.max(0, 2 * e);
+        const mc = colorOf(face === 1 ? LAYER.TOP_MASK : LAYER.BOT_MASK);
+        mg.add(new Path({ path: ds.join(' '), fill: mc, stroke: sw > 0 ? mc : undefined, strokeWidth: sw, strokeCap: 'round', strokeJoin: 'round' }));
+      } else {
+        const cr = shape === 'RECT' || shape === 'SQUARE'
+          ? Math.min(Math.max(0, (Number(dp.radius) || 0) + e), Math.min(mw, mh) / 2)
+          : Math.min(mw, mh) / 2;
+        mg.add(new Rect({ x: -mw / 2, y: -mh / 2, width: mw, height: mh, fill: colorOf(face === 1 ? LAYER.TOP_MASK : LAYER.BOT_MASK), cornerRadius: cr }));
+      }
       opts.maskSink(face, mg);
     }
   }
@@ -324,7 +335,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   // suppressing them is the per-pad -1000 custom from the official FAQ);
   // SMD pads open only their own face. The paste shape paints UNDER the copper
   // (see the layer stacking order), so an expansion of 0 hides beneath the pad.
-  if (opts?.pasteSink && !(Array.isArray(d.specialPad) && d.specialPad.length) && !polyPath) {
+  if (opts?.pasteSink && !(Array.isArray(d.specialPad) && d.specialPad.length)) {
     const rule = opts.pasteRule;
     const bottom = Number(d.layerId) === LAYER.BOTTOM;
     const faces: [1 | 2, number][] = hole
@@ -335,11 +346,20 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       if (!isFinite(e) || e <= -900) continue; // "no paste" sentinel (-1000 / -3937)
       const pw = w + 2 * e, ph = h + 2 * e;
       if (pw <= 0 || ph <= 0) continue;
-      const cr = shape === 'RECT' || shape === 'SQUARE'
-        ? Math.min(Math.max(0, (Number(dp.radius) || 0) + e), Math.min(pw, ph) / 2)
-        : Math.min(pw, ph) / 2;
       const pg = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
-      pg.add(new Rect({ x: -pw / 2, y: -ph / 2, width: pw, height: ph, fill: colorOf(face === 1 ? LAYER.TOP_PASTE : LAYER.BOTTOM_PASTE), cornerRadius: cr }));
+      if (polyPath) {
+        // POLYGON paste opens from the outline too (same stroke-dilation as
+        // the mask window above; paste sits UNDER the copper in paint order)
+        const ds = multiPathToSvg(polyPath, { ox: pbx, oy: pby, flip: true }, true);
+        const sw = Math.max(0, 2 * e);
+        const pc = colorOf(face === 1 ? LAYER.TOP_PASTE : LAYER.BOTTOM_PASTE);
+        pg.add(new Path({ path: ds.join(' '), fill: pc, stroke: sw > 0 ? pc : undefined, strokeWidth: sw, strokeCap: 'round', strokeJoin: 'round' }));
+      } else {
+        const cr = shape === 'RECT' || shape === 'SQUARE'
+          ? Math.min(Math.max(0, (Number(dp.radius) || 0) + e), Math.min(pw, ph) / 2)
+          : Math.min(pw, ph) / 2;
+        pg.add(new Rect({ x: -pw / 2, y: -ph / 2, width: pw, height: ph, fill: colorOf(face === 1 ? LAYER.TOP_PASTE : LAYER.BOTTOM_PASTE), cornerRadius: cr }));
+      }
       opts.pasteSink(face, pg);
     }
   }
