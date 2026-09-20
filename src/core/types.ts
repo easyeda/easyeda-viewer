@@ -16,6 +16,9 @@ export interface Rec {
 export interface CanvasInfo {
   originX: number;
   originY: number;
+  /** "up" = the doc uses the newer Y-up convention (client ≥3.2.91 migration):
+   *  every record Y and originY is negated vs the classic Y-down sheets */
+  yAxisDirection?: string;
   unit?: string;
   gridXSize?: number;
   gridYSize?: number;

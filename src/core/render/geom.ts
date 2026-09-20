@@ -18,9 +18,10 @@ export function Y(y: number, xf: Xf): number { return xf.flip ? -(y - xf.oy) : y
 export function P(x: number, y: number, xf: Xf): [number, number] { return [x - xf.ox, Y(y, xf)]; }
 
 /** EasyEDA doc angles are clockwise; Leafer/screen angles are clockwise too,
- *  but Math.cos/sin are CCW, so we always negate when converting a doc angle
- *  to a screen angle for trig and for Leafer's rotation property. */
-export function ang(a: number, _xf?: Xf): number { return -a; }
+ *  but Math.cos/sin are CCW, so we negate when converting a doc angle to a
+ *  screen angle for trig and for Leafer's rotation property. The Y-flip itself
+ *  reverses the sense of rotation, so flipped (Y-up) docs keep the raw angle. */
+export function ang(a: number, xf?: Xf): number { return xf?.flip ? a : -a; }
 
 /** scale numeric coords of a flat path item (keeps tokens, ARC angle degrees, R rotation) */
 export function scalePathItem(item: any[], k: number): any[] {
@@ -273,7 +274,8 @@ export function objBBox(r: { type: string; data: any }, xf: Xf, local = false): 
       const ha = s.includes('CENTER') ? 0.5 : s.includes('RIGHT') ? 1 : 0;
       const va = s.includes('TOP') ? 0 : s.includes('BOTTOM') ? 1 : 0.5;
       // corners around the anchor per alignment, rotated by the screen angle
-      const rr = (-Number(d.rotation ?? d.angle ?? 0) * Math.PI) / 180;
+      // (screen rotation follows ang(): negated for Y-down docs, raw for Y-flip)
+      const rr = ((xf.flip ? 1 : -1) * Number(d.rotation ?? d.angle ?? 0) * Math.PI) / 180;
       const cs = Math.cos(rr), sn = Math.sin(rr);
       const corners: [number, number][] = [[-ha, -va], [1 - ha, -va], [1 - ha, 1 - va], [-ha, 1 - va]]
         .map(([fx, fy]) => [fx * w, fy * h])

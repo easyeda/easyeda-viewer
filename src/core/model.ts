@@ -36,6 +36,28 @@ export function resolveAttrRef(
   return out;
 }
 
+/** ATTR records indexed by parentId, cached per segment — collectAttrs used to
+ *  rescan the whole record list for every component (O(comps × attrs)), which
+ *  compounded on the schematic-wide component list (#page-switch-jank) */
+const attrIndexCache = new WeakMap<DocSegment, Map<unknown, Rec[]>>();
+
+function attrIndex(seg: DocSegment): Map<unknown, Rec[]> {
+  let m = attrIndexCache.get(seg);
+  if (!m) {
+    m = new Map();
+    for (const r of seg.recs) {
+      if (r.type !== 'ATTR') continue;
+      const k = r.data.parentId;
+      if (k == null) continue;
+      const list = m.get(k);
+      if (list) list.push(r);
+      else m.set(k, [r]);
+    }
+    attrIndexCache.set(seg, m);
+  }
+  return m;
+}
+
 /** Collect instance ATTR records (and inline `attrs`) for a record, then merge library/device defaults. */
 export function collectAttrs(rec: Rec, opened: OpenedDoc): AttrEntry[] {
   const map = new Map<string, AttrEntry>();
@@ -49,8 +71,8 @@ export function collectAttrs(rec: Rec, opened: OpenedDoc): AttrEntry[] {
     if (!map.has(key)) map.set(key, { key, value: s, source });
   };
   // instance ATTR records parented to this object
-  for (const r of opened.self.recs) {
-    if (r.type === 'ATTR' && r.data.parentId === rec.id && typeof r.data.key === 'string' && r.data.key) {
+  for (const r of attrIndex(opened.self).get(rec.id) ?? []) {
+    if (typeof r.data.key === 'string' && r.data.key) {
       set(r.data.key, r.data.value, 'instance');
     }
   }

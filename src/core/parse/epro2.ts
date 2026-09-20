@@ -59,10 +59,19 @@ export function buildTreeFromSegments(fileKey: string, segs: DocSegment[]): Tree
   const boards = live.filter((s) => s.docType === 'BOARD');
   const schs = live.filter((s) => s.docType === 'SCH');
   const pages = live.filter((s) => s.docType === 'SCH_PAGE');
+  // Sheet tabs follow the client's stored page order: SCH_PAGE META.zIndex is
+  // the 1..N position inside its schematic, and the record-stream order does
+  // NOT match it (x86-pc stores zIndex=1..38 out of stream order) (#sheet-order)
+  const zOf = (s: DocSegment): number => {
+    const z = Number(s.meta?.zIndex);
+    return Number.isFinite(z) ? z : Infinity;
+  };
+  pages.sort((a, b) => zOf(a) - zOf(b));
   const pcbs = live.filter((s) => s.docType === 'PCB');
   const panels = live.filter((s) => s.docType === 'PANEL');
   const simSch = live.filter((s) => s.docType === 'SIMULATION_SCH');
   const simPages = live.filter((s) => s.docType === 'SIMULATION');
+  simPages.sort((a, b) => zOf(a) - zOf(b));
   const libs = live.filter((s) => ['SYMBOL', 'DEVICE', 'FOOTPRINT'].includes(s.docType));
 
   const tree: TreeNode[] = [];

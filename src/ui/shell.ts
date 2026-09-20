@@ -105,6 +105,8 @@ export class Shell {
   private lastTree: TreeNode[] | null = null;
   private lastOpenables: Set<string> | null = null;
   private lastObjRows: ObjectRow[] = [];
+  /** id signature of the rows currently in the object-list DOM (#page-switch-jank) */
+  private lastRowSig = '';
   /** schematic-wide component rows cached per page node id (invalidate on model change) */
   private compRowsCache = new Map<string, ObjectRow[]>();
   /** true while the object list spans the whole owning schematic, not just the open page */
@@ -547,6 +549,7 @@ export class Shell {
     this.model = model;
     this.docLoaded = true;
     this.compRowsCache.clear();
+    this.lastRowSig = '';
     this.welcomeEl.classList.add('ev-hidden');
     this.titleEl.innerHTML = `<b>${escapeHtml(model.name)}</b> · ${model.format}`;
     const openables = new Set(model.openables.keys());
@@ -566,9 +569,13 @@ export class Shell {
   private async openNode(node: TreeNode): Promise<void> {
     if (!this.model || !node.fileKey || !node.uuid) return;
     // doc open (a large PCB takes seconds) blocks the main thread — show the
-    // busy overlay and let it paint before that work starts (#loading)
-    this.showLoading(t('loadingDoc'));
-    await this.nextPaint();
+    // busy overlay and let it paint before that work starts (#loading);
+    // schematic pages open in ~100ms, there the overlay's double-rAF wait is
+    // pure latency on every page switch (#page-switch-jank)
+    if (docKind(node.docType ?? '') !== 'sch') {
+      this.showLoading(t('loadingDoc'));
+      await this.nextPaint();
+    }
     try {
       this.deviceNoteEl.classList.add('ev-hidden');
       const opened = openDoc(this.model, node);
@@ -595,23 +602,45 @@ export class Shell {
 
       // component tree: only real components, naturally sorted by designator (#6/#12);
       // when a sheet page is open the list spans the WHOLE owning schematic —
-      // clicking a component from another page jumps to that page first
+      // clicking a component from another page jumps to that page first.
+      // Only real components carry a Designator (instance attr or device-META
+      // default like "R?"); netports, power flags and the sheet frame don't
+      // have one in either spot — verified on the x86-pc sample (#component-tree)
+      const rowLabel = (map: Map<string, string>, fallback: string): string => {
+        const des = map.get('Designator') ?? fallback;
+        const extraKey = map.has('Name') ? 'Name' : map.has('Value') ? 'Value' : '';
+        const extra = extraKey ? resolveAttrRef(Object.fromEntries(map), map.get(extraKey)) : '';
+        return extra ? `${des} (${extra})` : String(des);
+      };
       const buildRows = (objs: RenderObject[], od: OpenedDoc, pageNodeId: string): ObjectRow[] => {
         const rows: ObjectRow[] = [];
         for (const o of objs) {
           if (o.rec.type !== 'COMPONENT') continue;
-          const attrs = collectAttrs(o.rec, od);
-          const map = new Map<string, string>(attrs.map((e) => [e.key, e.value]));
-          const des = map.get('Designator') ?? o.title ?? o.id;
-          // Skip sheet borders, power/ground symbols, net labels and similar non-components.
-          if (!map.has('Designator') && isAuxiliarySymbol(String(o.title ?? ''))) continue;
-          const extraKey = map.has('Name') ? 'Name' : map.has('Value') ? 'Value' : '';
-          const extra = extraKey ? resolveAttrRef(Object.fromEntries(map), map.get(extraKey)) : '';
+          const map = new Map<string, string>(collectAttrs(o.rec, od).map((e) => [e.key, e.value]));
+          if (!map.has('Designator')) continue;
           rows.push({
             id: pageNodeId ? `${pageNodeId}::${o.id}` : o.id,
             type: o.rec.type,
-            label: extra ? `${des} (${extra})` : String(des),
+            label: rowLabel(map, o.title ?? o.id),
             pageNodeId: pageNodeId || undefined,
+          });
+        }
+        return rows;
+      };
+      // scan a sibling sheet's COMPONENT records WITHOUT building a render
+      // scene — the list only needs attrs, and rendering every page of a big
+      // project on first open froze the UI (#page-switch-jank)
+      const scanPageRows = (od: OpenedDoc, pageNodeId: string): ObjectRow[] => {
+        const rows: ObjectRow[] = [];
+        for (const r of od.self.recs) {
+          if (r.type !== 'COMPONENT') continue;
+          const map = new Map<string, string>(collectAttrs(r, od).map((e) => [e.key, e.value]));
+          if (!map.has('Designator')) continue;
+          rows.push({
+            id: `${pageNodeId}::${r.id}`,
+            type: r.type,
+            label: rowLabel(map, r.id),
+            pageNodeId,
           });
         }
         return rows;
@@ -627,11 +656,7 @@ export class Shell {
             if (p.id === node.id) {
               pr = buildRows(this.objects, opened, p.id);
             } else {
-              try {
-                const sod = openDoc(this.model, p);
-                const sres = renderDoc(sod, canvasBg('sch'));
-                pr = buildRows(sres.objects, sod, p.id);
-              } catch { pr = []; }
+              try { pr = scanPageRows(openDoc(this.model, p), p.id); } catch { pr = []; }
             }
             this.compRowsCache.set(p.id, pr);
           }
@@ -642,8 +667,15 @@ export class Shell {
         rows = buildRows(this.objects, opened, '');
       }
       rows.sort((a, b) => naturalDesignator(a.label, b.label));
+      // the schematic-wide list is identical for every page of the schematic —
+      // rebuilding the (thousands of rows) DOM on each page switch only added
+      // jank; skip it while the row set is unchanged (#page-switch-jank)
+      const sig = rows.map((r) => r.id).join('\n');
       this.lastObjRows = rows;
-      this.objList.setObjects(rows);
+      if (sig !== this.lastRowSig) {
+        this.lastRowSig = sig;
+        this.objList.setObjects(rows);
+      }
       if (this.docKind === 'pcb' || this.docKind === 'panel' || this.docKind === 'footprint') {
         // layer panel order follows human convention (top face first, drill/board
         // outline/multi-layer after, mechanical & panel utility layers last) —
@@ -716,6 +748,7 @@ export class Shell {
         this.docKind = 'other';
         this.syncDocBg('other');
         this.lastObjRows = [];
+        this.lastRowSig = '';
         this.lastLayerItems = [];
         this.objList.setObjects([]);
         this.layerList.setLayers([], true);
@@ -959,16 +992,6 @@ function uiLayerRank(id: string, name: string, type?: string): number {
   }
   if (ty) return UI_LAYER_RANK[ty] ?? (ty.startsWith('3D_') ? 52 : ty.includes('PANEL') ? 70 : 50);
   return UI_LAYER_RANK_BY_ID[n] ?? 50;
-}
-
-/** Exclude sheet borders, power/ground symbols, net labels and other non-component symbols
- *  from the component tree. Real components always have a Designator attribute. */
-function isAuxiliarySymbol(title: string): boolean {
-  const t = title.toLowerCase();
-  if (t.startsWith('图纸') || t.includes('drawing-symbol')) return true;
-  if (/\b(gnd|ground|power|voltage|vcc|vdd|vss|vee)\b/.test(t)) return true;
-  if (/\b(netport|netlabel|netlabel|short-symbol|junction)\b/.test(t)) return true;
-  return false;
 }
 
 /** sort designators alphabetically by prefix then numerically by suffix (#6) */

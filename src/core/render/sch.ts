@@ -10,7 +10,14 @@ const DRAWABLE_TYPES = ['POLY', 'FILL', 'LINE', 'RECT', 'CIRCLE', 'ELLIPSE', 'OV
 
 export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   const seg = opened.self;
-  const xf = xfOf(seg.canvas, false);
+  // Two Y conventions exist in the wild (#x86-esch2-flip): classic sheets are
+  // Y-down (epro2 exports), while the ≥3.2.91 client migration rewrites every
+  // record Y and the CANVAS originY negated and stamps CANVAS.yAxisDirection
+  // "up". The flip xf mirrors the Y-up data back onto the same screen layout —
+  // ang() keeps the raw rotation for flipped docs, align strings stay
+  // screen-anchored in both conventions.
+  const up = seg.canvas?.yAxisDirection === 'up';
+  const xf = xfOf(seg.canvas, up);
   const page = new Group({ name: 'page' });
   const byParent = indexAttrs(seg.recs);
   // page-level attributes used by the title-block table (both free attrs and border-component attrs)
@@ -118,7 +125,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   // ---- embedded symbol renderer ----
   /** @param antiRot screen-deg to cancel out (component group rotation) so pin text stays upright */
   function drawSymbolPart(target: Group, sym: DocSegment, partId: string, sx: number, sy: number, rotation: number, mirror: boolean, antiRot = 0, skipTitleBlock = false, gray = false): void {
-    const sxf = xfOf(sym.canvas, false);
+    const sxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
     // title-block hiding (#2): the A4 frame symbol groups the region frame under
     // a GROUP titled "border"; graphics outside that group are title-block
     // artwork the page flag "Title Block" turns off. Symbols without a border
@@ -195,8 +202,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         }
         case 'PIN': {
           const px = r.data.x ?? 0, py = r.data.y ?? 0;
-          // EasyEDA schematic angles are clockwise; Math.cos/sin are CCW (#36)
-          const a = -((r.data.rotation ?? 0) * Math.PI) / 180;
+          // EasyEDA schematic angles are clockwise; Math.cos/sin are CCW (#36);
+          // the Y-flip reverses the sense, so Y-up docs keep the raw trig
+          const a = (sxf.flip ? 1 : -1) * ((r.data.rotation ?? 0) * Math.PI) / 180;
           const len = r.data.length ?? 10;
           const [x1, y1] = P(px, py, sxf);
           const [x2, y2] = P(px + len * Math.cos(a), py + len * Math.sin(a), sxf);
@@ -387,7 +395,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   function componentWorldBBox(g: Group, sym: DocSegment | undefined, partId: string, d: any): BBox | null {
     const local: [number, number][] = [];
     if (sym) {
-      const sxf = xfOf(sym.canvas, false);
+      const sxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
       for (const r of sym.recs) {
         if (!DRAWABLE_TYPES.includes(r.type)) continue;
         const rp = r.data.partId;
@@ -531,7 +539,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
    */
   function drawComponentAttrs(g: Group, attrs: Rec[], sym: DocSegment, partId: string, opts: { gray: boolean; hideAll: boolean }): void {
     if (opts.hideAll) return; // border component with the title block switched off
-    const sxf = xfOf(sym.canvas, false);
+    const sxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
     let lb: BBox | null = null;
     const pts: [number, number][] = [];
     for (const r of sym.recs) {
@@ -546,7 +554,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const partList = sym.recs.filter((r) => r.type === 'PART').map((r) => String(r.id ?? ''));
     const pIdx = partList.indexOf(partId);
     const suffix = partList.length > 1 && pIdx >= 0 ? String(pIdx + 1) : undefined;
-    const th = ((Number(g.rotation) || 0) * Math.PI) / 180; // sheet & symbol are y-down: screen deg = doc deg
+    const th = ((Number(g.rotation) || 0) * Math.PI) / 180; // g.rotation is already the screen angle (ang)
     const tc = Math.cos(th), ts = Math.sin(th);
     const mirrorOf = (ox: number, oy: number): [number, number] => {
       let x = ox, y = oy;
@@ -727,8 +735,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       }
       case 'PIN': {
         const px = d.x ?? 0, py = d.y ?? 0;
-        // EasyEDA schematic angles are clockwise; Math.cos/sin are CCW (#36)
-        const a = -((d.rotation ?? 0) * Math.PI) / 180;
+        // EasyEDA schematic angles are clockwise; Math.cos/sin are CCW (#36);
+        // the Y-flip reverses the sense, so Y-up docs keep the raw trig
+        const a = (xf.flip ? 1 : -1) * ((d.rotation ?? 0) * Math.PI) / 180;
         const len = d.length ?? 10;
         const [x1, y1] = P(px, py, xf);
         const [x2, y2] = P(px + len * Math.cos(a), py + len * Math.sin(a), xf);
@@ -838,7 +847,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       if (sym && pin) {
         // same transform chain as drawComponent: symbol-canvas offset, mirror
         // about the component origin, rotation, then component translation
-        const sxf = xfOf(sym.canvas, false);
+        const sxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
         const d = comp.data;
         let lx = X(Number(pin.data.x ?? 0), sxf);
         const ly = Y(Number(pin.data.y ?? 0), sxf);
