@@ -230,8 +230,12 @@ export class Shell {
         if (!l || l.count <= 0 || !this.currentRoot) return;
         const root = this.currentRoot;
         root.add(l.group);
+        // 只有必须常驻顶部的层(多层铜皮 470 / 板框 8000 / 原点轴 9000 / 飞线
+        // 9100 / 钻孔 9900)按栈序压回活跃层之上;其余层(同面的铜皮/阻焊/丝印
+        // 与对面各层)都留在活跃层之下 —— 之前把所有栈序更高的层全部重新 add,
+        // 丝印/阻焊/文档层这些低栈层点击后仍被铜皮盖住,提层形同未提
         const key = pcbStackKey(l);
-        for (const x of this.layers.filter((x) => x.count > 0 && pcbStackKey(x) > key).sort((a, b) => pcbStackKey(a) - pcbStackKey(b))) root.add(x.group);
+        for (const x of this.layers.filter((x) => x.count > 0 && pcbStackKey(x) > key && pcbStackKey(x) >= 470).sort((a, b) => pcbStackKey(a) - pcbStackKey(b))) root.add(x.group);
         const face = activeLayerFace(l);
         if (face) for (const gid of [`nn:${face}`, `pn:${face}`]) {
           const g = this.layers.find((x) => x.id === gid);
