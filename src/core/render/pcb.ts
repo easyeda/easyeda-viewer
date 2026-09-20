@@ -391,12 +391,15 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
     const along = h > w;
     // available run length shrunk a step (NET_LEN_SHRINK) and the ink dimmed
     // (NET_INK_DIM) so labels read quieter against the copper (user pref)
+    // a pad WITH a net always carries the label: the fit pass only shrinks it;
+    // pads too small even for the floor keep the floor size — on 0402-class
+    // pads it may graze the number, but a missing net reads worse (user pref)
     const f = fitNetFont(
       opts.netName,
       (along ? h - numF - 2 : w * 0.9) * NET_LEN_SHRINK,
       Math.min(NET_FONT_MAX, along ? w * 0.9 : h / 2 - numF / 2 - 1),
-    );
-    if (f != null) {
+    ) ?? NET_FONT_MAX;
+    {
       const t = new Text({
         text: opts.netName, fontSize: f, fill: dimHex(contrastInk(color), NET_INK_DIM),
         textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true, hittable: false,
@@ -819,11 +822,14 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     }
   }
 
-  const addToLayer = (d: any, obj: Rec, node: Group, label: string, kind: RenderObject['kind'] = 'primitive', bbox?: BBox) => {
-    const lid = d.layerId != null ? String(d.layerId) : '0';
+  const addToLayer = (d: any, obj: Rec, node: Group, label: string, kind: RenderObject['kind'] = 'primitive', bbox?: BBox,
+    group?: { key: string; name: string }) => {
+    let lid = d.layerId != null ? String(d.layerId) : '0';
+    if (group) lid = group.key; // synthetic per-face sub-group (pour:1 / pour:2)
     if (HIDDEN_LAYERS.has(lid)) return; // never-painted utility layers (#27 area)
-    const lm = layerMeta.get(lid);
-    api.layer(lid, lm?.name, lm?.color ?? LAYER_FALLBACK[Number(lid)] ?? '#888888', lm?.show ?? true).add(node);
+    // synthetic groups keep the face layer's own color/show (their `key` has no LAYER record)
+    const lm = layerMeta.get(group ? String(d.layerId) : lid);
+    api.layer(lid, group?.name ?? lm?.name, lm?.color ?? LAYER_FALLBACK[Number(lid)] ?? '#888888', lm?.show ?? true).add(node);
     // bottom-side layers show through the board at partial opacity — measured
     // from the official 2D export (#336619 = silk @50%, #000059 = copper @70%)
     const alpha = BOTTOM_ALPHA[lid];
@@ -903,7 +909,13 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           const gr = ((Number(target.rotation) || 0) * Math.PI) / 180;
           const gc = Math.cos(gr), gs = Math.sin(gr);
           const padNet = netOfPad.get(`${compId}:${d.num ?? ''}`) ?? (d.padNet != null ? String(d.padNet) : undefined);
-          targetFor(d.layerId).add(padNode(d, fxf, layerColor, holeFill, {
+          // through-hole pad copper hangs off the MULTI-Layer group: the barrel
+          // spans every copper face, so the client keeps the ring above inner
+          // tracks too — routing it to the face group (most TH pads carry
+          // layerId 1) let an activated inner layer bury it (#th-pad-multilayer).
+          // The color still follows the record's own face layer.
+          const thPad = Number(d.hole?.width ?? 0) > 0;
+          targetFor(thPad ? LAYER.MULTI : d.layerId).add(padNode(d, fxf, layerColor, holeFill, {
             holeSink: (hg) => {
               const hx = Number(hg.x) || 0, hy = (flipY ? -1 : 1) * (Number(hg.y) || 0);
               hg.x = gx + hx * gc - hy * gs;
@@ -1271,7 +1283,9 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           pasteRule,
           pasteSink: (face, pg) => pasteLayer(face).add(pg),
         });
-        addToLayer(d, r, node, `焊盘 ${r.id} #${d.num ?? ''}`, 'pad');
+        // through-hole pads stack with MULTI-Layer (see the footprint pad case)
+        const thPage = Number(d.hole?.width ?? 0) > 0;
+        addToLayer(thPage ? { ...d, layerId: LAYER.MULTI } : d, r, node, `焊盘 ${r.id} #${d.num ?? ''}`, 'pad');
         return;
       }
       case 'FILL': {
@@ -1376,7 +1390,20 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
             strokeWidth: ew > 0 ? ew : undefined, strokeCap: 'round', strokeJoin: 'round',
           }));
         }
-        addToLayer({ layerId: lid }, r, node, `铺铜 ${r.id} ${d.netName ?? ''}`);
+        // top/bottom pours paint in their own synthetic sub-group BETWEEN the
+        // solder-mask windows and the face copper group (pcbStackKey 'pour:'):
+        // the pad 阻焊扩展 rims (mask group) must read over the pour fill — a
+        // face-level pour inside the copper group buried them (user report).
+        // Tracks & pads sit in the copper group above, so they still cover the
+        // rims' inner half. Color/show follow the pour's copper face.
+        const pn = Number(lid);
+        if (pn === LAYER.TOP || pn === LAYER.BOTTOM) {
+          if (pn === LAYER.BOTTOM && node.opacity === undefined) node.opacity = BOTTOM_ALPHA['2'];
+          addToLayer({ layerId: lid }, r, node, `铺铜 ${r.id} ${d.netName ?? ''}`, 'primitive', undefined,
+            { key: pn === LAYER.TOP ? 'pour:1' : 'pour:2', name: pn === LAYER.TOP ? '顶层铺铜' : '底层铺铜' });
+        } else {
+          addToLayer({ layerId: lid }, r, node, `铺铜 ${r.id} ${d.netName ?? ''}`);
+        }
         return;
       }
       case 'TEARDROP': {
