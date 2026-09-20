@@ -15,6 +15,9 @@ func initialWindowSize() (int, int) { return 1280, 800 }
 // download prompt is Windows-only (#18)
 func webView2Available() bool      { return true }
 func promptWebView2Download() bool { return false }
+// profile pinning is a Windows WebView2 loader feature; other platforms keep
+// their default webview data dir
+func prepareWebView2Env() {}
 
 func createHostWindow(width, height int) unsafe.Pointer { return nil }
 

@@ -19,6 +19,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"syscall"
+	"time"
 
 	webview "github.com/webview/webview_go"
 )
@@ -42,6 +43,10 @@ func main() {
 			log.Printf("PANIC: %v\n%s", r, debug.Stack())
 		}
 	}()
+	start := time.Now()
+	stage := func(name string) {
+		log.Printf("[t+%v] %s", time.Since(start).Round(time.Millisecond), name)
+	}
 	log.Printf("EasyEDA Viewer Desktop %s (%s)", version, platform)
 
 	// WebView2 is the rendering engine — without it the window would stay blank,
@@ -52,6 +57,7 @@ func main() {
 		promptWebView2Download()
 		return
 	}
+	prepareWebView2Env()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -76,17 +82,20 @@ func main() {
 	port := ln.Addr().(*net.TCPAddr).Port
 	go http.Serve(ln, mux)
 	url := "http://127.0.0.1:" + strconv.Itoa(port) + "/?v=" + version
-	log.Printf("serving embedded viewer at %s", url)
+	stage("local server ready " + url)
 
 	winW, winH := initialWindowSize()
 	hostWnd := createHostWindow(winW, winH)
-	w := webview.NewWindow(true, hostWnd)
+	stage("host window shown (webview env init starts here)")
+	w := webview.NewWindow(false, hostWnd)
 	wv = w
 	defer w.Destroy()
+	stage("webview environment + controller ready")
 
 	w.SetTitle("EasyEDA 查看器 - v" + version)
 	w.SetSize(winW, winH, webview.HintNone)
 	prepareWindow(w.Window(), winW, winH)
+	stage("navigating to " + url)
 
 	w.Bind("openFileDialog", openFileDialog)
 	w.Bind("openFolderDialog", openFolderDialog)

@@ -5,6 +5,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -42,8 +44,11 @@ var (
 	procMessageBoxW              = user32.NewProc("MessageBoxW")
 	procGetModuleHandleW         = kernel32.NewProc("GetModuleHandleW")
 
+	gdi32                = syscall.NewLazyDLL("gdi32.dll")
 	shell32              = syscall.NewLazyDLL("shell32.dll")
 	advapi32             = syscall.NewLazyDLL("advapi32.dll")
+	procCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
+	procGetDpiForWindow  = user32.NewProc("GetDpiForWindow")
 	procShellExecuteW    = shell32.NewProc("ShellExecuteW")
 	procRegOpenKeyExW    = advapi32.NewProc("RegOpenKeyExW")
 	procRegQueryValueExW = advapi32.NewProc("RegQueryValueExW")
@@ -120,6 +125,10 @@ type winRect struct {
 	left, top, right, bottom int32
 }
 
+// hostBgColor is the pre-webview window background (COLORREF 0x00BBGGRR),
+// matching the shell's --ev-bg so the early-shown frame blends into the UI.
+const hostBgColor = 0x00F3F0EE
+
 func createHostWindow(width, height int) unsafe.Pointer {
 	procCoInitializeEx.Call(0, uintptr(coInitApartmentThreaded))
 	procSetThreadDpiAwarenessCtx.Call(^uintptr(3)) // PER_MONITOR_AWARE_V3
@@ -128,13 +137,14 @@ func createHostWindow(width, height int) unsafe.Pointer {
 	className, _ := syscall.UTF16PtrFromString("eextViewerParent")
 	title, _ := syscall.UTF16PtrFromString("EasyEDA 查看器 - v" + version)
 
+	bg, _, _ := procCreateSolidBrush.Call(hostBgColor)
 	wc := wndClassExW{
 		cbSize:        uint32(unsafe.Sizeof(wndClassExW{})),
 		lpfnWndProc:   procDefWindowProcW.Addr(),
 		hInstance:     hInstance,
 		hIcon:         loadAppIcon(hInstance),
 		hCursor:       loadArrowCursor(),
-		hbrBackground: 0,
+		hbrBackground: bg,
 		lpszClassName: className,
 	}
 	wc.hIconSm = wc.hIcon
@@ -152,7 +162,47 @@ func createHostWindow(width, height int) unsafe.Pointer {
 		return nil
 	}
 	mainHwnd = hwnd
+	// show immediately at final size — WebView2 environment creation inside
+	// webview.NewWindow blocks for seconds on cold starts, and an empty app
+	// frame beats a frozen taskbar while the renderer spins up (#19)
+	sizeAndShowHost(hwnd, width, height)
 	return unsafe.Pointer(hwnd)
+}
+
+// sizeAndShowHost applies the DPI-scaled final size, centers and shows the
+// window before webview.NewWindow runs. w.SetSize in main.go re-applies the
+// same scale afterwards, so on matching DPI the visible frame never moves.
+func sizeAndShowHost(hwnd uintptr, width, height int) {
+	dpi, _, _ := procGetDpiForWindow.Call(hwnd)
+	if dpi == 0 {
+		dpi = 96
+	}
+	w := uintptr(int64(width) * int64(dpi) / 96)
+	h := uintptr(int64(height) * int64(dpi) / 96)
+	procSetWindowPos.Call(hwnd, 0, 0, 0, w, h, swpNoZOrder|swpNoActivate)
+	centerWindow(hwnd)
+	procShowWindow.Call(hwnd, uintptr(swShow))
+}
+
+// prepareWebView2Env pins the WebView2 profile to %LOCALAPPDATA% and trims
+// first-run browser work before the environment is created. The WebView2
+// loader reads these WEBVIEW2_* env vars itself, so no library API is needed.
+// A stable profile folder means warm starts skip re-provisioning and keeps
+// defenders from re-scanning a profile that sits next to the exe (the loader
+// default), which made cold starts noticeably slower.
+func prepareWebView2Env() {
+	if os.Getenv("WEBVIEW2_USER_DATA_FOLDER") == "" {
+		if base := os.Getenv("LOCALAPPDATA"); base != "" {
+			dir := filepath.Join(base, "EasyEDAViewer", "WebView2")
+			if err := os.MkdirAll(dir, 0o755); err == nil {
+				os.Setenv("WEBVIEW2_USER_DATA_FOLDER", dir)
+			}
+		}
+	}
+	if os.Getenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") == "" {
+		os.Setenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+			"--no-first-run --no-default-browser-check --disable-background-networking")
+	}
 }
 
 func loadAppIcon(hInstance uintptr) uintptr {
