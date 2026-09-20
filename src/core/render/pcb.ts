@@ -134,6 +134,16 @@ function dimHex(c: string, f: number): string {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
+/** lift a #rrggbb hex toward white; non-hex colors pass through unchanged */
+function liftHex(c: string, f: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(c);
+  if (!m) return c;
+  const n = parseInt(m[1], 16);
+  const ch = (v: number) => Math.round(v + (255 - v) * f);
+  const r = ch((n >> 16) & 255), g = ch((n >> 8) & 255), b = ch(n & 255);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
 /** Skip auto-generated element-id text on the document layer (#13).
  *  `ownerId` is the parent component id; `allIds` is every record id in the current scope.
  *  Net names and pad numbers are preserved because they are semantically useful. */
@@ -208,6 +218,8 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   // the same token stream as FILL/POLY paths (#pad-polygon)
   const polyPath = Array.isArray(dp.path) && dp.path.length > 2 ? (dp.path as any[]) : null;
   let w = Number(dp.width ?? 10), h = Number(dp.height ?? 10);
+  // POLYGON pad outline origin (see polyPath use below)
+  let pbx = 0, pby = 0;
   if (polyPath) {
     // estimate w/h from the path's coordinate pairs for the pad-number size
     // (token payload numbers — ARC/C — only inflate the estimate slightly)
@@ -222,13 +234,22 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
     if (xs.length > 1) {
       w = Math.max(...xs) - Math.min(...xs);
       h = Math.max(...ys) - Math.min(...ys);
+      // the outline's own bbox center: real files author POLYGON paths in
+      // FOOTPRINT coords with centerX/centerY set to the copper bbox center
+      // (U23 mic: all three C-arcs ring the sound hole only when read as-is),
+      // so anchor by translating the path back onto its bbox center — the
+      // declared center. Path-relative files (bbox center ≈ 0,0) get the same
+      // treatment as a plain center-anchor, so both authorings land right.
+      pbx = (Math.max(...xs) + Math.min(...xs)) / 2;
+      pby = (Math.max(...ys) + Math.min(...ys)) / 2;
     }
   }
   const pad = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
   if (polyPath) {
-    // the outline is pad-local y-up doc coords — flip into screen space inside
-    // the pad group, which already carries the pad's position & rotation
-    for (const dd of multiPathToSvg(polyPath, { ox: 0, oy: 0, flip: true }, true)) {
+    // the outline is pad-local y-up doc coords re-centered on its bbox center
+    // (see pbx/pby) — flip into screen space inside the pad group, which
+    // already carries the pad's position & rotation
+    for (const dd of multiPathToSvg(polyPath, { ox: pbx, oy: pby, flip: true }, true)) {
       pad.add(new Path({ path: dd, fill: color }));
     }
   } else if (shape === 'RECT' || shape === 'SQUARE') {
@@ -525,8 +546,10 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   /** brightness factor of pour/fill copper vs tracks — ~0.6 reads like the
    *  client's dark-red fill against its bright-red wrap stroke */
   const POUR_FILL_DIM = 0.6;
-  /** drill/via holes punch through to the canvas background */
-  const holeFill = api.bgColor;
+  /** drill/via holes punch through to the canvas background — lifted a touch
+   *  lighter than it so 挖槽 cutouts and drills stay distinguishable from the
+   *  empty space around the board (user pref) */
+  const holeFill = liftHex(api.bgColor, 0.14);
   /** drill/slot holes hoist to the hole layer (47), the topmost group in the
    *  stacking order, so drills always paint above every copper/silk group */
   const holeLayerGroup = api.layer(String(LAYER.HOLE), layerMeta.get(String(LAYER.HOLE))?.name, layerColor(LAYER.HOLE), true);
