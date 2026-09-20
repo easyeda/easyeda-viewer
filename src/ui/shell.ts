@@ -603,11 +603,28 @@ export class Shell {
       // component tree: only real components, naturally sorted by designator (#6/#12);
       // when a sheet page is open the list spans the WHOLE owning schematic —
       // clicking a component from another page jumps to that page first.
-      // Only real components carry a Designator (instance attr or device-META
-      // default like "R?"); netports, power flags and the sheet frame don't
-      // have one in either spot — verified on the x86-pc sample (#component-tree)
+      // "Is a component" is the client's device symbolType:"component" flag; the
+      // stored form of that flag is the referenced SYMBOL doc's META.docType
+      // (2=component, 17=multi-part block vs 18 netflag / 19 netport / 20 drawing
+      // frame / 22 short / 31 diff-pair flag — verified across all epro2+esch2
+      // samples). Designator presence is NOT the criterion: components with a
+      // blank Designator are still listed (#component-tree)
+      const isComponentType = (od: OpenedDoc, map: Map<string, string>): boolean => {
+        const st = map.get('symbolType');
+        if (st !== undefined) return st === 'component';
+        const sym = map.get('Symbol');
+        let seg = typeof sym === 'string' && sym ? od.libs.get(sym) : undefined;
+        if (!seg || seg.docType !== 'SYMBOL') {
+          const dev = map.get('Device');
+          seg = resolveLibGraphics(od.libs, typeof dev === 'string' && dev ? od.libs.get(dev) : undefined, 'Symbol');
+        }
+        const dt = Number(seg?.meta?.docType);
+        if (!Number.isFinite(dt)) return true; // unresolvable lib ref — keep listing
+        return dt === 2 || dt === 17;
+      };
       const rowLabel = (map: Map<string, string>, fallback: string): string => {
-        const des = map.get('Designator') ?? fallback;
+        const desVal = map.get('Designator');
+        const des = desVal !== undefined && desVal !== '' ? desVal : fallback;
         const extraKey = map.has('Name') ? 'Name' : map.has('Value') ? 'Value' : '';
         const extra = extraKey ? resolveAttrRef(Object.fromEntries(map), map.get(extraKey)) : '';
         return extra ? `${des} (${extra})` : String(des);
@@ -617,7 +634,7 @@ export class Shell {
         for (const o of objs) {
           if (o.rec.type !== 'COMPONENT') continue;
           const map = new Map<string, string>(collectAttrs(o.rec, od).map((e) => [e.key, e.value]));
-          if (!map.has('Designator')) continue;
+          if (!isComponentType(od, map)) continue;
           rows.push({
             id: pageNodeId ? `${pageNodeId}::${o.id}` : o.id,
             type: o.rec.type,
@@ -635,7 +652,7 @@ export class Shell {
         for (const r of od.self.recs) {
           if (r.type !== 'COMPONENT') continue;
           const map = new Map<string, string>(collectAttrs(r, od).map((e) => [e.key, e.value]));
-          if (!map.has('Designator')) continue;
+          if (!isComponentType(od, map)) continue;
           rows.push({
             id: `${pageNodeId}::${r.id}`,
             type: r.type,
