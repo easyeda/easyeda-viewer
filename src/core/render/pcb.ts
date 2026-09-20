@@ -183,20 +183,23 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   }): Group {
   const g = new Group();
   const padAngleDeg = Number(d.padAngle ?? 0);
-  // relativeAngle is the pad shape's own rotation authored in the footprint
-  // editor (official R0603 pads: padAngle=0 + relativeAngle=90 everywhere);
-  // the visual rotation is the sum, applied to copper, drill, mask and paste
-  // alike (#pad-polygon — polygon pads store their path in the unrotated
-  // pad-local frame, so e.g. the MEMS-mic side pads lean the wrong way without it)
+  // schema (epskill FOOTPRINT/pad.md): relativeAngle = 孔相对焊盘旋转角度 — the
+  // DRILL's rotation relative to the pad — and padOffsetX/Y = 孔偏移 — the
+  // drill's offset from the pad center. The copper (and its mask/paste
+  // openings) sits on the declared center with only padAngle: feeding either
+  // field into the copper displaced POLYGON pads off their centers (U23 mic
+  // ring floated away from the traces ending on them) and turned USB1's slot
+  // copper against its hole (#pad-offset-regression, #slot-dir)
   const relAngle = Number(d.relativeAngle ?? 0) || 0;
-  const padAngle = ((padAngleDeg + relAngle) * Math.PI) / 180;
+  const padAngle = (padAngleDeg * Math.PI) / 180;
   const offX = Number(d.padOffsetX ?? 0), offY = Number(d.padOffsetY ?? 0);
-  // pad copper is offset from the pad center; the drill stays at the center (#13).
-  // EasyEDA doc angles are clockwise, so rotate clockwise before the Y-flip transform.
+  // drill = center + padOffset rotated by padAngle, then rotated by
+  // padAngle + relativeAngle in its own group. EasyEDA doc angles are
+  // clockwise, so rotate clockwise before the Y-flip transform.
   const rawX = Number(d.centerX ?? 0) + offX * Math.cos(padAngle) + offY * Math.sin(padAngle);
   const rawY = Number(d.centerY ?? 0) - offX * Math.sin(padAngle) + offY * Math.cos(padAngle);
   const cx = X(Number(d.centerX ?? 0), xf), cy = Y(Number(d.centerY ?? 0), xf);
-  const px = X(rawX, xf), py = Y(rawY, xf);
+  const px = cx, py = cy; // copper anchor = declared pad center
   const dp = d.defaultPad ?? {};
   const color = opts?.copperColor ?? colorOf(d.layerId ?? LAYER.TOP);
   const shape = String(dp.padType ?? 'RECT').toUpperCase();
@@ -221,7 +224,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       h = Math.max(...ys) - Math.min(...ys);
     }
   }
-  const pad = new Group({ x: px, y: py, rotation: ang(padAngleDeg + relAngle) });
+  const pad = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
   if (polyPath) {
     // the outline is pad-local y-up doc coords — flip into screen space inside
     // the pad group, which already carries the pad's position & rotation
@@ -258,7 +261,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       } else {
         hn = new Ellipse({ x: -hw / 2, y: -hh / 2, width: hw, height: hh, fill: holeFill });
       }
-      const hg = new Group({ x: cx, y: cy, rotation: ang(padAngleDeg + relAngle) });
+      const hg = new Group({ x: X(rawX, xf), y: Y(rawY, xf), rotation: ang(padAngleDeg + relAngle) });
       hg.add(hn);
       if (opts?.holeSink) opts.holeSink(hg); // hoisted to the topmost hole layer
       else g.add(hg);
@@ -286,7 +289,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       const cr = shape === 'RECT' || shape === 'SQUARE'
         ? Math.min(Math.max(0, (Number(dp.radius) || 0) + e), Math.min(mw, mh) / 2)
         : Math.min(mw, mh) / 2;
-      const mg = new Group({ x: px, y: py, rotation: ang(padAngleDeg + relAngle) });
+      const mg = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
       mg.add(new Rect({ x: -mw / 2, y: -mh / 2, width: mw, height: mh, fill: colorOf(face === 1 ? LAYER.TOP_MASK : LAYER.BOT_MASK), cornerRadius: cr }));
       opts.maskSink(face, mg);
     }
@@ -314,7 +317,7 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       const cr = shape === 'RECT' || shape === 'SQUARE'
         ? Math.min(Math.max(0, (Number(dp.radius) || 0) + e), Math.min(pw, ph) / 2)
         : Math.min(pw, ph) / 2;
-      const pg = new Group({ x: px, y: py, rotation: ang(padAngleDeg + relAngle) });
+      const pg = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
       pg.add(new Rect({ x: -pw / 2, y: -ph / 2, width: pw, height: ph, fill: colorOf(face === 1 ? LAYER.TOP_PASTE : LAYER.BOTTOM_PASTE), cornerRadius: cr }));
       opts.pasteSink(face, pg);
     }
@@ -1241,14 +1244,13 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const edge = fw > 0 ? fw * 39.3701 : 0;
         const ink = colorForNet(d.netName, pourColor(d.layerId));
         for (const path of multiPathToSvg(d.path ?? [], xf, true)) {
-          // fill paints dimmed; the round-cap edge wrap strokes FULL layer color
-          // so the border reads as a visible bright outline (client parity) —
-          // with no manufacturing wrap the dimmed fill alone still matches the
-          // client's dark fill against bright routing
+          // fill and its round-cap edge wrap paint the SAME dimmed tone — the
+          // client's manufacturing wrap reads as part of the fill, not a bright
+          // outline; only unrouted pour borders stay dark (#pour-edge)
           node.add(new Path({
             path,
             fill: dimHex(ink, POUR_FILL_DIM),
-            stroke: edge > 0 ? ink : undefined,
+            stroke: edge > 0 ? dimHex(ink, POUR_FILL_DIM) : undefined,
             strokeWidth: edge > 0 ? edge : undefined, strokeCap: 'round', strokeJoin: 'round',
           }));
         }
@@ -1317,8 +1319,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           // outline where the pour wraps the tracks. strokeWidth shares the
           // 0.1× doc unit of the path coords → scale it by 10 too (#pour-edge).
           // Fill entries carry no stroke of their own — they take the POUR's
-          // wrap gauge; both paint the stroke FULL layer color over the dimmed
-          // fill so the border reads as a bright outline (client parity)
+          // wrap gauge; stroke and fill share the SAME dimmed tone — the
+          // client's wrap reads as part of the fill, not a bright overlay
           const sw = (Number(pf.strokeWidth) || 0) * 10;
           // fineness gauge is already mil doc units — used as-is (no mm conversion)
           const ew = sw > 0 ? sw : (pouredWidth.get(d) ?? 0);
@@ -1327,7 +1329,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
             path: ds.join(' '),
             fill: pf.fill === false ? undefined : dimHex(pourInk, POUR_FILL_DIM),
             fillRule: 'nonzero',
-            stroke: ew > 0 ? pourInk : undefined,
+            stroke: ew > 0 ? dimHex(pourInk, POUR_FILL_DIM) : undefined,
             strokeWidth: ew > 0 ? ew : undefined, strokeCap: 'round', strokeJoin: 'round',
           }));
         }
@@ -1411,6 +1413,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const wDoc = Number(d.width), hDoc = Number(d.height);
         const sx = isFinite(wDoc) && wDoc > 0 && lw > 0 ? wDoc / lw : 1;
         const sy = isFinite(hDoc) && hDoc > 0 && lh > 0 ? hDoc / lh : sx;
+        // actual painted extent after normalization (= declared w×h when given)
+        const bw = lw * sx, bh = lh * sy;
         // local → doc offsets relative to the top-left anchor: x grows right,
         // the y-up top edge (maxY) sits on startY so the body extends downward
         const mapped = segs.map((seg) => {
@@ -1428,10 +1432,20 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           }
           return out;
         });
-        // coords are relative to the anchor, so the Group can rotate about it
+        // local content spans [0,bw]×[0,bh] on screen after the flip; the Group
+        // rotates it about its origin and the rotated content AABB's top-left is
+        // then pinned back onto the anchor — EasyEDA keeps the placed box's doc
+        // top-left at (startX,startY) for any angle, so ±90° images sit right/
+        // below the anchor instead of mirroring over to its other side
+        // (#image-bbox)
+        const rr = (-Number(d.angle ?? 0) * Math.PI) / 180;
+        const cs = Math.cos(rr), sn = Math.sin(rr);
+        const minXc = Math.min(0, bw * cs, bw * cs - bh * sn, -bh * sn);
+        const minYc = Math.min(0, bw * sn, bw * sn + bh * cs, bh * cs);
         const node = new Group({ rotation: ang(Number(d.angle ?? 0)) });
         const [px, py] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), xf);
-        node.x = px; node.y = py;
+        node.x = px - minXc;
+        node.y = py - minYc;
         // the mapping produced y-up doc offsets relative to the anchor — the
         // flip transform turns them into screen coords (body hanging below it)
         const ds = multiPathToSvg(mapped, { ox: 0, oy: 0, flip: true }, true);
