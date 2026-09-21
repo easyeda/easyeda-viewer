@@ -384,7 +384,8 @@ export function textFramePoly(r: { type: string; data: any }, xf: Xf): [number, 
   const fs = Number(d.fontSize) || 10;
   const { w, h } = textExtent(v, fs);
   const [ax, ay] = P(Number(d.x ?? 0), Number(d.y ?? 0), xf);
-  const s = String(d.origin ?? d.align ?? '').toUpperCase();
+  // align 缺省按 LEFT_BOTTOM 展开,与渲染端 textOf 的缺省锚点同源(#sch-text-anchor)
+  const s = String(d.origin ?? d.align ?? '').trim().toUpperCase() || 'BOTTOM';
   const ha = s.includes('CENTER') ? 0.5 : s.includes('RIGHT') ? 1 : 0;
   const va = s.includes('TOP') ? 0 : s.includes('BOTTOM') ? 1 : 0.5;
   // corners around the anchor per alignment, rotated by the screen angle

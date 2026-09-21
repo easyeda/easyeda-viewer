@@ -320,15 +320,26 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         case 'TEXT': case 'STRING': case 'PINLABEL': {
           const value = String(r.data.value ?? r.data.text ?? '');
           if (value) {
+            const fs = Number(r.data.fontSize) || 8;
+            // 与页面级 textOf 同一套锚点语义:align 缺省 LEFT_BOTTOM(canvas
+            // em 盒底),行距 1em,0.05em 基线残差沿上轴抬回(#sch-text-anchor)。
+            // 样例数据中 PINLABEL 记录数为 0,缺省值变更对实际文件无感
+            const rot = typeof r.data.rotation === 'number' ? ang(r.data.rotation, sxf) : 0;
             const t = new Text({
-              text: value, fontSize: Number(r.data.fontSize) || 8,
+              text: value, fontSize: fs,
               fill: gray ? '#999999' : strokeOf(r.data, COLORS.schComponent),
               fontFamily: r.data.fontFamily || undefined,
-              textAlign: alignX(r.data.align), verticalAlign: alignY(r.data.align ?? 'TOP'),
+              textAlign: alignX(r.data.align), verticalAlign: alignY(r.data.align || 'LEFT_BOTTOM'),
+              // 数值 lineHeight 在 leafer 里是绝对单位而非 em 倍数,传 fontSize 即 1em
+              lineHeight: fs,
               autoSizeAlign: true,
             } as any);
             t.x = X(Number(r.data.x ?? 0), sxf); t.y = Y(Number(r.data.y ?? 0), sxf);
-            if (typeof r.data.rotation === 'number') t.rotation = ang(r.data.rotation, sxf);
+            const nudge = fs * 0.05;
+            const rr = (rot * Math.PI) / 180;
+            t.x += nudge * Math.sin(rr);
+            t.y += -nudge * Math.cos(rr);
+            if (rot) t.rotation = rot;
             const tg = new Group(); tg.add(t);
             local.add(tg);
             made = true;
@@ -477,19 +488,36 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   function textOf(d: any, xfc: Xf, color: string): Group | null {
     const value = String(d.value ?? d.text ?? '');
     if (!value) return null;
+    const fs = Number(d.fontSize) || 10;
     const t = new Text({
       text: value,
-      fontSize: Number(d.fontSize) || 10,
+      fontSize: fs,
       fill: strokeOf({ strokeColor: d.color }, color),
       // the record's own font name (e.g. 宋体) when the file names one — the
       // browser falls back to its default face when it is not installed
       fontFamily: (typeof d.fontFamily === 'string' && d.fontFamily && d.fontFamily !== 'default')
         ? d.fontFamily : undefined,
       textAlign: alignX(d.align),
-      verticalAlign: alignY(d.align),
+      // EasyEDA 文本锚点即 canvas em 盒语义:align 缺省为 LEFT_BOTTOM —— y 是
+      // 含下降部的盒底(基线在 y 上方 ≈0.2em),x 为字形左缘。对照官方导出实测
+      // fs=20/30 文本(罩框底边贴合 / RTC / 40MHz / QSPI Flash)逐点吻合
+      // (#sch-text-anchor)
+      verticalAlign: alignY(d.align || 'LEFT_BOTTOM'),
+      // 行距 1em:参考导出多行实测 ≈0.97em。注意 leafer 的数值 lineHeight 是
+      // 绝对单位而非 em 倍数(默认 {percent:1.5}),传 fontSize 即 1em;若误传 1
+      // 会得到 1 单位行高,触发 __lineHeight<fontSize 的 fs/2 盒子扩散且基线
+      // 坠到锚点下方 0.33em(#sch-text-anchor / #net-gap 同族问题)
+      lineHeight: fs,
       autoSizeAlign: true,
     });
-    const g = new Group({ x: X(d.x ?? 0, xfc), y: Y(d.y ?? 0, xfc), rotation: ang(d.rotation ?? 0, xfc) });
+    const rot = ang(d.rotation ?? 0, xfc);
+    // leafer 的基线模型((L+0.7)/2)比 canvas em 盒统一低 0.05em,沿文本自身
+    // 上轴抬回(与 NET 标签抬升同一套路),任意旋转角下基线均落在 y−0.2em
+    const nudge = fs * 0.05;
+    const rr = (rot * Math.PI) / 180;
+    const gx = X(d.x ?? 0, xfc) + nudge * Math.sin(rr);
+    const gy = Y(d.y ?? 0, xfc) + -nudge * Math.cos(rr);
+    const g = new Group({ x: gx, y: gy, rotation: rot });
     g.add(t);
     return g;
   }
