@@ -30,6 +30,11 @@ export interface RenderObject {
   /** 线类图元(导线/走线/弧/折线)的实际绘制路径顶点(世界屏幕坐标)——
    *  选中高亮沿路径贴合而非取整体 bbox 最大矩形(#select-box-path) */
   pathPts?: [number, number][];
+  /** 旋转非零的框类图元(元件/焊盘/文本)旋转后外框的世界四角顶点(闭合
+   *  多边形,顶点按序首尾相接)——选中框按此贴合图元实际旋转姿态渲染,不再
+   *  退化为轴对齐最大矩形;0° 图元不标注,继续走 bbox 框,自然回归现状
+   *  (#select-box-rot) */
+  selPoly?: [number, number][];
 }
 
 export interface RenderLayer {

@@ -929,25 +929,61 @@ export class Shell {
       const b = o.bbox!;
       return (b.maxX - b.minX) * (b.maxY - b.minY);
     };
+    // 线类图元(pathPts ≥ 2)的精确命中(#pick-precise):点到折线各段的最小
+    // 距离 ≤ 容差(文档单位,与恒定像素选中线宽同量级)才算命中;bbox 仅作
+    // 扩容差粗筛预过滤,精确测试不过不回退 bbox——L 形/斜线 bbox 的空白区
+    // 点了就是没命中。弧在渲染层已采样成折线顶点,同一测试覆盖
+    const segDist = (pts: [number, number][], x: number, y: number): number => {
+      let dmin = Infinity;
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const [x1, y1] = pts[i], [x2, y2] = pts[i + 1];
+        const dx = x2 - x1, dy = y2 - y1;
+        const l2 = dx * dx + dy * dy;
+        const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / l2)) : 0;
+        const d = Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy));
+        if (d < dmin) dmin = d;
+      }
+      return dmin;
+    };
     // 活跃层优先仅在 PCB 族文档生效;原理图无层激活概念,行为不变
     const act = this.activeLayerId != null
       && (this.docKind === 'pcb' || this.docKind === 'panel' || this.docKind === 'footprint')
       ? this.activeLayerId : null;
-    // 命中优先级:激活层有命中 → 选激活层上 bbox 最小的图元;否则回退到
-    // 既有"整体 bbox 最小面积"规则(激活层无命中/未设激活层时不变)
-    let best: RenderObject | null = null;
-    let bestArea = Infinity;
-    let bestActive: RenderObject | null = null;
-    let bestActiveArea = Infinity;
+    // 命中规则(#pick-active-layer 收紧 + #pick-precise):
+    // 1) 依次过隐藏层/激活层过滤——设了激活层就只看激活层上的图元,激活层
+    //    无命中等于点了空白(取消选中),绝不回退穿透到其他层;未设激活层
+    //    时保持整体命中规则不变;
+    // 2) 线类图元走精确命中,非线类保持 bbox 包含 + 既有描边命中;
+    // 3) 线类之间取段距离最小者(近距平行导线取更近者),非线类之间沿用
+    //    bbox 面积最小;两类并存时按 bbox 面积比较——焊盘/文本等小目标不被
+    //    穿过它的走线抢走(走线端点常落在焊盘中心),走线仍胜过大面积铺铜
+    //    的空腔 bbox
+    let wireHit: RenderObject | null = null;
+    let wireDist = Infinity;
+    let wireArea = Infinity;
+    let boxHit: RenderObject | null = null;
+    let boxArea = Infinity;
     for (const o of this.objects) {
       if (!o.bbox) continue;
       if (hidden(o)) continue;
-      if (!pass(o)) continue;
-      const area = areaOf(o);
-      if (area < bestArea) { bestArea = area; best = o; }
-      if (act && o.layerKey === act && area < bestActiveArea) { bestActiveArea = area; bestActive = o; }
+      if (act && o.layerKey !== act) continue;
+      const pts = o.pathPts;
+      if (pts && pts.length >= 2) {
+        const b = o.bbox;
+        if (wx < b.minX - tol || wx > b.maxX + tol || wy < b.minY - tol || wy > b.maxY + tol) continue;
+        const d = segDist(pts, wx, wy);
+        if (d > tol) continue;
+        const area = areaOf(o);
+        if (d < wireDist - 1e-9 || (d <= wireDist + 1e-9 && area < wireArea)) {
+          wireDist = d; wireArea = area; wireHit = o;
+        }
+      } else {
+        if (!pass(o)) continue;
+        const area = areaOf(o);
+        if (area < boxArea) { boxArea = area; boxHit = o; }
+      }
     }
-    this.select(bestActive ?? best);
+    this.select(wireHit && boxHit ? (wireArea < boxArea ? wireHit : boxHit) : (wireHit ?? boxHit));
   }
 
   private select(obj: RenderObject | null): void {
@@ -967,7 +1003,17 @@ export class Shell {
       // 整体 bbox 最大矩形对斜线/折线会出现大角度失配的粗框,与 EDA 客户端
       // 的沿线高亮习惯不符;其余图元(元件/焊盘/文本…)保持 bbox 控制框
       const pts = obj.pathPts;
-      if (pts && pts.length >= 2) {
+      // 旋转非零的框类图元(元件/焊盘/文本)按渲染层标注的旋转外框四角
+      // 闭合绘制(首尾相接),贴合图元实际旋转姿态;0° 图元无 selPoly,四角
+      // 退化为轴对齐矩形,继续走下方 bbox 框,零回归(#select-box-rot)
+      const poly = obj.selPoly;
+      if (poly && poly.length >= 3) {
+        const flat: number[] = [];
+        for (const [x, y] of poly) flat.push(x, y);
+        const ln = new Line({ points: flat, closed: true, ...common });
+        this.selShapes.push(ln);
+        this.overlay.add(ln);
+      } else if (pts && pts.length >= 2) {
         const flat: number[] = [];
         for (const [x, y] of pts) flat.push(x, y);
         const ln = new Line({ points: flat, ...common });

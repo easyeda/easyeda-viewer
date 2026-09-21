@@ -330,22 +330,8 @@ export function objBBox(r: { type: string; data: any }, xf: Xf, local = false): 
     case 'TEXT': case 'STRING': {
       // pick bbox from measured text extents around the anchor (the old
       // char-count estimate was wildly oversized/undersized — #text-bbox)
-      const v = String(d.value ?? d.text ?? '');
-      if (!v.trim()) return null;
-      const fs = Number(d.fontSize) || 10;
-      const { w, h } = textExtent(v, fs);
-      const [ax, ay] = P(Number(d.x ?? 0), Number(d.y ?? 0), xf);
-      const s = String(d.origin ?? d.align ?? '').toUpperCase();
-      const ha = s.includes('CENTER') ? 0.5 : s.includes('RIGHT') ? 1 : 0;
-      const va = s.includes('TOP') ? 0 : s.includes('BOTTOM') ? 1 : 0.5;
-      // corners around the anchor per alignment, rotated by the screen angle
-      // (screen rotation follows ang(): negated for Y-down docs, raw for Y-flip)
-      const rr = ((xf.flip ? 1 : -1) * Number(d.rotation ?? d.angle ?? 0) * Math.PI) / 180;
-      const cs = Math.cos(rr), sn = Math.sin(rr);
-      const corners: [number, number][] = [[-ha, -va], [1 - ha, -va], [1 - ha, 1 - va], [-ha, 1 - va]]
-        .map(([fx, fy]) => [fx * w, fy * h])
-        .map(([dx, dy]) => [ax + dx * cs - dy * sn, ay + dx * sn + dy * cs] as [number, number]);
-      return bboxFromPts(corners);
+      const corners = textFramePoly(r, xf);
+      return corners ? bboxFromPts(corners) : null;
     }
     case 'POURED': for (const pf of d.pourFill ?? []) for (const it of scalePourItems(pf.path)) collectPathPts(it, raw); break;
     case 'POUR': case 'REGION': if (Array.isArray(d.path)) for (const it of Array.isArray(d.path[0]) ? d.path : [d.path]) collectPathPts(it, raw); break;
@@ -387,7 +373,29 @@ export function collectPathPts(item: any[], raw: [number, number][]): void {
   }
 }
 
-/** AABB of a box rotated about its own center (padAngle is doc-degrees) */
+/** 文本/字符串的旋转外框四角(世界屏幕坐标):按测量文本宽高与对齐比例绕锚点
+ *  展开,再随屏面角旋转(ang() 共轭——Y-down 文档取负,Y-flip 保持原角)。
+ *  objBBox 的 TEXT 分支与渲染层 selPoly 标注共用同一份数学,保证拾取 bbox 与
+ *  选中框永远同源(#text-bbox / #select-box-rot);空文本返回 null。 */
+export function textFramePoly(r: { type: string; data: any }, xf: Xf): [number, number][] | null {
+  const d = r.data;
+  const v = String(d.value ?? d.text ?? '');
+  if (!v.trim()) return null;
+  const fs = Number(d.fontSize) || 10;
+  const { w, h } = textExtent(v, fs);
+  const [ax, ay] = P(Number(d.x ?? 0), Number(d.y ?? 0), xf);
+  const s = String(d.origin ?? d.align ?? '').toUpperCase();
+  const ha = s.includes('CENTER') ? 0.5 : s.includes('RIGHT') ? 1 : 0;
+  const va = s.includes('TOP') ? 0 : s.includes('BOTTOM') ? 1 : 0.5;
+  // corners around the anchor per alignment, rotated by the screen angle
+  // (screen rotation follows ang(): negated for Y-down docs, raw for Y-flip)
+  const rr = ((xf.flip ? 1 : -1) * Number(d.rotation ?? d.angle ?? 0) * Math.PI) / 180;
+  const cs = Math.cos(rr), sn = Math.sin(rr);
+  return [[-ha, -va], [1 - ha, -va], [1 - ha, 1 - va], [-ha, 1 - va]]
+    .map(([fx, fy]) => [fx * w, fy * h])
+    .map(([dx, dy]) => [ax + dx * cs - dy * sn, ay + dx * sn + dy * cs] as [number, number]);
+}
+
 let measureCtx: CanvasRenderingContext2D | null | undefined;
 /** measured text extents via an offscreen 2D context (world units = px at the
  *  doc font size, since the camera applies the zoom) — #text-bbox */
@@ -406,13 +414,21 @@ function textExtent(value: string, fontSize: number): { w: number; h: number } {
   };
 }
 
-function rotateBox(b: BBox, deg: number): BBox {
+/** 盒子绕自身中心旋转 deg(doc 角度,屏面角取负)后的四角顶点(世界屏幕坐标)
+ *  —— 旋转焊盘等框类图元的贴合选中框与 rotateBox 的 AABB 估计共用同一套
+ *  三角(屏面角 = −deg,与渲染端 ang(padAngleDeg) 一致)(#select-box-rot) */
+export function rotateBoxPoly(b: BBox, deg: number): [number, number][] {
   const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
   const a = (-deg * Math.PI) / 180;
   const c = Math.cos(a), s = Math.sin(a);
   const hw = (b.maxX - b.minX) / 2, hh = (b.maxY - b.minY) / 2;
-  const corners = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([x, y]) => [x * c - y * s, x * s + y * c]);
-  return bboxFromPts(corners.map(([x, y]) => [cx + x, cy + y])) ?? b;
+  return ([[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]] as [number, number][])
+    .map(([x, y]) => [cx + x * c - y * s, cy + x * s + y * c] as [number, number]);
+}
+
+/** AABB of a box rotated about its own center (padAngle is doc-degrees) */
+function rotateBox(b: BBox, deg: number): BBox {
+  return bboxFromPts(rotateBoxPoly(b, deg)) ?? b;
 }
 
 function expand(b: BBox, m: number): BBox {

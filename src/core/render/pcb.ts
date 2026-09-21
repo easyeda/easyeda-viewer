@@ -2,7 +2,7 @@
 import { Group, Line, Rect, Path, Text, Ellipse, Image as LeaferImage } from 'leafer-ui';
 import type { OpenedDoc, Rec, DocSegment } from '../types';
 import type { RenderApi, RenderObject } from './layers';
-import { X, Y, P, ang, strokeOf, widthOf, xfOf, objBBox, bboxFromPts, multiPathToSvg, scalePourItems, arcPts, collectPathPts, type BBox, type Xf } from './geom';
+import { X, Y, P, ang, strokeOf, widthOf, xfOf, objBBox, bboxFromPts, multiPathToSvg, scalePourItems, arcPts, collectPathPts, rotateBoxPoly, type BBox, type Xf } from './geom';
 import { glyphKey, glyphPathD, fontGlyphMap, GLYPH_UNIT, type FontGlyph } from './font';
 import { resolveLibGraphics } from '../model';
 
@@ -423,13 +423,15 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   return g;
 }
 
-/** exact world bbox of a glyph-rendered STRING (#string-bbox): FONT outline
+/** exact world frame of a glyph-rendered STRING (#string-bbox): FONT outline
  *  subs are pure polyline coordinate pairs, so their ink bounds are exact —
  *  placed through the same anchor/origin/angle/flip math as glyphLabel, the
  *  pick box hugs the painted glyphs instead of the measured layout estimate.
+ *  `poly` returns the ink box's four world corners themselves — 旋转非零的
+ *  丝印字符串把它们交给选中框闭合绘制(#select-box-rot)。
  *  Text-fallback strings (no FONT record) return undefined and keep the
  *  generic objBBox estimate. */
-function stringBBox(d: any, glyphs: Map<string, FontGlyph>, xfc: Xf): BBox | undefined {
+function stringCorners(d: any, glyphs: Map<string, FontGlyph>, xfc: Xf): [number, number][] | undefined {
   const text = String(d.text ?? d.value ?? '');
   if (!text) return undefined;
   const glyph = glyphs.get(glyphKey(text, String(d.fontFamily ?? ''), Number(d.fontSize) || 0));
@@ -460,10 +462,13 @@ function stringBBox(d: any, glyphs: Map<string, FontGlyph>, xfc: Xf): BBox | und
   const rr = (-Number(d.angle ?? d.rotation ?? 0) * Math.PI) / 180;
   const cs = Math.cos(rr), sn = Math.sin(rr);
   const kx = d.reverse ? -1 : 1, ky = d.mirror ? -1 : 1;
-  const corners: [number, number][] = ([[lx0, ly0], [lx1, ly0], [lx1, ly1], [lx0, ly1]] as [number, number][]).map(
+  return ([[lx0, ly0], [lx1, ly0], [lx1, ly1], [lx0, ly1]] as [number, number][]).map(
     ([lx, ly]) => [ax + (lx * kx) * cs - (ly * ky) * sn, ay + (lx * kx) * sn + (ly * ky) * cs] as [number, number],
   );
-  return bboxFromPts(corners) ?? undefined;
+}
+
+function stringBBox(d: any, glyphs: Map<string, FontGlyph>, xfc: Xf): BBox | undefined {
+  return bboxFromPts(stringCorners(d, glyphs, xfc) ?? []) ?? undefined;
 }
 
 /** bottom-face viewing flip (#bottom-mirror): the official 2D view reads records
@@ -828,7 +833,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   }
 
   const addToLayer = (d: any, obj: Rec, node: Group, label: string, kind: RenderObject['kind'] = 'primitive', bbox?: BBox,
-    group?: { key: string; name: string }, pathPts?: [number, number][]) => {
+    group?: { key: string; name: string }, pathPts?: [number, number][], selPoly?: [number, number][]) => {
     let lid = d.layerId != null ? String(d.layerId) : '0';
     if (group) lid = group.key; // synthetic per-face sub-group (pour:1 / pour:2)
     if (HIDDEN_LAYERS.has(lid)) return; // never-painted utility layers (#27 area)
@@ -843,7 +848,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     // image frame) instead of the generic estimate (#string-bbox, #image-bbox)
     // `layerKey` 落定对象实际所在层组(含合成组),供活跃层优先拾取与隐藏判定
     // `pathPts` 线类图元的实际路径,选中框沿路径贴合(#select-box-path)
-    api.addObject({ id: obj.id, rec: obj, node, label, kind, bbox: bbox ?? objBBox(obj, xf) ?? undefined, layerKey: lid, pathPts });
+    // `selPoly` 旋转非零图元的旋转外框四角,选中框闭合贴合(#select-box-rot)
+    api.addObject({ id: obj.id, rec: obj, node, label, kind, bbox: bbox ?? objBBox(obj, xf) ?? undefined, layerKey: lid, pathPts, selPoly });
   };
 
   // ---- origin axes at the business origin (CANVAS originX/originY) (#11) ----
@@ -1169,6 +1175,9 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       id: r.id, rec: r, node: g, label: `元件 ${r.id}`, kind: 'component',
       title: attrValue(attrs, 'Designator') ?? String(d.attrs?.['Designator'] ?? d.attrs?.['Name'] ?? r.id),
       bbox: footprintBBox(fp, g),
+      // 旋转非零的元件按自身坐标系联合外框的旋转后四角贴合选中;0° 不标注,
+      // 选中框维持轴对齐矩形(现状)(#select-box-rot)
+      selPoly: Number(d.angle ?? 0) % 360 !== 0 ? footprintFrame(fp, g).poly : undefined,
       // 元件拾取归属按其自身所在面(封装图元经 wrapper 分散到各层组,#pick-active-layer)
       layerKey: layerIdOf(d) || String(LAYER.TOP),
     });
@@ -1310,9 +1319,27 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           pasteRule,
           pasteSink: (face, pg) => pasteLayer(face).add(pg),
         });
+        // 旋转焊盘的贴合选中框(#select-box-rot):RECT/圆头按 defaultPad 宽高
+        // 绕焊盘中心转 padAngle(屏面角取负,与 rotateBox / 渲染端
+        // ang(padAngleDeg) 同源);POLYGON 焊盘铜皮按 path 顶点 as-is 绘制
+        // (padNode 硬编码 {ox:0,oy:0,flip:true},padAngle 不参与铜皮旋转,
+        // #pad-polygon-ring),选中框直接用同一映射的顶点,比四角更精确
+        const dpSel = d.defaultPad ?? {};
+        const polySel = Array.isArray(dpSel.path) && dpSel.path.length > 2 ? dpSel.path : null;
+        let padPoly: [number, number][] | undefined;
+        if (polySel) {
+          const rawPts: [number, number][] = [];
+          for (const it of Array.isArray(polySel[0]) ? polySel : [polySel]) collectPathPts(it, rawPts);
+          if (rawPts.length >= 3) padPoly = rawPts.map(([x0, y0]) => P(x0, y0, { ox: 0, oy: 0, flip: true }));
+        } else if (Number(d.padAngle ?? 0) % 360 !== 0) {
+          const pw = Number(dpSel.width ?? 10), ph = Number(dpSel.height ?? 10);
+          const [pcx, pcy] = P(Number(d.centerX ?? 0), Number(d.centerY ?? 0), xf);
+          padPoly = rotateBoxPoly({ minX: pcx - pw / 2, minY: pcy - ph / 2, maxX: pcx + pw / 2, maxY: pcy + ph / 2 }, Number(d.padAngle ?? 0));
+        }
         // through-hole pads stack with MULTI-Layer (see the footprint pad case)
         const thPage = Number(d.hole?.width ?? 0) > 0;
-        addToLayer(thPage ? { ...d, layerId: LAYER.MULTI } : d, r, node, `焊盘 ${r.id} #${d.num ?? ''}`, 'pad');
+        addToLayer(thPage ? { ...d, layerId: LAYER.MULTI } : d, r, node, `焊盘 ${r.id} #${d.num ?? ''}`, 'pad',
+          undefined, undefined, undefined, padPoly);
         return;
       }
       case 'FILL': {
@@ -1463,8 +1490,12 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         // exact glyph-ink box (#string-bbox) doubles as the bottom-mirror axis
         const exact = stringBBox(d, fontGlyphs, xf);
         const bb = exact ?? objBBox(r, xf) ?? undefined;
+        // 旋转非零的丝印字符串:墨迹盒四角就是贴合旋转姿态的选中框,与
+        // stringBBox 同一份数学(#string-bbox / #select-box-rot)
+        const poly = Number(d.angle ?? d.rotation ?? 0) % 360 !== 0 ? stringCorners(d, fontGlyphs, xf) : undefined;
         addToLayer(d, r, bottomMirrorWrap(d, node, bb) ?? node,
-          `文本 ${r.id} "${String(d.text ?? d.value ?? '').slice(0, 16)}"`, 'primitive', exact);
+          `文本 ${r.id} "${String(d.text ?? d.value ?? '').slice(0, 16)}"`, 'primitive', exact,
+          undefined, undefined, poly);
         return;
       }
       case 'OBJ': {
@@ -1704,26 +1735,37 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   }
 }
 
-/** world bbox of a component: union of footprint geometry (in fp screen coords) transformed by the group transform */
-function footprintBBox(fp: DocSegment | undefined, g: Group): BBox | undefined {
+/** world frame of a component: union of footprint geometry (in fp screen coords)
+ *  transformed by the group transform. `bbox` stays the rotated geometry's AABB
+ *  (现状拾取框);`poly` is the component's own-frame union bbox 四角经同一变换
+ *  (flipY → R)映射出的旋转后外框,旋转非零时作为贴合选中框(#select-box-rot) */
+function footprintFrame(fp: DocSegment | undefined, g: Group): { bbox: BBox; poly?: [number, number][] } {
   const cx = Number(g.x) || 0, cy = Number(g.y) || 0;
-  if (!fp) return { minX: cx - 15, minY: cy - 15, maxX: cx + 15, maxY: cy + 15 };
+  const fallback = (): { bbox: BBox } => ({ bbox: { minX: cx - 15, minY: cy - 15, maxX: cx + 15, maxY: cy + 15 } });
+  if (!fp) return fallback();
   const fxf = xfOf(fp.canvas);
   const local: [number, number][] = [];
   for (const r of fp.recs) {
     const b = objBBox(r, fxf);
     if (b) local.push([b.minX, b.minY], [b.minX, b.maxY], [b.maxX, b.minY], [b.maxX, b.maxY]);
   }
-  if (!local.length) return { minX: cx - 15, minY: cy - 15, maxX: cx + 15, maxY: cy + 15 };
+  if (!local.length) return fallback();
   // bottom-side components carry a local Y flip with negated rotation (see drawComponent)
   const flipY = Number(g.scaleY) === -1;
   const rad = (Number(g.rotation) || 0) * Math.PI / 180;
   const c = Math.cos(rad), s = Math.sin(rad);
-  const world = local.map(([x, y]) => {
+  const map = ([x, y]: [number, number]): [number, number] => {
     if (flipY) y = -y;
-    return [cx + x * c - y * s, cy + x * s + y * c] as [number, number];
-  });
-  return bboxFromPts(world) ?? undefined;
+    return [cx + x * c - y * s, cy + x * s + y * c];
+  };
+  const world = local.map(map);
+  const lb = bboxFromPts(local)!;
+  const poly = ([[lb.minX, lb.minY], [lb.maxX, lb.minY], [lb.maxX, lb.maxY], [lb.minX, lb.maxY]] as [number, number][]).map(map);
+  return { bbox: bboxFromPts(world) ?? fallback().bbox, poly };
+}
+
+function footprintBBox(fp: DocSegment | undefined, g: Group): BBox | undefined {
+  return footprintFrame(fp, g).bbox;
 }
 
 function arcD(sx: number, sy: number, ex: number, ey: number, deg: number): string {

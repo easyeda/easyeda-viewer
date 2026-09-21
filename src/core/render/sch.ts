@@ -2,7 +2,7 @@
 import { Group, Line, Rect, Path, Text, Ellipse, Image as LeaferImage } from 'leafer-ui';
 import type { OpenedDoc, Rec, DocSegment } from '../types';
 import type { RenderApi, RenderObject } from './layers';
-import { X, Y, P, ang, strokeOf, fillOf, widthOf, xfOf, objBBox, bboxFromPts, arcSeg, arc3Seg, arcPts, arc3Pts, COLORS, type Xf, type BBox } from './geom';
+import { X, Y, P, ang, strokeOf, fillOf, widthOf, xfOf, objBBox, bboxFromPts, arcSeg, arc3Seg, arcPts, arc3Pts, textFramePoly, COLORS, type Xf, type BBox } from './geom';
 import { resolveLibGraphics, resolveAttrRef } from '../model';
 
 /** record types that contribute real graphics (for component bbox sizing) */
@@ -494,7 +494,11 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     return g;
   }
 
-  function componentWorldBBox(g: Group, sym: DocSegment | undefined, partId: string, d: any): BBox | null {
+  /** 元件世界框架:符号局部 bbox 四角经与渲染 group 同源的 R·M / M·R 共轭
+   *  映射变换到世界坐标。bbox 取四角的 AABB(现状拾取框);四角本身在旋转
+   *  非零时作为贴合选中框 selPoly 交回(#select-box-rot)——0° 时四角即轴对
+   *  齐矩形,与 bbox 完全重合 */
+  function componentWorldFrame(g: Group, sym: DocSegment | undefined, partId: string, d: any): { bbox: BBox | null; poly?: [number, number][] } {
     const local: [number, number][] = [];
     if (sym) {
       const sxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
@@ -506,7 +510,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         if (b) local.push([b.minX, b.minY], [b.maxX, b.maxY]);
       }
     }
-    if (!local.length) return null;
+    if (!local.length) return { bbox: null };
     const box = bboxFromPts(local)!;
     const gx = Number(g.x) || 0, gy = Number(g.y) || 0;
     const ra = ((ang(Number(d.rotation ?? 0), xf)) * Math.PI) / 180;
@@ -523,7 +527,11 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       const lx = x * mx, ly = y;
       return [gx + lx * c - ly * s, gy + lx * s + ly * c] as [number, number];
     });
-    return bboxFromPts(world);
+    return { bbox: bboxFromPts(world), poly: world };
+  }
+
+  function componentWorldBBox(g: Group, sym: DocSegment | undefined, partId: string, d: any): BBox | null {
+    return componentWorldFrame(g, sym, partId, d).bbox;
   }
 
   /** the sheet-border pseudo-component carries page attrs instead of a designator */
@@ -777,13 +785,17 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       g.add(fr);
       api.reportDiagnostics.push(`未解析符号 ${symUuid.slice(0, 10)} (line ${r.lineNo})`);
     }
+    // 旋转非零的元件把四角外框交给选中框贴合渲染;0° 不标注,选中框保持
+    // 轴对齐矩形(现状),零回归(#select-box-rot)
+    const frame = isBorder ? null : componentWorldFrame(g, sym, String(d.partId ?? ''), d);
     api.addObject({
       id: r.id, rec: r, node: g, label: `元件 ${r.id}`, kind: 'component',
       title: isBorder
         ? `图纸 ${attrValue(attrs, 'Page Size') ?? ''}`.trim()
         : (attrValue(attrs, 'Designator') ?? String((sym?.meta as any)?.title ?? d.attrs?.Designator ?? d.partId ?? r.id)),
       // the border component contributes the full page rect so camera fit shows the whole sheet
-      bbox: isBorder ? borderPageBBox(r, attrs) : (componentWorldBBox(g, sym, String(d.partId ?? ''), d) ?? undefined),
+      bbox: isBorder ? borderPageBBox(r, attrs) : (frame?.bbox ?? undefined),
+      selPoly: Number(d.rotation ?? 0) % 360 !== 0 ? frame?.poly : undefined,
     });
   }
 
@@ -898,6 +910,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     // 线类图元的实际绘制路径顶点(屏幕坐标)—— 选中高亮沿路径贴合而非
     // 取整体 bbox 最大矩形;仅导线/多段线/弧设置(#select-box-path)
     let pathPts: [number, number][] | undefined;
+    // 旋转非零的框类图元(文本/字符串)的旋转外框四角(世界屏幕坐标)——
+    // 选中框按四角闭合绘制贴合实际姿态;0° 不标注走 bbox 框(#select-box-rot)
+    let selPoly: [number, number][] | undefined;
     switch (r.type) {
       case 'LINE': {
         const gk = String(d.lineGroup ?? '');
@@ -961,6 +976,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       }
       case 'TEXT': case 'STRING': {
         node = textOf(d, xf, COLORS.schText);
+        // 外框四角与 objBBox 的 TEXT 分支同源(textFramePoly),旋转非零时
+        // 交给选中框闭合绘制,与渲染 group 的 ang() 旋转完全一致(#select-box-rot)
+        if (Number(d.rotation ?? 0) % 360 !== 0) selPoly = textFramePoly(r, xf) ?? undefined;
         break;
       }
       case 'ARC': case 'ARC2': {
@@ -1072,6 +1090,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       bbox: objBBox(r, xf) ?? undefined,
       hit: strokeHit(r, d, xf),
       pathPts,
+      selPoly,
     });
   }
 
