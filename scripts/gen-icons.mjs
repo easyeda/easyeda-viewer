@@ -12,6 +12,7 @@ const names = {
   folder: 'folder', packageOpen: 'package-open', waypoints: 'waypoints', circuitBoard: 'circuit-board',
   layoutTemplate: 'layout-template', activity: 'activity', library: 'library', fileText: 'file-text',
   file: 'file', chevronRight: 'chevron-right', box: 'box', layers: 'layers', list: 'list', eye: 'eye', eyeOff: 'eye-off', rotateCcw: 'rotate-ccw',
+  ruler: 'ruler',
 };
 const inner = (f) => {
   const s = readFileSync('node_modules/lucide-static/icons/' + f + '.svg', 'utf8');

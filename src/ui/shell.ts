@@ -17,6 +17,7 @@ import { Camera } from './camera';
 import { setupDnd, pickFiles, pickFolder, type DndController } from './dnd';
 import { DocTreeView, ObjectListView, LayerListView, escapeHtml, type ObjectRow } from './tree';
 import { PropsView } from './props';
+import { MeasureController } from './measure';
 import { icon, easyedaMark } from './icons';
 import { t, setLang as setI18nLang, getLang, layerLabel, type Lang } from './i18n';
 
@@ -84,6 +85,8 @@ export class Shell {
   private toolbarEl: HTMLElement;
   private themeBtn!: HTMLButtonElement;
   private langBtn!: HTMLButtonElement;
+  private measureBtn!: HTMLButtonElement;
+  private measure!: MeasureController;
   /** null = auto behavior (hidden on welcome / until selection) */
   private leftForced: boolean | null = null;
   private rightForced: boolean | null = null;
@@ -136,6 +139,7 @@ export class Shell {
         <button class="ev-btn ev-btn-icon" data-act="zoomin" data-tip="tipZoomIn">${icon('zoomIn')}</button>
         <button class="ev-btn ev-btn-icon" data-act="fit" data-tip="tipFit">${icon('fit')}</button>
         <input class="ev-zoom" type="text" inputmode="decimal" spellcheck="false" data-tip="zoomPh"/>
+        <button class="ev-btn ev-btn-icon" data-act="measure" data-tip="tipMeasure" disabled>${icon('ruler')}</button>
         <span class="ev-title"></span>
         <button class="ev-btn ev-btn-icon ev-btn-lang" data-act="lang" data-tip="tipLang">${icon('globe')}<span class="ev-lang-code"></span></button>
         <button class="ev-btn ev-btn-icon" data-act="theme" data-tip="tipTheme">${icon('moon')}</button>
@@ -192,6 +196,7 @@ export class Shell {
     this.layerSplit = this.el.querySelector('[data-sp="right"]') as HTMLElement;
     this.themeBtn = this.el.querySelector('[data-act="theme"]') as HTMLButtonElement;
     this.langBtn = this.el.querySelector('[data-act="lang"]') as HTMLButtonElement;
+    this.measureBtn = this.el.querySelector('[data-act="measure"]') as HTMLButtonElement;
     this.zoomEl = this.el.querySelector('.ev-zoom') as HTMLInputElement;
 
     this.leafer = new Leafer({ view: this.canvasHost, type: 'draw' });
@@ -215,9 +220,26 @@ export class Shell {
       for (const ct of this.constantTexts) (ct.node as unknown as { fontSize: number }).fontSize = ct.basePx / this.camera.scale;
       // keep origin axes at a constant pixel width at any zoom (#11)
       for (const cs of this.constantStrokes) cs.node.strokeWidth = cs.baseW / this.camera.scale;
+      // measure rulers re-project on every view change (#measure)
+      this.measure?.redraw();
     };
     this.overlay = new Group({ hittable: false });
     this.camera.world.add(this.overlay);
+
+    // measure tool (#measure): PCB-family docs only; the overlay canvas lives
+    // in .ev-canvas and paints in screen space (see ui/measure.ts)
+    this.measure = new MeasureController({
+      host: this.canvasHost,
+      camera: this.camera,
+      onActive: (active) => {
+        this.measureBtn.classList.toggle('ev-on', active);
+        if (active) this.setStatus(t('measureHint'), false);
+        else if (this.model && this.curNode) {
+          if (this.openResult) this.announceOpened();
+          else this.announceLoaded();
+        }
+      },
+    });
 
     this.docTree = new DocTreeView(this.el.querySelector('.ev-pane-tree .ev-pane-inner') as HTMLElement, { onNode: (n) => this.onTreeNode(n) });
     this.objList = new ObjectListView(this.el.querySelector('.ev-pane-objects .ev-pane-inner') as HTMLElement, { onPick: (id) => void this.pickObject(id, true) });
@@ -322,6 +344,8 @@ export class Shell {
     this.el.querySelector('[data-act="zoomin"]')!.addEventListener('click', () => this.zoomStep(1.25));
     this.el.querySelector('[data-act="zoomout"]')!.addEventListener('click', () => this.zoomStep(0.8));
     this.el.querySelector('[data-act="fit"]')!.addEventListener('click', () => this.fitCurrent());
+    // measure mode toggle (#measure): exit keeps the rulers, right-click clears them
+    this.measureBtn.addEventListener('click', () => this.measure.toggle());
     this.el.querySelector('[data-act="lang"]')!.addEventListener('click', () => this.setLang(this.lang === 'zh' ? 'en' : 'zh'));
     this.themeBtn.addEventListener('click', () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark'));
     this.el.querySelector('[data-act="panelL"]')!.addEventListener('click', () => { this.leftForced = !this.leftVisible(); this.applyChrome(); });
@@ -401,7 +425,9 @@ export class Shell {
       this.layerList.setLayers(this.lastLayerItems, false);
     }
     this.props.refresh();
-    this.setStatus(this.docLoaded ? t('statusInit') : t('statusInit'), false);
+    this.measure?.redraw(); // ruler labels re-render in the new language
+    if (this.measure?.active) this.setStatus(t('measureHint'), false);
+    else this.setStatus(this.docLoaded ? t('statusInit') : t('statusInit'), false);
     if (this.model) this.announceLoaded();
     else if (this.curNode) this.announceOpened();
   }
@@ -568,6 +594,9 @@ export class Shell {
 
   private async openNode(node: TreeNode): Promise<void> {
     if (!this.model || !node.fileKey || !node.uuid) return;
+    // rulers belong to the document they were drawn on — a doc switch leaves
+    // the measure mode and drops them (#measure)
+    this.measure.reset();
     // doc open (a large PCB takes seconds) blocks the main thread — show the
     // busy overlay and let it paint before that work starts (#loading);
     // schematic pages open in ~100ms, there the overlay's double-rAF wait is
@@ -580,6 +609,10 @@ export class Shell {
       this.deviceNoteEl.classList.add('ev-hidden');
       const opened = openDoc(this.model, node);
       const kind = docKind(node.docType ?? '');
+      // measure entry is a PCB-family feature (#measure)
+      const measurable = kind === 'pcb' || kind === 'footprint' || kind === 'panel';
+      this.measureBtn.disabled = !measurable;
+      this.measure.setAvailable(measurable);
       const result = renderDoc(opened, canvasBg(kind));
       this.currentRoot?.remove();
       this.camera.world.add(result.root);
@@ -762,6 +795,8 @@ export class Shell {
         this.curNode = node;
         this.docKind = 'other';
         this.syncDocBg('other');
+        this.measureBtn.disabled = true;
+        this.measure.setAvailable(false);
         this.lastObjRows = [];
         this.lastRowSig = '';
         this.lastLayerItems = [];
@@ -834,6 +869,7 @@ export class Shell {
   private onCanvasClick(e: PointerEvent): void {
     if (e.button !== 0) return; // right/middle drag only pans (#8)
     if (this.camera.didPan) return;
+    if (this.measure?.active) return; // left-clicks take points while measuring (#measure)
     const r = this.canvasHost.getBoundingClientRect();
     const px = e.clientX - r.left, py = e.clientY - r.top;
     const wx = (px - this.camera.tx) / this.camera.scale;
@@ -934,6 +970,7 @@ export class Shell {
     if (this.destroyed) return;
     this.destroyed = true;
     this.dnd.destroy();
+    this.measure.destroy();
     this.leafer.destroy();
     this.el.remove();
   }

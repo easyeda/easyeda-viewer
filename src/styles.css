@@ -73,6 +73,9 @@ html, body { margin: 0; height: 100%; background: var(--ev-bg, #eef0f3); color: 
 .ev-btn:active { transform: translateY(1px); }
 .ev-btn svg { opacity: 0.85; flex: none; }
 .ev-btn.ev-on { background: var(--ev-accent-weak); color: var(--ev-accent); border-color: transparent; }
+.ev-btn:disabled { opacity: 0.35; cursor: default; }
+.ev-btn:disabled:hover { background: transparent; }
+.ev-btn:disabled:active { transform: none; }
 .ev-btn-icon { padding: 7px; }
 .ev-btn-primary { background: var(--ev-accent); color: var(--ev-accent-text); border-radius: var(--ev-radius-sm); padding: 9px 16px; font-weight: 600; }
 .ev-btn-primary:hover { filter: brightness(1.08); background: var(--ev-accent); }
@@ -127,6 +130,13 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
   position: sticky; top: 0; z-index: 2;
 }
 .ev-search:focus { outline: none; border-color: var(--ev-accent); background: var(--ev-panel); }
+
+/* ---------- measure overlay (#measure) ---------- */
+/* screen-space rulers + crosshair, painted above the leafer canvas; the
+   canvas itself never intercepts input (zoom/pan keep working) */
+.ev-measure-layer { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+/* crosshair cursor while measuring, leafer may style its own canvas */
+.ev-canvas.ev-measure, .ev-canvas.ev-measure * { cursor: crosshair !important; }
 
 /* ---------- document tree ---------- */
 .ev-tree, .ev-tree ul { list-style: none; margin: 0; padding: 0; }
