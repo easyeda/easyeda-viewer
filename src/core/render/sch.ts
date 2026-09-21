@@ -411,7 +411,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           }
           break;
         }
-        case 'PART': case 'ATTR': case 'DOCHEAD': case 'CANVAS': case 'META': case 'GROUP':
+        case 'PART': case 'DOCHEAD': case 'CANVAS': case 'META': case 'GROUP':
         case 'ELE_PLACEHOLDER': case 'RULE': case 'ACTIVE_LAYER': case 'NG_SETTING':
           break; // structural / metadata
         default:
