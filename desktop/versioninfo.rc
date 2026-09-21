@@ -7,8 +7,8 @@
 1 ICON "app.ico"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 0,3,0,0
- PRODUCTVERSION 0,3,0,0
+ FILEVERSION 0,4,0,0
+ PRODUCTVERSION 0,4,0,0
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS 0x40004L
@@ -22,11 +22,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "easyeda-viewer (Apache-2.0)"
             VALUE "FileDescription", "EasyEDA 查看器 — 本地 .epro2/.eprj3 轻量查看器"
-            VALUE "FileVersion", "0.3.0"
+            VALUE "FileVersion", "0.4.0"
             VALUE "LegalCopyright", "Apache License 2.0"
-            VALUE "OriginalFilename", "easyeda-viewer_v0.3.0.exe"
+            VALUE "OriginalFilename", "easyeda-viewer_v0.4.0.exe"
             VALUE "ProductName", "EasyEDA Viewer"
-            VALUE "ProductVersion", "0.3.0"
+            VALUE "ProductVersion", "0.4.0"
             VALUE "Author", "summving"
         END
     END
