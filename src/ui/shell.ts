@@ -362,7 +362,8 @@ export class Shell {
     this.el.querySelector('[data-act="zoomin"]')!.addEventListener('click', () => this.zoomStep(1.25));
     this.el.querySelector('[data-act="zoomout"]')!.addEventListener('click', () => this.zoomStep(0.8));
     this.el.querySelector('[data-act="fit"]')!.addEventListener('click', () => this.fitCurrent());
-    // measure mode toggle (#measure): exit keeps the rulers, right-click clears them
+    // measure mode toggle (#measure): exiting via the button clears the rulers
+    // (user feedback); Esc keeps them, right-click also clears
     this.measureBtn.addEventListener('click', () => this.measure.toggle());
     this.el.querySelector('[data-act="lang"]')!.addEventListener('click', () => this.setLang(this.lang === 'zh' ? 'en' : 'zh'));
     // 单位切换(#unit-toggle):mm/mil 跟随 units 广播刷新各显示面

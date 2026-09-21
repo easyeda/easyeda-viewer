@@ -20,8 +20,9 @@
  * gray it out (user feedback: keep the "pure white 1 px" look).
  *
  * Exit paths: right-click without drag = clear ALL rulers + exit; toolbar
- * button again or Esc = exit keeping the rulers. Opening another document
- * resets everything (rulers belong to the old doc).
+ * button again = clear ALL rulers + exit (user feedback); Esc = exit keeping
+ * the rulers. Opening another document resets everything (rulers belong to
+ * the old doc).
  */
 import type { Camera } from './camera';
 import { t } from './i18n';
@@ -116,8 +117,12 @@ export class MeasureController {
   }
 
   toggle(): void {
-    if (this.activeState) this.setActive(false);
-    else if (this.available) this.setActive(true);
+    if (this.activeState) {
+      // 再次点击工具栏按钮 = 清空全部标尺并退出(用户反馈:量测多次后直接点
+      // 图标应清空画布标尺);Esc 仍保留标尺,右键同为清空退出
+      this.rulers = [];
+      this.setActive(false);
+    } else if (this.available) this.setActive(true);
   }
 
   /** document switched — leave the mode and drop all rulers (old doc's coords) */
