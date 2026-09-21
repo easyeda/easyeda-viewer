@@ -1,0 +1,385 @@
+{
+  "name": "X86-PC-eprj3",
+  "owner_uuid": "52159e623a734559a92667bdcb3b3e5d",
+  "creator_uuid": "52159e623a734559a92667bdcb3b3e5d",
+  "created_at": "2026-09-20 17:56:10",
+  "updated_at": "2026-09-20 17:56:10",
+  "modifier_uuid": "52159e623a734559a92667bdcb3b3e5d",
+  "content": "## 说明\n该开源项目在匿名顾问的协助下完成，原理图没有做太多的修改，开源版本移除了不需要使用的接口和焊接的器件，参考了提供的PCB进行了重构设计，此主板核心目的是为了验证EDA专业版的的PCB渲染能力与设计能力，不建议复刻，太烧钱）\n PS:虽然有大佬复刻完成了，但还是不建议去做，个人去DIY成本是很高的，且没有对应基础的情况下去复刻该项目，出现问题是比较难排查的，这个项目本质的初衷为了验证EDA专业版的的PCB渲染能力与设计能力和给大家进行学习，请大家量力而行。\n \n![f3845da5-71c0-4099-a70a-072edfb411f5.jpg](//image.lceda.cn/pullimage/qQlhs7mnSXsryBVY9m6p7PcpCLNQ1oiyvmegQrmL.jpeg)\n\n![355f52fe-5303-465f-a936-c76734a547e2.jpg](//image.lceda.cn/pullimage/3LW2jVVS6HaRzKoRwhYgkMx3QEtYAgjGtLvDP3P5.jpeg)\n \n## 简介\n使用嘉立创EDA专业版设计的X86电脑主板，支持Intel_LGA-1700座子系列的CPU。\n## 更新说明\n#### 本次更新仅支持嘉立创EDA专业版V3打开，V2版本打开可能会导致丢失网络。\n#### 新增\n- 优化整体DDR部分走线阻抗，增加支持DDR5（未测试）的BOIS；\n- 新增Debug调试接口；\n#### 优化\n- 优化整体电源走线，支持更大功率走线，可支持超频；\n- 优化电源电感型号；\n- 优化整体接口排列。SATA接口移除两个，位置变更到下方；\n- 优化PCB整体走线，减少PCB干扰；\n- 后置排列接口顺序，放置接口互相干扰；\n- 优化桥片DCDC供电部分电源；\n#### 移除\n- 移除大部分无需焊接的器件；\n- 移除多余的接口；\n- 移除3D外壳文件，V3版本已更改接口，旧外壳文件无法使用；\n- 因开源平台铭感词检查问题，图片地址存在违规铭感词，将部分图片移除；\n### 2024-05-25\n- 新增\n    - 将大部分器进行了器件标准化，尽可能选择了嘉立创SMT基础库物料；\n    - 修改CPU电感，兼容了ALC110809MN-R22M直插电感；\n- 移除\n    - 移除部分不需要焊接的器件，避免引导错误；\n    - 移除部分不需要的调试接口，减少成本费用；\n    - 移除两个STAT接口；\n    - 移除PS接口；\n- 其他\n    - 优化原理图命名；\n    - 优化PCB部分器件摆放位置；\n### 2024-08-26\n- 内容补充完成\n- 视频正在补录中\n- BOM表（未完成）\n### 2024-12-09\n- 暂时删除PCB文件，待PCB M.2封装和网络丢失BUG；\n## 实物图\n\n![image.png](//image.lceda.cn/pullimage/Ew67daEEOG2h5BgBQNcj3UJ9nQUxGbCMpZjQSzV0.png)\n![image.png](//image.lceda.cn/pullimage/nJZcl80KX0Fdbzr15A8rNX5F64eFV5EE9rIXHFs2.png)\n![image.png](//image.lceda.cn/pullimage/YYmab6AZCJI7IAwSc0nVymvKO8g2Gbw2ib6pR0Hs.png)~~~~\n![image.png](//image.lceda.cn/pullimage/Kl8paUDP0oC9n8wgIkEXbzAXLfQhjuKoGKTkNuP8.png)\n![image.png](//image.lceda.cn/pullimage/9TacHILUAba93jOUlDqUf3GKiRv3BKvO4VRVJe9Y.png)\n\n\n## 外设\n## 硬件支持\n-  **CPU：** 用LGA-1700座，最高支持12、13、14代英特尔的CPU；\n-  **内存条：** 双通道DDR4内存，最高支持32GB 3200MT的内存条。**PS:**从官网看南桥数据，理论上支持DDR5，32GB内存；\n-  **M.2接口：** 板载1个M.2 3.0x4的的固态内存，理论传输速度可达到3500MB，实际测试达到3100Mb传输速度；\n-  **显卡：** PCIe 4.0 x16,电源足够的情况下，可支持4090级别显卡使用；\n-  **miniPCIEX1：** 拓展MINIpcie\n-  **后置USB3.0X2：** 10Gbps USB 3.2 GEN2；\n-  **USB2.0X2**\n-  **千兆USB网口X1**\n-  **HDMI2.0x1**\n-  **3.5mm音频座**\n### 部分硬件测试结果\n![image.png](//image.lceda.cn/pullimage/khYpOslbrE5KSLhdQVAWv3Riv1b4KofG3HOp8pgV.png)\n![image.png](//image.lceda.cn/pullimage/ZIGYx9z6x6FCXQt187bHmzFcRa2RNhZQmhqgUJVm.png)\n![image.png](//image.lceda.cn/pullimage/ATXvbNQjquhfpZxhYEP1qOfdsPokcFkloWOiJSTI.png)\n![5efaf4f1-9a5f-44fc-8300-ed174506bd83.jpg](//image.lceda.cn/pullimage/I45ia97YT6VHVRKhrfJbQNeP0MSj2kRU1NMjViAH.jpeg)\n![39fef0f1-be9a-4bdc-85a2-d00aabc2101f.jpg](//image.lceda.cn/pullimage/LSdPR0BDeCZUGT6bHCjLZOWGu35LLoH3esC2HidY.jpeg)\n\n## BOIS文件烧录\n制作完成后，主板需要对EEPROM进行烧录BIOS镜像才能使用，\n### 烧录器\n烧录器使用的是CH341A系列的烧录器，需要能够支持W25Q128系列芯片的。\n\n![image.png](//image.lceda.cn/pullimage/40jaYeqOphRaytCdh9BFJsIPdjbNaySPerkqDTvF.png)\n\n### 烧录软件\n\n烧录软件使用的是：NeoProgrammer（烧录器对应的软件不同，需要自行确认），烧录BIOS镜像前需要先擦除芯片，后进行烧录。\n\n![image.png](//image.lceda.cn/pullimage/cUTkhZHlOPrxOzvxRa1VMlfuGyQLGZiSv4nyixiy.png)\n\n## 机箱外壳\n### ITX小机箱外壳\n![image.png](//image.lceda.cn/pullimage/72nSMf3TGM0U7IWokUFykaKKx1xVZ5e8SSyc7Ju6.png)\n![image.png](//image.lceda.cn/pullimage/JcKCLpnU7Hni0eqDyy645eUeVPk2wobneaH65seh.png)\n![image.png](//image.lceda.cn/pullimage/b46kMA0Q4Pcad1NFBDsDDnnztgmAeol5VmGXlHwD.png)\n![image.png](//image.lceda.cn/pullimage/WCcYd9R6A4MsoNS1fNc0IeDCxI3HiPAXsl81g11o.png)\n\n## ⚠️注意事项\n\n### PCB生产\n该主板阻抗较多，下单时建议把附件中的阻抗说明文档一起打包上传，避免阻抗不满足导致无法启动。\n### SMT贴片\n1、主板南桥合CPU座属于BGA基本，且体积较大，不适合使用常规风枪进行焊接，建议直接嘉立创SMT或使用返修台进行焊接。\n![image.png](//image.lceda.cn/pullimage/BNIaUghwr8JYVyH3voE4qYBaDN8Ee4Sc7hriFTLL.png)\n2、原理图中标记NI属性的阻容是不需要焊接的，如焊接后请勿上电（会冒烟！）。\n![image.png](//image.lceda.cn/pullimage/EN4p3UYFqXBoxLIJ6c78BNuMvTdlzVGhvIpYeyFe.png)\n\n### 器件\n购买物料请根据附件中的BOM表或原理图中的“值”的属性去购买，购买时需注意芯片的型号，部分芯片不同后缀得到的效果是不一样的。\n1、电源芯片使用的是RT3628AEGQW，购买该芯片时注意甄别真假，假芯片焊接温度达到150° - 220°这样会损坏。\n![image.png](//image.lceda.cn/pullimage/b3rJduwuvn8iID2hx5uDDJPboq4ADOQ2kOb8eXR4.png)\n2、CPU使用的电感比较特殊，属于直插一体成型大电流电感，功率较大。\n![172b9b831d1373b492fc5748ba712a4.jpg](//image.lceda.cn/pullimage/1rrF24y783ZhxA6aXuQjLl9fETLeXVlamHJTSliD.jpeg)\n3、IO芯片使用的是IT8613E2115-LX，注意该芯片后缀，只有“LX”的才能使用，“RX”的是无法使用开机的。\n![image.png](//image.lceda.cn/pullimage/Njkz3I56xuvAjSATuF2tIPIos5bqDHeuQkQUJH4I.png)\n\n## 制作成本\n\n\n## 演示视频\n链接：待投放。\n## 附件\n✅ 原理图\n✅ PCB图\n✅ 阻抗表\n✅ 烧录文件\n✅ 物料清单\n\n~~~~",
+  "archive": false,
+  "cbb_project": 0,
+  "thumb": "",
+  "ticket": 1,
+  "g_ticket": 1,
+  "boards": [],
+  "block_symbol_attrs_groups": {},
+  "default_sheet": "",
+  "branch_uuid": "",
+  "pcb_count": 0,
+  "format": "folder",
+  "config": "{\"type\":\"DOCHEAD\",\"ticket\":3960651}||{\"docType\":\"BOARD\",\"client\":\"97d372d49a8e5e78\",\"uuid\":\"46882620690ca54e\",\"updateTime\":1759993362678,\"version\":\"1759993362678\",\"editVersion\":\"3.2.91\",\"user\":{\"uuid\":\"215caa123bec401fba5bbdb222b0e772\",\"username\":\"liuxiaotao\",\"nickname\":\"一只不爱吃鱼的猫\"}}|\n{\"type\":\"META\",\"ticket\":3960651,\"id\":\"META\"}||{\"title\":\"Board1_1\",\"zIndex\":2}|\n{\"type\":\"DOCHEAD\",\"ticket\":4057071}||{\"docType\":\"CONFIG\",\"client\":\"97d372d49a8e5e78\",\"uuid\":\"CONFIG\",\"updateTime\":1762237363917,\"version\":\"1762237363917\",\"editVersion\":\"3.2.91\",\"user\":{\"uuid\":\"dae6c9269f2c4d6185c5291608e830b0\",\"username\":\"zhangzhang_eda\",\"nickname\":\"zhangzhang_eda\"}}|\n{\"type\":\"META\",\"ticket\":4057071,\"id\":\"META\",\"firstTicket\":3670}||{\"defaultSheet\":\"524f7aed2eef447fb666ee30f5410ac3\"}",
+  "profile": {
+    "boards": {
+      "46882620690ca54e": {
+        "uuid": "46882620690ca54e",
+        "title": "Board1_1",
+        "zIndex": 2
+      }
+    },
+    "schematics": {
+      "dbc6bd408afdb192": {
+        "uuid": "dbc6bd408afdb192",
+        "name": "SCHEMATIC1_1",
+        "board": "46882620690ca54e",
+        "source": "",
+        "version": "1752632930102",
+        "updateTime": 1759993467967
+      }
+    },
+    "sheets": {
+      "222aac1426fc5950": {
+        "uuid": "222aac1426fc5950",
+        "title": "DDR4_PWR - +VDDQ_+VTT_+VPP",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 34,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "c07a4ae60724dc3b": {
+        "uuid": "c07a4ae60724dc3b",
+        "title": "PCH_PWR - 0.82V/1.05V/1.8V",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 35,
+        "source": "",
+        "version": "1743992298007",
+        "updateTime": 1759993362680
+      },
+      "512dfe355a789ecd": {
+        "uuid": "512dfe355a789ecd",
+        "title": "5V_DUAL",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 36,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "d9f4aeba71f7cd8d": {
+        "uuid": "d9f4aeba71f7cd8d",
+        "title": "P1",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 37,
+        "source": "",
+        "version": "1762313467283",
+        "updateTime": 1762313467283
+      },
+      "ac3ab7b44fd33ee3": {
+        "uuid": "ac3ab7b44fd33ee3",
+        "title": "CPU - GND",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 5,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1762224143524
+      },
+      "a8ef5e7bd486942f": {
+        "uuid": "a8ef5e7bd486942f",
+        "title": "CPU - MEMORY CHANNEL",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 2,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1762223187153
+      },
+      "76339e2acad0b3e2": {
+        "uuid": "76339e2acad0b3e2",
+        "title": "CPU - CPU MISC",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 3,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1762223810840
+      },
+      "0fb223cd3cd3f00d": {
+        "uuid": "0fb223cd3cd3f00d",
+        "title": "CPU - CPU PCIEX16/DMI/FDI",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 1,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1762222963615
+      },
+      "005f50f4d6a812d3": {
+        "uuid": "005f50f4d6a812d3",
+        "title": "CPU_PWR - +VCCGT",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 30,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759995092415
+      },
+      "62daf3ce5934e651": {
+        "uuid": "62daf3ce5934e651",
+        "title": "DDR4_UDIMM CHANNEL-A0",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 6,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1762224145215
+      },
+      "34ec9f98f075d182": {
+        "uuid": "34ec9f98f075d182",
+        "title": "CPU - POWER",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 4,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1762223820380
+      },
+      "f3686adbec7b2ff0": {
+        "uuid": "f3686adbec7b2ff0",
+        "title": "DDR4_UDIMM CHANNEL-B0",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 7,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "c8a7ffd56fe7d5db": {
+        "uuid": "c8a7ffd56fe7d5db",
+        "title": "ADL S PCH 600 STRAP",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 8,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "007d01765c420a2a": {
+        "uuid": "007d01765c420a2a",
+        "title": "ADL S PCH 600 CLOCK/PCIE",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 9,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "cf70803e894a65d1": {
+        "uuid": "cf70803e894a65d1",
+        "title": "ADL S PCH 600 DMI/USB/AUDIO",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 10,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "fd29597d63c3275b": {
+        "uuid": "fd29597d63c3275b",
+        "title": "ADL S PCH 600 ESPI/GPIO",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 11,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "dcc20a395b32f507": {
+        "uuid": "dcc20a395b32f507",
+        "title": "ADL S PCH 600 SPI/PM",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 12,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "c3bf899f692b1572": {
+        "uuid": "c3bf899f692b1572",
+        "title": "ADL S PCH 600 PWR",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 13,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "51af07e719caeb2e": {
+        "uuid": "51af07e719caeb2e",
+        "title": "ADL S PCH 600 GND",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 14,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "3aeb8f353ae28425": {
+        "uuid": "3aeb8f353ae28425",
+        "title": "SIO - IT8613E",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 15,
+        "source": "",
+        "version": "1743648238089",
+        "updateTime": 1759993362680
+      },
+      "821c6f51c4f7917d": {
+        "uuid": "821c6f51c4f7917d",
+        "title": "SIO - IT8784E",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 16,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "60d7e2189327c056": {
+        "uuid": "60d7e2189327c056",
+        "title": "DISPLAY - HDMI 2.0",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 17,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "4896f2d6a9901f42": {
+        "uuid": "4896f2d6a9901f42",
+        "title": "LAN - RTL8111H",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 19,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "8348513787c1c148": {
+        "uuid": "8348513787c1c148",
+        "title": "AUDIO - ALC897_3CH",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 20,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "32960e0ae2bb8560": {
+        "uuid": "32960e0ae2bb8560",
+        "title": "PEG/PCIEX1 SLOT",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 21,
+        "source": "",
+        "version": "1744168701711",
+        "updateTime": 1759993362680
+      },
+      "0f6e1bbba618446c": {
+        "uuid": "0f6e1bbba618446c",
+        "title": "M.2_SATA_SLOT",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 22,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "6738a5425ef7aa8f": {
+        "uuid": "6738a5425ef7aa8f",
+        "title": "COM",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 23,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "6a4269906ac679f5": {
+        "uuid": "6a4269906ac679f5",
+        "title": "USB32 GEN1 5G_REAR",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 24,
+        "source": "",
+        "version": "1745374107048",
+        "updateTime": 1759993362680
+      },
+      "a92a43b4e44eb8ca": {
+        "uuid": "a92a43b4e44eb8ca",
+        "title": "USB32 GEN1 5G_FRONT",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 25,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "882a3588cb274d78": {
+        "uuid": "882a3588cb274d78",
+        "title": "CPU_PWR - RT3628AE IMVP9.1",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 26,
+        "source": "",
+        "version": "1744966373279",
+        "updateTime": 1759993362680
+      },
+      "aad4ec78b4f47dbf": {
+        "uuid": "aad4ec78b4f47dbf",
+        "title": "CPU_PWR - +VCCCORE_1/3",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 27,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "ce5339ad37c11403": {
+        "uuid": "ce5339ad37c11403",
+        "title": "CPU_PWR - +VCCCORE_2/3",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 28,
+        "source": "",
+        "version": "1744963178111",
+        "updateTime": 1759993362680
+      },
+      "7910c086d0de9d15": {
+        "uuid": "7910c086d0de9d15",
+        "title": "CPU_PWR - +VCCCORE_3/3",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 29,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "15f95b12a343a44a": {
+        "uuid": "15f95b12a343a44a",
+        "title": "CPU_PWR - VCCIN_AUX",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 31,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "a70e2004dab8dabd": {
+        "uuid": "a70e2004dab8dabd",
+        "title": "CPU_PWR - 1.8V/1.05V",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 32,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      },
+      "ff7cdd3b71e6c740": {
+        "uuid": "ff7cdd3b71e6c740",
+        "title": "POWER - SYSTEM POWER",
+        "schematic_uuid": "dbc6bd408afdb192",
+        "zIndex": 33,
+        "source": "",
+        "version": "1743582821595",
+        "updateTime": 1759993362680
+      }
+    },
+    "pcbs": {
+      "c79c9d432c293f85": {
+        "uuid": "c79c9d432c293f85",
+        "title": "PCB",
+        "board": "46882620690ca54e",
+        "zIndex": null,
+        "parent_uuid": "",
+        "source": "",
+        "version": "1759993445659",
+        "updateTime": 1762313666961
+      }
+    },
+    "panels": {},
+    "blockSymbols": {},
+    "owner": {
+      "uuid": "D:\\教程\\easyeda-docs\\github-eext\\easyeda-viewer\\samples",
+      "username": "",
+      "nickname": ""
+    }
+  }
+}

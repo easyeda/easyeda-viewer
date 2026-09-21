@@ -1,0 +1,3 @@
+{"type":"DOCHEAD","ticket":4062055}||{"docType":"SCH_PAGE","client":"97d372d49a8e5e78","uuid":"d9f4aeba71f7cd8d","updateTime":1762313467283,"version":"1762313467283","editVersion":"4.1.55","user":{"uuid":"7bb15a0fdb7c4c20ac6e8cc87ae87d6a","username":"oshwhub","nickname":"OSHWHub"}}|
+{"type":"DELETE_DOC","ticket":4062055,"id":"DELETE_DOC"}||{"isDelete":true}|
+{"type":"META","ticket":4057068,"id":"META"}||{"title":"P1","schematic":"dbc6bd408afdb192","source":"","zIndex":37}
