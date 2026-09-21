@@ -58,8 +58,45 @@ function attrIndex(seg: DocSegment): Map<unknown, Rec[]> {
   return m;
 }
 
-/** Collect instance ATTR records (and inline `attrs`) for a record, then merge library/device defaults. */
-export function collectAttrs(rec: Rec, opened: OpenedDoc): AttrEntry[] {
+/** pin-level ATTR keys never folded in as library defaults (they belong to pins,
+ *  not to the component the symbol segment also carries) */
+const PIN_ATTR_KEYS = new Set(['Pin Name', 'Pin Number', 'NAME', 'NUMBER', 'Pin Type', 'Simulide Pin', 'NGspice Pin']);
+
+/**
+ * Library-level default ATTRs of a SYMBOL / FOOTPRINT segment, cached per segment
+ * (#props-full). SYMBOL ATTR records are indexed by partId (empty = component-level
+ * defaults of a single-part symbol); FOOTPRINT segments have no parts, all their
+ * ATTRs land in the "" bucket. Only non-empty values are indexed.
+ */
+const libAttrIndexCache = new WeakMap<DocSegment, Map<string, Rec[]>>();
+
+function libAttrIndex(seg: DocSegment): Map<string, Rec[]> {
+  let m = libAttrIndexCache.get(seg);
+  if (!m) {
+    m = new Map();
+    if (seg.docType === 'SYMBOL' || seg.docType === 'FOOTPRINT') {
+      for (const r of seg.recs) {
+        if (r.type !== 'ATTR') continue;
+        const key = r.data.key;
+        if (typeof key !== 'string' || !key || PIN_ATTR_KEYS.has(key)) continue;
+        const v = r.data.value;
+        if (v == null || v === '') continue; // empty lib defaults carry no information
+        const bucket = seg.docType === 'SYMBOL' ? String(r.data.partId ?? '') : '';
+        const list = m.get(bucket);
+        if (list) list.push(r);
+        else m.set(bucket, [r]);
+      }
+    }
+    libAttrIndexCache.set(seg, m);
+  }
+  return m;
+}
+
+/** Collect instance ATTR records (and inline `attrs`) for a record, then merge library/device defaults.
+ *  `opts.libAttrs` additionally back-fills empty values from the symbol/footprint
+ *  segment's own library-level ATTR records (properties-panel only; the component
+ *  tree keeps its lean row labels without it). */
+export function collectAttrs(rec: Rec, opened: OpenedDoc, opts?: { libAttrs?: boolean }): AttrEntry[] {
   const map = new Map<string, AttrEntry>();
   const set = (key: string, value: unknown, source: AttrEntry['source']) => {
     if (value == null) return;
@@ -93,8 +130,38 @@ export function collectAttrs(rec: Rec, opened: OpenedDoc): AttrEntry[] {
     };
     if (typeof devUuid === 'string' && devUuid) fillDefaults(opened.libs.get(devUuid));
     else if (typeof symUuid === 'string' && symUuid) fillDefaults(opened.libs.get(symUuid));
+    // symbol / footprint library-level ATTR defaults (e.g. a net-flag symbol's
+    // Name="GND"): fill keys the instance left empty
+    if (opts?.libAttrs) {
+      const fillLib = (seg: DocSegment | undefined, bucket: string) => {
+        if (!seg) return;
+        for (const r of libAttrIndex(seg).get(bucket) ?? []) set(r.data.key, r.data.value, 'lib');
+      };
+      if (typeof symUuid === 'string' && symUuid) fillLib(opened.libs.get(symUuid), String(rec.data.partId ?? ''));
+      const fpUuid = map.get('Footprint')?.value ?? rec.data.attrs?.Footprint;
+      if (typeof fpUuid === 'string' && fpUuid) fillLib(opened.libs.get(fpUuid), '');
+    }
   }
   return [...map.values()];
+}
+
+/**
+ * Instance ATTR records parented to a specific record id (#props-full). Drawing
+ * records carry their extra properties as separate ATTR lines: net labels hang
+ * off the WIRE id referenced by LINE.lineGroup, pin name/number off the pin id.
+ */
+export function collectAttrsById(recId: string, opened: OpenedDoc): AttrEntry[] {
+  const out: AttrEntry[] = [];
+  for (const r of attrIndex(opened.self).get(recId) ?? []) {
+    const key = r.data.key;
+    if (typeof key !== 'string' || !key) continue;
+    const v = r.data.value;
+    if (v == null) continue;
+    const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    if (s === '' || s === '{}' || s === '[]') continue; // empty shells carry nothing
+    out.push({ key, value: s, source: 'instance' });
+  }
+  return out;
 }
 
 /** Walk the tree and register every node that can be opened on the canvas. */

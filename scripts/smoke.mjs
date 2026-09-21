@@ -13,9 +13,9 @@ globalThis.window = globalThis;
 
 const { readdirSync, readFileSync, statSync } = await import('node:fs');
 const path = await import('node:path');
-const { loadFromMap } = await import('./src/core/parse/container.ts');
-const { openDoc } = await import('./src/core/model.ts');
-const { renderDoc } = await import('./src/core/render/layers.ts');
+const { loadFromMap } = await import('../src/core/parse/container.ts');
+const { openDoc } = await import('../src/core/model.ts');
+const { renderDoc } = await import('../src/core/render/layers.ts');
 
 function loadFile(file) {
   const map = new Map([[path.basename(file), new Uint8Array(readFileSync(file))]]);
