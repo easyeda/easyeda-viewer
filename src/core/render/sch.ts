@@ -446,11 +446,17 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     if (!local.length) return null;
     const box = bboxFromPts(local)!;
     const gx = Number(g.x) || 0, gy = Number(g.y) || 0;
-    const ra = ((Number(g.rotation) || 0) * Math.PI) / 180;
+    const ra = ((ang(Number(d.rotation ?? 0), xf)) * Math.PI) / 180;
     const c = Math.cos(ra), s = Math.sin(ra);
     const mx = d.isMirror ? -1 : 1; // EasyEDA mirror = flip about the vertical axis through the component origin
-    // rotate around the component origin (the symbol insertion point), not the bbox center
+    // rotate around the component origin (the symbol insertion point), not the
+    // bbox center; mirror/rotation order follows the drawComponent composite —
+    // R·M on Y-up pages, M·R on Y-down ones (#mirror-rot-order)
     const world = [[box.minX, box.minY], [box.maxX, box.minY], [box.maxX, box.maxY], [box.minX, box.maxY]].map(([x, y]) => {
+      if (!xf.flip) {
+        const rx = x * c - y * s, ry = x * s + y * c;
+        return [gx + rx * mx, gy + ry] as [number, number];
+      }
       const lx = x * mx, ly = y;
       return [gx + lx * c - ly * s, gy + lx * s + ly * c] as [number, number];
     });
@@ -545,8 +551,24 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const g = new Group({ name: `comp:${r.id}` });
     g.x = X(d.x ?? 0, xf);
     g.y = Y(d.y ?? 0, xf);
-    g.rotation = ang(d.rotation ?? 0, xf);
-    if (d.isMirror) g.scaleX = -1;
+    // EasyEDA mirrors about the component's own vertical axis, then rotates —
+    // R·M in doc space. On Y-up pages ang() keeps the raw angle and one group
+    // with rotation+scaleX realizes it (leafer composes T·R·M, mirror
+    // innermost). On Y-down pages the negated screen angle conjugates the
+    // composite into M·R — the mirror must wrap the rotation group, otherwise
+    // mirrored+rotated parts land 2·θ off their wires (#mirror-rot-order;
+    // verified against wire endpoints: 735/737 mirrored pins hit vs 623 before)
+    let target = g;
+    const rot = ang(d.rotation ?? 0, xf);
+    if (xf.flip) {
+      g.rotation = rot;
+      if (d.isMirror) g.scaleX = -1;
+    } else {
+      if (d.isMirror) g.scaleX = -1;
+      const rotG = new Group({ rotation: rot });
+      g.add(rotG);
+      target = rotG;
+    }
     page.add(g);
     if (sym) {
       // old-style frames (Sheet-Symbol_*) draw their title-block values at the
@@ -556,7 +578,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       const titleValues = isBorder && !sym.recs.some((rr) => rr.type === 'TABLE')
         ? Object.fromEntries(pageAttrs)
         : undefined;
-      drawSymbolPart(g, sym, String(d.partId ?? ''), 0, 0, 0, false, Number(g.rotation) || 0, isBorder && !titleBlockEnabled, gray, titleValues);
+      drawSymbolPart(target, sym, String(d.partId ?? ''), 0, 0, 0, false, rot, isBorder && !titleBlockEnabled, gray, titleValues);
+      //        ^ rotation stays 0 — the component rotation lives on the outer
+      //          chain; `rot` only cancels itself for pin text (antiRot)
       drawComponentAttrs(g, attrs, sym, String(d.partId ?? ''), { gray, hideAll: isBorder && !titleBlockEnabled });
     } else if (symUuid) {
       // unresolved symbol — fallback marker so user sees something
@@ -879,18 +903,28 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       }
       const pin = sym?.recs.find((pr) => pr.type === 'PIN' && pr.id === m[2]);
       if (sym && pin) {
-        // same transform chain as drawComponent: symbol-canvas offset, mirror
-        // about the component origin, rotation, then component translation
+        // same transform chain as drawComponent: symbol-canvas offset, then the
+        // mirror/rotation composite — R·M on Y-up pages, M·R on Y-down ones
+        // (#mirror-rot-order) — and finally the component translation
         const sxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
         const d = comp.data;
-        let lx = X(Number(pin.data.x ?? 0), sxf);
+        const lx0 = X(Number(pin.data.x ?? 0), sxf);
         const ly = Y(Number(pin.data.y ?? 0), sxf);
-        if (d.isMirror) lx = -lx;
         const ra = (ang(Number(d.rotation ?? 0), xf) * Math.PI) / 180;
         const c = Math.cos(ra), s = Math.sin(ra);
+        let dx: number, dy: number;
+        if (xf.flip) {
+          const lx = d.isMirror ? -lx0 : lx0;
+          dx = lx * c - ly * s;
+          dy = lx * s + ly * c;
+        } else {
+          const rx = lx0 * c - ly * s, ry = lx0 * s + ly * c;
+          dx = d.isMirror ? -rx : rx;
+          dy = ry;
+        }
         out = {
-          x: X(Number(d.x ?? 0), xf) + lx * c - ly * s,
-          y: Y(Number(d.y ?? 0), xf) + lx * s + ly * c,
+          x: X(Number(d.x ?? 0), xf) + dx,
+          y: Y(Number(d.y ?? 0), xf) + dy,
         };
       }
     }
