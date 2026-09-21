@@ -276,27 +276,7 @@ export class Shell {
       // 最上)连同其上的板框/工具层一起按栈序重新压回;再把活跃面的焊盘
       // 编号 / 网络名标注置顶 —— 切顶层 → 顶层标注,切底层 → 底层标注。
       onActivate: (id) => {
-        // 记住激活层,画布点选命中重叠图元时优先拾取它(#pick-active-layer)
-        this.activeLayerId = id;
-        const l = this.layers.find((x) => x.id === id);
-        if (!l || l.count <= 0 || !this.currentRoot) return;
-        const root = this.currentRoot;
-        // 先整体按栈序归位:撤销上一次激活遗留的置顶 —— 只提不沉会让切换
-        // 面层后,对面标注层(如切过底层再切顶层时的底层网络名)一直压在
-        // 最上,不再被顶层/内层铜皮遮挡
-        for (const x of [...this.layers].sort((a, b) => pcbStackKey(a) - pcbStackKey(b))) root.add(x.group);
-        root.add(l.group);
-        // 只有必须常驻顶部的层(多层铜皮 470 / 板框 8000 / 原点轴 9000 / 飞线
-        // 9100 / 钻孔 9900)按栈序压回活跃层之上;其余层(同面的铜皮/阻焊/丝印
-        // 与对面各层)都留在活跃层之下 —— 之前把所有栈序更高的层全部重新 add,
-        // 丝印/阻焊/文档层这些低栈层点击后仍被铜皮盖住,提层形同未提
-        const key = pcbStackKey(l);
-        for (const x of this.layers.filter((x) => x.count > 0 && pcbStackKey(x) > key && pcbStackKey(x) >= 470).sort((a, b) => pcbStackKey(a) - pcbStackKey(b))) root.add(x.group);
-        const face = activeLayerFace(l);
-        if (face) for (const gid of [`nn:${face}`, `pn:${face}`]) {
-          const g = this.layers.find((x) => x.id === gid);
-          if (g) root.add(g.group);
-        }
+        this.activateLayer(id, true);
       },
       // 重置 (#layer-reset):全部层重新可见,并按渲染器的默认栈序(pcbStackKey
       // 升序 = 从底到顶)重新 add 所有层组,撤销激活置顶造成的层叠改动
@@ -769,6 +749,15 @@ export class Shell {
           .map((l) => ({ id: l.id, name: layerLabel(l.name), color: l.color, show: l.show, count: l.count }));
         this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
         this.props.setLayerNames(this.layers);
+        // PCB 族文档打开默认激活顶层铜皮(#default-top-layer):与客户端习惯
+        // 一致,画布点选默认作用于顶层 —— 组合 #pick-active-layer 的独占拾取,
+        // 点底层图元不会选中,须点击图层行切换激活层(两需求叠加的既定行为)。
+        // 打开前的 631 行已清空 activeLayerId,这里重新落默认;重置按钮 /
+        // 切文档 / DEVICE 清除后再次打开仍会默认顶层。没有顶层铜皮实体
+        // (纯丝印封装等)或面板文档无铜层时保持未激活。只落拾取态与行
+        // 高亮,不改默认渲染叠序(见 activateLayer 注释)
+        const topCopper = this.layers.find((l) => l.count > 0 && isTopCopperLayer(l));
+        if (topCopper) this.activateLayer(topCopper.id, false);
       } else {
         this.lastLayerItems = [];
         // destroy the previous doc's layer rows — the pane is hidden for
@@ -806,6 +795,42 @@ export class Shell {
     if (r.unknown.length) notes.push(t('statusUnknownTypes', { types: r.unknown.slice(0, 6).join(', ') }));
     const nonEmpty = this.layers.filter((l) => l.count > 0).length;
     this.setStatus(`${t('statusOpened', { title, n: this.objects.length, m: nonEmpty })}${notes.length ? ' — ' + notes.join(' | ') : ''}`);
+  }
+
+  /**
+   * 激活一个图层(#pick-active-layer):记录拾取优先层、同步面板行高亮,
+   * 并按需把该层组置顶。
+   * - `raise = true`:用户点击图层行 —— 完整置顶语义(栈序归位 → 提层 →
+   *   常驻层压回 → 对面标注置顶);
+   * - `raise = false`:打开 PCB 族文档的默认顶层激活(#default-top-layer)——
+   *   只落拾取态与行高亮,不改动渲染器的默认叠序:打开即重排层叠会让每块
+   *   板子的初始外观都被激活行为改写(铜皮盖过丝印/阻焊),而拾取语义只需要
+   *   activeLayerId;用户显式点击行时才发生置顶。
+   */
+  private activateLayer(id: string, raise: boolean): void {
+    // 记住激活层,画布点选命中重叠图元时优先拾取它(#pick-active-layer)
+    this.activeLayerId = id;
+    this.layerList.setActive(id);
+    if (!raise) return;
+    const l = this.layers.find((x) => x.id === id);
+    if (!l || l.count <= 0 || !this.currentRoot) return;
+    const root = this.currentRoot;
+    // 先整体按栈序归位:撤销上一次激活遗留的置顶 —— 只提不沉会让切换
+    // 面层后,对面标注层(如切过底层再切顶层时的底层网络名)一直压在
+    // 最上,不再被顶层/内层铜皮遮挡
+    for (const x of [...this.layers].sort((a, b) => pcbStackKey(a) - pcbStackKey(b))) root.add(x.group);
+    root.add(l.group);
+    // 只有必须常驻顶部的层(多层铜皮 470 / 板框 8000 / 原点轴 9000 / 飞线
+    // 9100 / 钻孔 9900)按栈序压回活跃层之上;其余层(同面的铜皮/阻焊/丝印
+    // 与对面各层)都留在活跃层之下 —— 之前把所有栈序更高的层全部重新 add,
+    // 丝印/阻焊/文档层这些低栈层点击后仍被铜皮盖住,提层形同未提
+    const key = pcbStackKey(l);
+    for (const x of this.layers.filter((x) => x.count > 0 && pcbStackKey(x) > key && pcbStackKey(x) >= 470).sort((a, b) => pcbStackKey(a) - pcbStackKey(b))) root.add(x.group);
+    const face = activeLayerFace(l);
+    if (face) for (const gid of [`nn:${face}`, `pn:${face}`]) {
+      const g = this.layers.find((x) => x.id === gid);
+      if (g) root.add(g.group);
+    }
   }
 
   private onTreeNode(node: TreeNode): void {
@@ -1149,6 +1174,15 @@ const UI_LAYER_RANK_BY_ID: Record<number, number> = {
   1: 4, 2: 20, 3: 0, 4: 23, 5: 3, 6: 21, 7: 2, 8: 22, 9: 41, 10: 42,
   11: 31, 12: 32, 13: 40, 14: 70, 47: 30,
 };
+
+/** 顶层铜皮层判定(#default-top-layer):file layerType 以 TOP 开头且不是
+ *  丝印/助焊(钢网)/阻焊/装配/加强块等非铜面;无 layerType 的文档按数字
+ *  层号 1 兜底(该格式顶层铜皮固定 id=1,见 UI_LAYER_RANK_BY_ID) */
+function isTopCopperLayer(l: RenderLayer): boolean {
+  const t = String(l.type ?? '').toUpperCase();
+  if (t) return t.startsWith('TOP') && !/(SILK|PASTE|SOLDER_MASK|ASSEMBLY|STIFFENER)/.test(t);
+  return Number(l.id) === 1;
+}
 
 /** which copper face (1=top, 2=bottom) a layer belongs to — drives the
  *  active-layer raise: the face's pad-number / net-name overlays go topmost.

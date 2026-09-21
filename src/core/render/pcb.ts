@@ -928,7 +928,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           // layerId 1) let an activated inner layer bury it (#th-pad-multilayer).
           // The color still follows the record's own face layer.
           const thPad = Number(d.hole?.width ?? 0) > 0;
-          targetFor(thPad ? LAYER.MULTI : d.layerId).add(padNode(d, fxf, layerColor, holeFill, {
+          const padGrp = padNode(d, fxf, layerColor, holeFill, {
             holeSink: (hg) => {
               const hx = Number(hg.x) || 0, hy = (flipY ? -1 : 1) * (Number(hg.y) || 0);
               hg.x = gx + hx * gc - hy * gs;
@@ -982,7 +982,54 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
               t.rotation = (Number(target.rotation) || 0) + (flipY ? -1 : 1) * (Number(t.rotation) || 0);
               netNameLayer(numFace).add(t);
             },
-          }));
+          });
+          targetFor(thPad ? LAYER.MULTI : d.layerId).add(padGrp);
+          // 封装内焊盘注册为独立可拾取对象(#fp-pad-pick):点击落在焊盘上 →
+          // 选中焊盘本身(焊盘 bbox 面积远小于封装 bbox,面积定胜负天然胜出,
+          // 穿过焊盘中心的走线端点仍按段距离优先),点击封装 bbox 空白处 →
+          // 仍选中整个封装。层归属焊盘自身面(底层元件的 layerId 已被
+          // faceRemap 改写),直接接入激活层独占拾取与隐藏层判定;通孔焊盘
+          // 铜皮挂在 MULTI 组绘制,但拾取仍归元件面层 —— 与 #th-pad-multilayer
+          // 的绘制归置解耦。世界坐标四角/顶点 = 局部形状(页级 PAD 同一映射:
+          // RECT 绕中心转 padAngle、POLYGON path 顶点 as-is)经封装画布 xf
+          // 映射进封装组空间,再按 wrapper 变换(底层元件先翻 Y 再旋转,
+          // 与 holeSink 各 sink 同一公式)映射到世界
+          const dpSel2 = d.defaultPad ?? {};
+          const mapWorld = (pt: [number, number]): [number, number] => {
+            let [x0, y0] = pt;
+            if (flipY) y0 = -y0;
+            return [gx + x0 * gc - y0 * gs, gy + x0 * gs + y0 * gc];
+          };
+          const polySel2 = Array.isArray(dpSel2.path) && dpSel2.path.length > 2 ? dpSel2.path : null;
+          let world: [number, number][] | null = null;
+          if (polySel2) {
+            const rawPts: [number, number][] = [];
+            for (const it of Array.isArray(polySel2[0]) ? polySel2 : [polySel2]) collectPathPts(it, rawPts);
+            if (rawPts.length >= 3) world = rawPts.map(([x0, y0]) => mapWorld(P(x0, y0, { ox: 0, oy: 0, flip: true })));
+          } else {
+            const pw2 = Number(dpSel2.width ?? 10), ph2 = Number(dpSel2.height ?? 10);
+            const [lx, ly] = P(Number(d.centerX ?? 0), Number(d.centerY ?? 0), fxf);
+            world = rotateBoxPoly({ minX: lx - pw2 / 2, minY: ly - ph2 / 2, maxX: lx + pw2 / 2, maxY: ly + ph2 / 2 }, Number(d.padAngle ?? 0)).map(mapWorld);
+          }
+          if (world) {
+            // 0° 零姿态退化 bbox 框,与页级焊盘同一约定(#select-box-rot);
+            // bbox 比页级 objBBox 同样外扩 2 文档单位,容差手感一致
+            const pb = bboxFromPts(world)!;
+            const rot2 = polySel2 != null || Number(d.padAngle ?? 0) % 360 !== 0 || Math.abs(Number(target.rotation) || 0) % 360 > 1e-9;
+            const rec2: Rec = padNet != null && padNet !== d.netName ? { ...r, data: { ...r.data, netName: padNet } } : r;
+            api.addObject({
+              id: `${compId}::pad:${r.id ?? d.num ?? ''}`,
+              rec: rec2,
+              node: padGrp,
+              label: `焊盘 ${d.num ?? r.id ?? ''}`,
+              kind: 'pad',
+              bbox: { minX: pb.minX - 2, minY: pb.minY - 2, maxX: pb.maxX + 2, maxY: pb.maxY + 2 },
+              // 通孔焊盘铜皮虽挂在 MULTI 组,拾取仍归元件自身面层(记录里的
+              // layerId 对通孔焊盘是 12/MULTI,归 12 会被激活层过滤永久排除)
+              layerKey: String(thPad ? numFace : (d.layerId ?? LAYER.TOP)),
+              selPoly: rot2 ? world : undefined,
+            });
+          }
           break;
         }
         case 'POLY': {

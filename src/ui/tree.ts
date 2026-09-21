@@ -281,6 +281,13 @@ export class LayerListView {
     this.activeId = null;
     this.host.querySelector('.ev-layer-row.ev-active')?.classList.remove('ev-active');
   }
+  /** programmatically set the highlighted (active) layer row — used by the
+   *  shell's default top-layer activation on doc open (#default-top-layer) */
+  setActive(id: string | null): void {
+    this.activeId = id;
+    for (const el of this.host.querySelectorAll('.ev-layer-row.ev-active')) el.classList.remove('ev-active');
+    if (id) this.host.querySelector(`.ev-layer-row[data-id="${CSS.escape(id)}"]`)?.classList.add('ev-active');
+  }
   setLayers(items: { id: string; name: string; color: string; show: boolean; count: number }[], isSch = false): void {
     this.host.innerHTML = '';
     if (this.activeId && !items.some((l) => l.id === this.activeId)) this.activeId = null;
@@ -312,6 +319,7 @@ export class LayerListView {
     for (const l of rows) {
       const row = document.createElement('div');
       row.className = 'ev-layer-row' + (l.show ? ' ev-on' : ' ev-off') + (l.id === this.activeId ? ' ev-active' : '');
+      row.dataset.id = l.id; // 供 setActive 编程式高亮定位(#default-top-layer)
       const eye = document.createElement('button');
       eye.className = 'ev-btn ev-btn-icon ev-layer-eye';
       eye.innerHTML = icon(l.show ? 'eye' : 'eyeOff', 14);
