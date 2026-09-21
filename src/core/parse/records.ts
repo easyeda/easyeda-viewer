@@ -101,6 +101,7 @@ export function splitSegments(lines: RawLine[]): { segs: DocSegment[] } {
         canvas: null,
         meta: null,
         recs: [],
+        updatedAt: typeof rec.data.updateTime === 'number' ? rec.data.updateTime : undefined,
       };
       segs.push(cur);
       return;

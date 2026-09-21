@@ -47,6 +47,8 @@ export interface DocSegment {
   canvas: CanvasInfo | null;
   meta: MetaInfo | null;
   recs: Rec[];
+  /** DOCHEAD updateTime (epoch ms) — the only timestamp the format carries */
+  updatedAt?: number;
   /** a DELETE_DOC record in the stream tombstoned this document (deleted in EDA) */
   deleted?: boolean;
 }
@@ -111,4 +113,7 @@ export interface OpenedDoc {
   /** combined bbox in screen units (already Y-flipped) */
   bbox: { minX: number; minY: number; maxX: number; maxY: number };
   report: ParseReport;
+  /** synthesized page/system attributes for title-block `={@Key}` refs (SCH_PAGE only);
+   *  dynamic values — the @-ATTR records cached in the file are a save-time snapshot and often empty */
+  sysAttrs?: Record<string, string>;
 }

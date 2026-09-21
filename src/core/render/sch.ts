@@ -46,6 +46,18 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const existing = pageAttrs.get(k);
     if (!existing || (!existing.trim() && v.trim())) pageAttrs.set(k, v);
   }
+  // Synthesized system attributes (@Page Name/@Page No/… from openDoc) resolve the
+  // title block's `={@Key}` cells: cached @-ATTR values are a save-time snapshot
+  // and usually empty, the client shows live values. Structural keys take the
+  // dynamic value; date/time keys only fill gaps — the format's only timestamp is
+  // the last-save time, not the true creation date (#titleblock-sysattrs)
+  if (opened.sysAttrs) {
+    for (const [k, v] of Object.entries(opened.sysAttrs)) {
+      if (!v) continue;
+      if (pageAttrs.get(k)?.trim() && /^@.*(Date|Time)$/.test(k)) continue;
+      pageAttrs.set(k, v);
+    }
+  }
   // wire groups for synthesizing junction dots at same-net intersections
   type WireSeg = { x1: number; y1: number; x2: number; y2: number };
   const wireGroups = new Map<string, WireSeg[]>();
@@ -124,7 +136,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
 
   // ---- embedded symbol renderer ----
   /** @param antiRot screen-deg to cancel out (component group rotation) so pin text stays upright */
-  function drawSymbolPart(target: Group, sym: DocSegment, partId: string, sx: number, sy: number, rotation: number, mirror: boolean, antiRot = 0, skipTitleBlock = false, gray = false): void {
+  /** @param titleValues old-style border frames only: attribute name → resolved
+   *  value painted at the symbol's positioned ATTR slots (see the ATTR case) */
+  function drawSymbolPart(target: Group, sym: DocSegment, partId: string, sx: number, sy: number, rotation: number, mirror: boolean, antiRot = 0, skipTitleBlock = false, gray = false, titleValues?: Record<string, string>): void {
     const sxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
     // title-block hiding (#2): the A4 frame symbol groups the region frame under
     // a GROUP titled "border"; graphics outside that group are title-block
@@ -288,6 +302,30 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           // flag "Title Block" decides whether it is drawn at all
           if (skipTitleBlock) break;
           drawTable(local, r.data, sxf);
+          made = true;
+          break;
+        }
+        case 'ATTR': {
+          // old-style border frames (Sheet-Symbol_*) have no TABLE record — the
+          // title block is TEXT artwork plus positioned ATTR slots (审核/页/共…
+          // labels' value cells). The lib slots carry the coordinates but empty
+          // values; the real values live on the border component's instance
+          // attrs and the synthesized sysAttrs (pageAttrs). New-style frames
+          // carry the values inside their TABLE cells instead (#titleblock-sysattrs)
+          if (!titleValues || skipTitleBlock) break;
+          const ad = r.data;
+          const key = String(ad.key ?? '');
+          if (!key || key === 'Symbol') break;
+          if (typeof ad.x !== 'number' || typeof ad.y !== 'number') break;
+          const value = resolveAttrRef(titleValues, titleValues[key] ?? '') ?? '';
+          if (!value.trim()) break;
+          const t = new Text({
+            text: value, fontSize: Number(ad.fontSize) || 8, fill: gray ? '#999999' : '#000000',
+            textAlign: alignX(ad.align), verticalAlign: alignY(ad.align ?? 'LEFT_BOTTOM'), autoSizeAlign: true,
+          });
+          t.x = X(Number(ad.x), sxf); t.y = Y(Number(ad.y), sxf);
+          if (typeof ad.rotation === 'number' && ad.rotation) t.rotation = ang(ad.rotation, sxf);
+          local.add(t);
           made = true;
           break;
         }
@@ -511,7 +549,14 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     if (d.isMirror) g.scaleX = -1;
     page.add(g);
     if (sym) {
-      drawSymbolPart(g, sym, String(d.partId ?? ''), 0, 0, 0, false, Number(g.rotation) || 0, isBorder && !titleBlockEnabled, gray);
+      // old-style frames (Sheet-Symbol_*) draw their title-block values at the
+      // symbol's positioned ATTR slots; new-style frames carry a TABLE whose
+      // cells resolve against pageAttrs inside drawSymbolPart — painting slots
+      // there too would duplicate the table's cells (#titleblock-sysattrs)
+      const titleValues = isBorder && !sym.recs.some((rr) => rr.type === 'TABLE')
+        ? Object.fromEntries(pageAttrs)
+        : undefined;
+      drawSymbolPart(g, sym, String(d.partId ?? ''), 0, 0, 0, false, Number(g.rotation) || 0, isBorder && !titleBlockEnabled, gray, titleValues);
       drawComponentAttrs(g, attrs, sym, String(d.partId ?? ''), { gray, hideAll: isBorder && !titleBlockEnabled });
     } else if (symUuid) {
       // unresolved symbol — fallback marker so user sees something

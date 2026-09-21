@@ -127,7 +127,64 @@ export function openDoc(model: ProjectModel, node: TreeNode): OpenedDoc {
         blobs.set(String(r.id ?? ''), r.data.content);
   const report = emptyReport();
   const bbox = computeBBox(self);
-  return { self, libs, blobs, fileKey: node.fileKey, node, bbox, report };
+  return { self, libs, blobs, fileKey: node.fileKey, node, bbox, report, sysAttrs: synthesizeSysAttrs(model, node, self) };
+}
+
+/**
+ * Synthesize the `@Key` system attributes that title-block (and other `={@Key}`)
+ * refs resolve against. The file caches @-ATTR records per page, but their values
+ * are a save-time snapshot and are frequently empty/null — the client recomputes
+ * them live (names/page number/dates), so the viewer does too.
+ */
+function synthesizeSysAttrs(model: ProjectModel, node: TreeNode, self: DocSegment): Record<string, string> | undefined {
+  if (self.docType !== 'SCH_PAGE') return undefined;
+  // parent chain sheet -> schematic -> board, for @Schematic Name / @Board Name
+  let path: TreeNode[] = [];
+  const find = (nodes: TreeNode[], trail: TreeNode[]): boolean => {
+    for (const n of nodes) {
+      const next = [...trail, n];
+      if (n.id === node.id) { path = next; return true; }
+      if (n.children && find(n.children, next)) return true;
+    }
+    return false;
+  };
+  find(model.tree, []);
+  // @Page No / @Page Count are project-wide sheet ordinals in display order
+  // (matches the client's cached numbering: last H610 page = 35 of 36)
+  let sheetIdx = -1;
+  let sheetCount = 0;
+  const walk = (nodes: TreeNode[]) => {
+    for (const n of nodes) {
+      if (n.docType === 'SCH_PAGE') {
+        sheetCount++;
+        if (n.id === node.id) sheetIdx = sheetCount - 1;
+      }
+      if (n.children) walk(n.children);
+    }
+  };
+  walk(model.tree);
+  const out: Record<string, string> = {
+    '@Page Name': String(self.meta?.title || node.title || ''),
+    '@Page No': sheetIdx >= 0 ? String(sheetIdx + 1) : '1',
+    '@Page Count': String(sheetCount),
+    '@Schematic Name': String(path.length >= 2 ? path[path.length - 2].title ?? '' : ''),
+    '@Project Name': String(model.name ?? ''),
+  };
+  const board = [...path].reverse().find((n) => n.kind === 'board');
+  if (board) out['@Board Name'] = String(board.title ?? '');
+  // dates: DOCHEAD updateTime (epoch ms) is the only timestamp the format carries;
+  // rendered in the viewer's local timezone as `yyyy-mm-dd` / `hh:mm:ss`
+  if (typeof self.updatedAt === 'number' && self.updatedAt > 0) {
+    const d = new Date(self.updatedAt);
+    const p2 = (n: number) => String(n).padStart(2, '0');
+    const date = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+    const time = `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+    out['@Update Date'] = date;
+    out['@Update Time'] = time;
+    out['@Create Date'] = date;
+    out['@Create Time'] = time;
+  }
+  return out;
 }
 
 /**

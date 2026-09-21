@@ -166,7 +166,7 @@ MyProject/
 
 | ID | 需求 | 优先级 |
 | --- | --- | --- |
-| FR-3.1 | 原理图渲染:导线/总线/元件符号(引用符号图形数据)/引脚/网络标签/端口/文本/图框与网格背景;属性文本(位号、值)**严格按实例 `valueVisible` 显示**(v0.3.1 #attr-visibility:实例属性仅 `valueVisible === true` 才绘制,false=取消勾选与 null=未勾选均不画,全样本验证所有被绘制的属性都带显式标志;无坐标的实例属性是库元数据一律不画;实例值为空的属性不做库值/META 回退绘制);豁免:电源标志(docType 18)与网络端口(docType 19)符号的 `Name`/`Global Net Name` 有实例值时结构性显示——旧存档 GNN 全部 vv=null(327/71 页)而官方渲染有标签,新存档迁移为 Name vv=true;非连接标识按引脚实时端点绘制,parentId 断链(迁移遗留)不绘制(与客户端一致) | P0 |
+| FR-3.1 | 原理图渲染:导线/总线/元件符号(引用符号图形数据)/引脚/网络标签/端口/文本/图框与网格背景;属性文本(位号、值)**严格按实例 `valueVisible` 显示**(v0.3.1 #attr-visibility:实例属性仅 `valueVisible === true` 才绘制,false=取消勾选与 null=未勾选均不画,全样本验证所有被绘制的属性都带显式标志;无坐标的实例属性是库元数据一律不画;实例值为空的属性不做库值/META 回退绘制);豁免:电源标志(docType 18)与网络端口(docType 19)符号的 `Name`/`Global Net Name` 有实例值时结构性显示——旧存档 GNN 全部 vv=null(327/71 页)而官方渲染有标签,新存档迁移为 Name vv=true;非连接标识按引脚实时端点绘制,parentId ���链(迁移遗留)不绘制(与客户端一致);**标题栏���统属性**(v0.3.1 #titleblock-sysattrs:标题栏 `={@Key}` 引用与旧式图框值槽动态取值——图框 symbol 有两种形态:新版 Drawing-Symbol_* 内嵌 TABLE 记录,单元格值 `={@Schematic Name}` 等按合并属性表解析;旧版 Sheet-Symbol_*(epro2 常见)无 TABLE,用 TEXT 艺术字画标签+带坐标的 ATTR 槽位画值(lib 槽位值恒空,实际值在 border 元件实例 ATTR,全部无坐标/无 vv 标志),此时按槽位 key 从 pageAttrs(页面缓存 @ 属性+动态合成)取值绘制在槽位坐标,有 TABLE 的新式图框不画槽位避免重复;`@Page Name/No/Count、@Schematic/Project/Board Name` 按打开文档动态合成(页名取标题、页号/页数取全树显示顺序、原理图/工程/板名取祖先链),`@Create/Update Date/Time` 优先用文件缓存值、缺失时以 DOCHEAD updateTime(格式内唯一时间戳,查看器本地时区)兜底) | P0 |
 | FR-3.2 | PCB 渲染:按图层(layer)分组着色绘制 —— 板框、覆铜(poured)、走线、圆弧、过孔、焊盘(含形状/图层正反面)、丝印文本、元件、禁布区(region)、尺寸标注、图像 | P0 |
 | FR-3.3 | 面板渲染:面板内 PCB 实例摆位、面板图文元素、拼板(panelize)外框 | P0 |
 | FR-3.4 | 图层颜色/可见性沿用专业版视觉习惯(内置映射表,支持用户配置覆盖);提供"图层面板"快速开关 | P0 |
