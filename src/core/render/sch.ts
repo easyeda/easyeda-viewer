@@ -8,6 +8,69 @@ import { resolveLibGraphics, resolveAttrRef } from '../model';
 /** record types that contribute real graphics (for component bbox sizing) */
 const DRAWABLE_TYPES = ['POLY', 'FILL', 'LINE', 'RECT', 'CIRCLE', 'ELLIPSE', 'OVAL', 'PIN', 'TEXT', 'STRING', 'TABLE', 'OBJ'];
 
+/**
+ * Standard title-block layout transcribed from the official Sheet-Symbol_A3 art
+ * (#border-size-override). Every Sheet-Symbol_N carries the identical 702×180
+ * panel anchored to the sheet's bottom-right corner — A2/A3 records differ only
+ * by x+683, y identical — so the block generalizes with dx = W-1655. Used to
+ * synthesize the title block when a migrated page's W×H has no matching frame
+ * symbol in the embedded libs. Coordinates are encoded as (x, v) with v the
+ * height above the sheet's bottom edge (art y is y-down: v = -y).
+ */
+const TB_BLOB_LOGO = '56eab000776c877d1322f55b5cf782d47e0f458623dfd2bbcc2fb4c34ddd8233';
+/** standard sheet sizes in doc units (1 unit = 0.254 mm), by "Page Size" attr */
+const PAGE_SIZES: Record<string, [number, number]> = {
+  A2: [2338, 1652],
+  A3: [1655, 1170],
+  A4: [1170, 825],
+  A5: [826, 582],
+};
+const TB_LOGO: [number, number, number, number] = [960, 55, 193, 55]; // x, v(top), w, h
+const TB_RECT: [number, number, number, number] = [943, 190, 1645, 10]; // x1,v1,x2,v2
+const TB_SEPS: [number, number, number, number][] = [
+  [1243, 10, 1243, 70],
+  [1035, 50, 1035, 190],
+  [1383, 190, 1383, 130],
+  [1483, 130, 1483, 190],
+  [1163, 130, 1163, 10],
+  [1163, 110, 943, 110],
+  [1645, 170, 1383, 170],
+  [1645, 50, 943, 50],
+  [1645, 130, 943, 130],
+  [1645, 70, 943, 70],
+  [1163, 90, 943, 90],
+  [1645, 150, 943, 150],
+  [1323, 70, 1323, 10],
+];
+const TB_LABELS: [string, number, number, string][] = [
+  ['审阅', 953, 100, 'LEFT_MIDDLE'],
+  ['绘制', 953, 120, 'LEFT_MIDDLE'],
+  ['版本', 1203, 60, 'CENTER_MIDDLE'],
+  ['创建日期', 1393, 160, 'LEFT_MIDDLE'],
+  ['物料编码', 1393, 140, 'LEFT_MIDDLE'],
+  ['页', 1407, 61, 'LEFT_MIDDLE'],
+  ['共', 1517, 61, 'LEFT_MIDDLE'],
+  ['原理图', 953, 170, 'LEFT_MIDDLE'],
+  ['更新日期', 1393, 180, 'LEFT_MIDDLE'],
+  ['尺寸', 1283, 60, 'CENTER_MIDDLE'],
+  ['图页', 953, 140, 'LEFT_MIDDLE'],
+];
+const TB_SLOTS: [string, number, number, number, string][] = [
+  ['Company', 1483, 30, 20, 'CENTER_MIDDLE'],
+  ['Drawed', 1043, 120, 15, 'LEFT_MIDDLE'],
+  ['Reviewed', 1043, 100, 15, 'LEFT_MIDDLE'],
+  ['Version', 1203, 30, 15, 'CENTER_MIDDLE'],
+  ['Page Size', 1285, 30, 15, 'CENTER_MIDDLE'],
+  ['@Project Name', 1405, 100, 20, 'CENTER_MIDDLE'],
+  ['@Page Count', 1587, 61, 15, 'CENTER_MIDDLE'],
+  ['@Update Date', 1495, 180, 15, 'LEFT_MIDDLE'],
+  ['@Create Date', 1495, 160, 15, 'LEFT_MIDDLE'],
+  ['@Schematic Name', 1215, 170, 20, 'CENTER_MIDDLE'],
+  ['Part Number', 1495, 140, 15, 'LEFT_MIDDLE'],
+  ['@Page No', 1470, 61, 15, 'CENTER_MIDDLE'],
+  ['@Page Name', 1215, 140, 15, 'CENTER_MIDDLE'],
+];
+
 export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   const seg = opened.self;
   // Two Y conventions exist in the wild (#x86-esch2-flip): classic sheets are
@@ -468,11 +531,73 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     return !!attrValue(attrs, 'Page Size') || (attrValue(attrs, 'Width') != null && attrValue(attrs, 'Border') != null);
   }
 
-  /** page rectangle of the border frame (sheet occupies x∈[0,W], y∈[-H,0], y-down) */
-  function borderPageBBox(attrs: Rec[]): BBox {
-    const W = Number(attrValue(attrs, 'Width')) || 1170;
-    const H = Number(attrValue(attrs, 'Height')) || 825;
-    return { minX: 0, minY: -H, maxX: W, maxY: 0 };
+  /**
+   * page rectangle of the border frame, in the same world space the other
+   * objects' bboxes use (post X/Y): the sheet sits at doc x∈[dx,dx+W],
+   * y∈[dy-H,dy] on Y-down pages and y∈[dy,dy+H] on Y-up ones. The former
+   * doc-space {0,-H,W,0} leaked the canvas origin into every camera fit
+   * (#border-size-override)
+   */
+  function borderPageBBox(r: Rec, attrs: Rec[]): BBox {
+    const std = PAGE_SIZES[String(attrValue(attrs, 'Page Size') ?? '').trim().toUpperCase()];
+    const W = Number(attrValue(attrs, 'Width')) || std?.[0] || 1170;
+    const H = Number(attrValue(attrs, 'Height')) || std?.[1] || 825;
+    const dx = Number(r.data.x ?? 0), dy = Number(r.data.y ?? 0);
+    return {
+      minX: X(dx, xf),
+      maxX: X(dx + W, xf),
+      minY: Y(dy + (xf.flip ? H : -H), xf),
+      maxY: Y(dy, xf),
+    };
+  }
+
+  /** PART BBOX of a symbol as {w,h} (the standard Sheet-Symbol_* frame art spans the whole sheet) */
+  function symbolFrameSize(seg: DocSegment | undefined): { w: number; h: number } | null {
+    if (!seg) return null;
+    const bb = seg.recs.find((r) => r.type === 'PART')?.data?.BBOX as number[] | undefined;
+    if (!bb || bb.length < 4) return null;
+    const w = Math.round(Math.abs(Number(bb[2]) - Number(bb[0])));
+    const h = Math.round(Math.abs(Number(bb[3]) - Number(bb[1])));
+    return w > 0 && h > 0 ? { w, h } : null;
+  }
+
+  /**
+   * Standard sheet symbol whose frame art is exactly W×H (Sheet-Symbol_A2/A3/A4/…
+   * carry PART BBOX equal to the sheet size and a GROUP 'border' with the artwork).
+   */
+  function borderSymbolAtSize(w: number, h: number): DocSegment | undefined {
+    for (const seg of opened.libs.values()) {
+      const size = symbolFrameSize(seg);
+      if (!size || size.w !== Math.round(w) || size.h !== Math.round(h)) continue;
+      if (seg.recs.some((r) => r.type === 'GROUP' && String(r.data.title ?? '') === 'border')) return seg;
+    }
+    return undefined;
+  }
+
+  /**
+   * Migrated pages keep explicit Width/Height overrides on the border instance that
+   * disagree with the referenced Sheet-Symbol (e.g. the instance says 1655×1170 = A3
+   * but still points at Sheet-Symbol_A4, or references nothing at all). The client
+   * paints the frame from the instance size, using the standard border symbol whose
+   * art matches that size — verified against the official page thumbnails, whose
+   * separators/labels sit at the matching Sheet-Symbol's coordinates. When the
+   * embedded libs carry no symbol at that size (eprj3 pages embed only the symbols
+   * their own records reference) the wrong-size art is dropped entirely and the
+   * parametric frame + transcribed title block take over. A referenced tb-only
+   * symbol (new-style Drawing-Symbol_*, no full-frame art) is left alone so its
+   * TABLE keeps rendering and only the parametric frame is synthesized.
+   */
+  function resolveBorderSymbol(attrs: Rec[], sym: DocSegment | undefined): DocSegment | undefined {
+    const W = Number(attrValue(attrs, 'Width'));
+    const H = Number(attrValue(attrs, 'Height'));
+    if (!(W > 0) || !(H > 0)) return sym;
+    const cur = symbolFrameSize(sym);
+    const fullFrame = cur != null && cur.w >= 600 && cur.h >= 400;
+    if (fullFrame && (cur.w !== Math.round(W) || cur.h !== Math.round(H))) {
+      return borderSymbolAtSize(W, H);
+    }
+    if (!sym) return borderSymbolAtSize(W, H);
+    return sym;
   }
 
   /** power symbols (GND/VCC/…) are authored pointing the wrong way; rotate 180° to match EasyEDA Pro placement (#4) */
@@ -493,39 +618,89 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
    * A4-style page border (EasyEDA renders it from a cloud OBJ blob we can't
    * decode, so synthesize it from the frame component's attributes:
    * Width/Height/Border/region counts/blade width, matching the reference look).
+   * All coordinates go through the page xf — Y-up pages place the sheet at
+   * y∈[0,H] like their migrated records, Y-down pages at y∈[-H,0]; both are
+   * expressed here as "v = height above the sheet's bottom edge" and converted
+   * uniformly. When the frame symbol art is unavailable (#border-size-override
+   * fallback) the standard title block is transcribed from TB_* (#titleblock-sysattrs).
    */
-  function drawBorder(attrs: Rec[]): void {
+  function drawBorder(r: Rec, titleValues?: Record<string, string>): void {
+    const attrs = byParent.get(r.id) ?? [];
+    const dx = Number(r.data.x ?? 0), dy = Number(r.data.y ?? 0);
     const g = new Group({ name: 'border', hittable: false });
-    const W = Number(attrValue(attrs, 'Width')) || 1170;
-    const H = Number(attrValue(attrs, 'Height')) || 825;
+    const W = Number(attrValue(attrs, 'Width')) || PAGE_SIZES[String(attrValue(attrs, 'Page Size') ?? '').trim().toUpperCase()]?.[0] || 1170;
+    const H = Number(attrValue(attrs, 'Height')) || PAGE_SIZES[String(attrValue(attrs, 'Page Size') ?? '').trim().toUpperCase()]?.[1] || 825;
     const xn = Math.max(1, Number(attrValue(attrs, 'X Region Count')) || 6);
     const yn = Math.max(1, Number(attrValue(attrs, 'Y Region Count')) || 4);
-    const blade = Number(attrValue(attrs, 'Blade Width')) || 16;
-    const col = '#a02020';
-    // sheet occupies x∈[0,W], y∈[-H,0] (y-down), top-left corner at (0,-H)
-    g.add(new Rect({ x: 0, y: -H, width: W, height: H, stroke: col, strokeWidth: 1.2, fill: null }));
-    const mk = (x1: number, y1: number, x2: number, y2: number) =>
-      g.add(new Line({ points: [x1, y1, x2, y2], stroke: col, strokeWidth: 1, hittable: false }));
-    const lbl = (text: string, x: number, y: number) => {
-      const t = new Text({ text, fontSize: 8, fill: col, textAlign: 'center', verticalAlign: 'middle', autoSizeAlign: true });
-      t.x = x; t.y = y;
+    const blade = Number(attrValue(attrs, 'Blade Width')) || 10;
+    const start = Number(attrValue(attrs, 'Region Start')) || 1;
+    const col = COLORS.schComponent;
+    // doc position of a point at (x, v) — v measured up from the sheet's bottom
+    // edge: Y-down pages keep the sheet at y∈[dy-H,dy] (art v=-y), Y-up pages at
+    // y∈[dy,dy+H] (art v=y-dy); both fold into one expression
+    const P2 = (x: number, v: number): [number, number] => {
+      const yDoc = xf.flip ? v + dy : -v + dy;
+      return [X(x + dx, xf), Y(yDoc, xf)];
+    };
+    g.add(new Rect({ x: P2(0, H)[0], y: P2(0, H)[1], width: W, height: H, stroke: col, strokeWidth: 1, fill: null }));
+    const mk = (x1: number, v1: number, x2: number, v2: number) => {
+      const a = P2(x1, v1), b = P2(x2, v2);
+      g.add(new Line({ points: [a[0], a[1], b[0], b[1]], stroke: col, strokeWidth: 1, hittable: false }));
+    };
+    const lbl = (text: string, x: number, v: number, align = 'CENTER_MIDDLE', size = 10, fill = col) => {
+      const t = new Text({
+        text, fontSize: size, fill, fontFamily: fill === col ? '宋体' : undefined,
+        textAlign: alignX(align), verticalAlign: alignY(align), autoSizeAlign: true,
+      });
+      const p = P2(x, v);
+      t.x = p[0]; t.y = p[1];
       g.add(t);
     };
+    // double frame + region grid exactly as the official Sheet-Symbol_N art:
+    // inner rect inset by `blade`, grid cells of W/xn × H/yn anchored at the
+    // inner rect's top-left corner (verified against Sheet-Symbol_A3 records)
+    const inner = P2(blade, H - blade);
+    g.add(new Rect({ x: inner[0], y: inner[1], width: W - 2 * blade, height: H - 2 * blade, stroke: col, strokeWidth: 1, fill: null }));
     for (let i = 1; i < xn; i++) {
-      const x = (i * W) / xn;
-      mk(x, 0, x, blade); mk(x, -H, x, -H + blade);
+      const x = blade + (i * W) / xn;
+      mk(x, 0, x, blade); mk(x, H, x, H - blade);
     }
-    for (let j = 1; j < yn; j++) {
-      const y = -H + (j * H) / yn;
-      mk(0, y, blade, y); mk(W - blade, y, W, y);
+    for (let k = 1; k < yn; k++) {
+      const v = H - blade - (k * H) / yn;
+      mk(0, v, blade, v); mk(W - blade, v, W, v);
     }
     for (let i = 0; i < xn; i++) {
-      const x = ((i + 0.5) * W) / xn;
-      lbl(String(i + 1), x, -H + blade / 2); lbl(String(i + 1), x, -blade / 2);
+      const x = blade + ((i + 0.5) * W) / xn;
+      lbl(String(i + start), x, H - blade / 2); lbl(String(i + start), x, blade / 2);
     }
     for (let j = 0; j < yn; j++) {
-      const y = -H + ((j + 0.5) * H) / yn;
-      lbl(String.fromCharCode(65 + j), blade / 2, y); lbl(String.fromCharCode(65 + j), W - blade / 2, y);
+      const v = H - blade - ((j + 0.5) * H) / yn;
+      lbl(String.fromCharCode(65 + j), blade / 2, v); lbl(String.fromCharCode(65 + j), W - blade / 2, v);
+    }
+    // title block: fixed 702×180 panel anchored to the bottom-right corner
+    if (titleValues) {
+      const shift = W - 1655;
+      const tb = P2(TB_RECT[0] + shift, TB_RECT[1]);
+      g.add(new Rect({
+        x: tb[0], y: tb[1],
+        width: TB_RECT[2] - TB_RECT[0], height: TB_RECT[1] - TB_RECT[3],
+        stroke: col, strokeWidth: 1, fill: null,
+      }));
+      for (const [x1, v1, x2, v2] of TB_SEPS) mk(x1 + shift, v1, x2 + shift, v2);
+      for (const [text, x, v, align] of TB_LABELS) lbl(text, x + shift, v, align, 15);
+      for (const [key, x, v, size, align] of TB_SLOTS) {
+        const value = resolveAttrRef(titleValues, titleValues[key] ?? '') ?? '';
+        if (!value.trim()) continue;
+        lbl(value, x + shift, v, align, size, '#000000');
+      }
+      const url = opened.blobs.get(TB_BLOB_LOGO);
+      if (url) {
+        const [lw, lh] = [TB_LOGO[2], TB_LOGO[3]];
+        const p = P2(TB_LOGO[0] + shift, TB_LOGO[1]);
+        const pg = new Group({ x: p[0], y: p[1] });
+        pg.add(new LeaferImage({ url, width: lw, height: lh }));
+        g.add(pg);
+      }
     }
     page.add(g);
   }
@@ -541,11 +716,31 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       const devUuid = attrValue(attrs, 'Device');
       if (devUuid && devUuid !== symUuid) sym = resolveLibGraphics(opened.libs, opened.libs.get(devUuid), 'Symbol');
     }
+    // explicit Width/Height on the border instance wins over the referenced frame
+    // symbol's own sheet size (#border-size-override)
+    if (isBorder) sym = resolveBorderSymbol(attrs, sym);
+    // migrated (Width/Height-carrying) pages fill only the @-system slots of the
+    // old-style title block — the official client leaves the Company/Version/"Page
+    // Size" value cells empty there even when the instance carries values
+    // (#border-size-override, #titleblock-sysattrs)
+    const migratedBorder = isBorder && attrValue(attrs, 'Width') != null && attrValue(attrs, 'Height') != null;
     // the A4 frame symbol ships its own region artwork (GROUP 'border') — only
     // synthesize the page frame for symbols that don't carry it, otherwise the
     // region labels/frame lines render twice with slightly different anchors
     const hasBorderArt = !!sym?.recs.some((rr) => rr.type === 'GROUP' && String(rr.data.title ?? '') === 'border');
-    if (isBorder && borderEnabled && !hasBorderArt) drawBorder(attrs);
+    // old-style frames (Sheet-Symbol_*) draw their title-block values at the
+    // symbol's positioned ATTR slots; new-style frames carry a TABLE whose cells
+    // resolve against pageAttrs inside drawSymbolPart — painting slots there too
+    // would duplicate the table's cells. Also feeds the synthesized title block
+    // when the frame art is unavailable (#border-size-override, #titleblock-sysattrs)
+    const titleValues = isBorder && titleBlockEnabled && (!sym || !sym.recs.some((rr) => rr.type === 'TABLE'))
+      ? Object.fromEntries(
+          migratedBorder
+            ? [...pageAttrs].filter(([k]) => k.startsWith('@'))
+            : pageAttrs,
+        )
+      : undefined;
+    if (isBorder && borderEnabled && !hasBorderArt) drawBorder(r, titleValues);
     // "Add into BOM = no" parts (DNP/NC) render all-gray like the EasyEDA export
     const gray = attrValue(attrs, 'Add into BOM') === 'no';
     const g = new Group({ name: `comp:${r.id}` });
@@ -571,19 +766,13 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     }
     page.add(g);
     if (sym) {
-      // old-style frames (Sheet-Symbol_*) draw their title-block values at the
-      // symbol's positioned ATTR slots; new-style frames carry a TABLE whose
-      // cells resolve against pageAttrs inside drawSymbolPart — painting slots
-      // there too would duplicate the table's cells (#titleblock-sysattrs)
-      const titleValues = isBorder && !sym.recs.some((rr) => rr.type === 'TABLE')
-        ? Object.fromEntries(pageAttrs)
-        : undefined;
       drawSymbolPart(target, sym, String(d.partId ?? ''), 0, 0, 0, false, rot, isBorder && !titleBlockEnabled, gray, titleValues);
       //        ^ rotation stays 0 — the component rotation lives on the outer
       //          chain; `rot` only cancels itself for pin text (antiRot)
       drawComponentAttrs(g, attrs, sym, String(d.partId ?? ''), { gray, hideAll: isBorder && !titleBlockEnabled });
-    } else if (symUuid) {
-      // unresolved symbol — fallback marker so user sees something
+    } else if (symUuid && !isBorder) {
+      // unresolved symbol — fallback marker so user sees something (border
+      // components are rendered by the synthesized frame above instead)
       const fr = new Rect({ x: -15, y: -10, width: 30, height: 20, stroke: '#cc0000', strokeWidth: 1, dashPattern: [3, 3] });
       g.add(fr);
       api.reportDiagnostics.push(`未解析符号 ${symUuid.slice(0, 10)} (line ${r.lineNo})`);
@@ -594,7 +783,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         ? `图纸 ${attrValue(attrs, 'Page Size') ?? ''}`.trim()
         : (attrValue(attrs, 'Designator') ?? String((sym?.meta as any)?.title ?? d.attrs?.Designator ?? d.partId ?? r.id)),
       // the border component contributes the full page rect so camera fit shows the whole sheet
-      bbox: isBorder ? borderPageBBox(attrs) : (componentWorldBBox(g, sym, String(d.partId ?? ''), d) ?? undefined),
+      bbox: isBorder ? borderPageBBox(r, attrs) : (componentWorldBBox(g, sym, String(d.partId ?? ''), d) ?? undefined),
     });
   }
 

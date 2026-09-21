@@ -153,9 +153,11 @@ function isDocIdText(d: any, ownerId?: string, allIds?: Set<string>, netNames?: 
  * `holeFill` is the canvas background: drills punch through the board, they
  * are not a colored ink layer (EasyEDA shows them as bg-colored holes).
  * Rotation pivot: leafer rotates around the node's own (x,y) placement point,
- * so each shape is drawn centered on the local origin and wrapped in a Group
- * positioned at the pad center — rotating the Group then spins the pad around
- * its center (rotating a node placed at top-left would swing it off-target).
+ * so each rect/round shape is drawn centered on the local origin and wrapped in
+ * a Group positioned at the pad center — rotating the Group then spins the pad
+ * around its center (rotating a node placed at top-left would swing it
+ * off-target). POLYGON copper is the exception: its outline is authored in
+ * footprint coords and drawn as-is, no padAngle rotation (#pad-polygon-ring).
  * Pad numbers are drawn doc-scaled (they zoom with the canvas like the client).
  * `opts.holeSink` hoists the drill/slot group out of the pad group (caller adds
  * it to the topmost hole layer) — use for pads already in world coords.
@@ -205,12 +207,10 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
   const color = opts?.copperColor ?? colorOf(d.layerId ?? LAYER.TOP);
   const shape = String(dp.padType ?? 'RECT').toUpperCase();
   // polygon pads (irregular footprint copper — MEMS-mic sector pads etc.) carry
-  // no width/height: their outline lives in defaultPad.path, pad-local mil in
-  // the same token stream as FILL/POLY paths (#pad-polygon)
+  // no width/height: their outline lives in defaultPad.path in FOOTPRINT
+  // coordinates, same token stream as FILL/POLY paths (#pad-polygon)
   const polyPath = Array.isArray(dp.path) && dp.path.length > 2 ? (dp.path as any[]) : null;
   let w = Number(dp.width ?? 10), h = Number(dp.height ?? 10);
-  // POLYGON pad outline origin (see polyPath use below)
-  let pbx = 0, pby = 0;
   if (polyPath) {
     // estimate w/h from the path's coordinate pairs for the pad-number size
     // (token payload numbers — ARC/C — only inflate the estimate slightly)
@@ -225,35 +225,36 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
     if (xs.length > 1) {
       w = Math.max(...xs) - Math.min(...xs);
       h = Math.max(...ys) - Math.min(...ys);
-      // the outline's own bbox center: real files author POLYGON paths in
-      // FOOTPRINT coords with centerX/centerY set to the copper bbox center
-      // (U23 mic: all three C-arcs ring the sound hole only when read as-is),
-      // so anchor by translating the path back onto its bbox center — the
-      // declared center. Path-relative files (bbox center ≈ 0,0) get the same
-      // treatment as a plain center-anchor, so both authorings land right.
-      pbx = (Math.max(...xs) + Math.min(...xs)) / 2;
-      pby = (Math.max(...ys) + Math.min(...ys)) / 2;
     }
   }
-  const pad = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
   if (polyPath) {
-    // the outline is pad-local y-up doc coords re-centered on its bbox center
-    // (see pbx/pby) — flip into screen space inside the pad group, which
-    // already carries the pad's position & rotation
-    for (const dd of multiPathToSvg(polyPath, { ox: pbx, oy: pby, flip: true }, true)) {
-      pad.add(new Path({ path: dd, fill: color }));
+    // POLYGON outlines are authored already placed (and pre-rotated) in
+    // footprint coords — draw them as-is: re-anchoring the outline onto the
+    // declared pad center slid the mounting-ring pads (SMD_BD5.6-D3.6 /
+    // SMD-1_BD4.4-D2.8: four annulus-sector pads whose paths center on the
+    // footprint origin, ~8 doc units from the shape bbox center) sideways,
+    // which read as the whole ring being rotated a few degrees
+    // (#pad-polygon-ring). padAngle must not rotate the copper either: the
+    // PRPAK5X6 lib copies carry byte-identical pad-5 paths under padAngle
+    // 0/90/180/270, so the angle is drill/label metadata only (it still
+    // steers the drill below).
+    for (const dd of multiPathToSvg(polyPath, { ox: 0, oy: 0, flip: true }, true)) {
+      g.add(new Path({ path: dd, fill: color }));
     }
-  } else if (shape === 'RECT' || shape === 'SQUARE') {
-    pad.add(new Rect({ x: -w / 2, y: -h / 2, width: w, height: h, fill: color, cornerRadius: (Number(dp.radius) || 0) }));
   } else {
-    // every round-family copper shape keeps round caps: ELLIPSE is the *round*
-    // pad in EasyEDA's schema (圆焊盘 — OVAL is the oblong one), so equal w/h is
-    // a plain circle and a stretched w/h (PCB4's 260×200 slot-pad demo) is an
-    // oblong with half-circle caps, never a pointed ellipse (#pad-oval)
-    const cr = Math.min(w, h) / 2;
-    pad.add(new Rect({ x: -w / 2, y: -h / 2, width: w, height: h, fill: color, cornerRadius: [cr, cr, cr, cr] }));
+    const pad = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
+    if (shape === 'RECT' || shape === 'SQUARE') {
+      pad.add(new Rect({ x: -w / 2, y: -h / 2, width: w, height: h, fill: color, cornerRadius: (Number(dp.radius) || 0) }));
+    } else {
+      // every round-family copper shape keeps round caps: ELLIPSE is the *round*
+      // pad in EasyEDA's schema (圆焊盘 — OVAL is the oblong one), so equal w/h is
+      // a plain circle and a stretched w/h (PCB4's 260×200 slot-pad demo) is an
+      // oblong with half-circle caps, never a pointed ellipse (#pad-oval)
+      const cr = Math.min(w, h) / 2;
+      pad.add(new Rect({ x: -w / 2, y: -h / 2, width: w, height: h, fill: color, cornerRadius: [cr, cr, cr, cr] }));
+    }
+    g.add(pad);
   }
-  g.add(pad);
   const hole = d.hole;
   if (hole) {
     const hw = Number(hole.width ?? 0), hh = Number(hole.height ?? hw);
@@ -298,13 +299,15 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       if (!isFinite(e) || e <= -900) continue; // rule sentinel (≤ -1000): no window
       const mw = w + 2 * e, mh = h + 2 * e;
       if (mw <= 0 || mh <= 0) continue;
-      const mg = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
+      // POLYGON windows ride the outline as-is in footprint coords (same anchor
+      // as the copper, see above); rect/round windows stay centered+rotated
+      const mg = polyPath ? new Group() : new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
       if (polyPath) {
         // POLYGON pads window from their own outline: fill it and stroke it by
         // the expansion — a 2e round-join stroke dilates the polygon by e the
         // way the client grows the special shape (a negative expansion cannot
         // shrink a fill, so the window then equals the pad outline itself)
-        const ds = multiPathToSvg(polyPath, { ox: pbx, oy: pby, flip: true }, true);
+        const ds = multiPathToSvg(polyPath, { ox: 0, oy: 0, flip: true }, true);
         const sw = Math.max(0, 2 * e);
         const mc = colorOf(face === 1 ? LAYER.TOP_MASK : LAYER.BOT_MASK);
         mg.add(new Path({ path: ds.join(' '), fill: mc, stroke: sw > 0 ? mc : undefined, strokeWidth: sw, strokeCap: 'round', strokeJoin: 'round' }));
@@ -337,11 +340,13 @@ function padNode(d: any, xf: ReturnType<typeof xfOf>, colorOf: (id: unknown) => 
       if (!isFinite(e) || e <= -900) continue; // "no paste" sentinel (-1000 / -3937)
       const pw = w + 2 * e, ph = h + 2 * e;
       if (pw <= 0 || ph <= 0) continue;
-      const pg = new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
+      // POLYGON paste windows ride the outline as-is too (same anchor as the
+      // copper); rect/round ones stay centered+rotated
+      const pg = polyPath ? new Group() : new Group({ x: px, y: py, rotation: ang(padAngleDeg) });
       if (polyPath) {
         // POLYGON paste opens from the outline too (same stroke-dilation as
         // the mask window above; paste sits UNDER the copper in paint order)
-        const ds = multiPathToSvg(polyPath, { ox: pbx, oy: pby, flip: true }, true);
+        const ds = multiPathToSvg(polyPath, { ox: 0, oy: 0, flip: true }, true);
         const sw = Math.max(0, 2 * e);
         const pc = colorOf(face === 1 ? LAYER.TOP_PASTE : LAYER.BOTTOM_PASTE);
         pg.add(new Path({ path: ds.join(' '), fill: pc, stroke: sw > 0 ? pc : undefined, strokeWidth: sw, strokeCap: 'round', strokeJoin: 'round' }));
