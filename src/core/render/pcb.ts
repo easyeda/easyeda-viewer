@@ -2,7 +2,7 @@
 import { Group, Line, Rect, Path, Text, Ellipse, Image as LeaferImage } from 'leafer-ui';
 import type { OpenedDoc, Rec, DocSegment } from '../types';
 import type { RenderApi, RenderObject } from './layers';
-import { X, Y, P, ang, strokeOf, widthOf, xfOf, objBBox, bboxFromPts, multiPathToSvg, scalePourItems, type BBox, type Xf } from './geom';
+import { X, Y, P, ang, strokeOf, widthOf, xfOf, objBBox, bboxFromPts, multiPathToSvg, scalePourItems, arcPts, collectPathPts, type BBox, type Xf } from './geom';
 import { glyphKey, glyphPathD, fontGlyphMap, GLYPH_UNIT, type FontGlyph } from './font';
 import { resolveLibGraphics } from '../model';
 
@@ -828,7 +828,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   }
 
   const addToLayer = (d: any, obj: Rec, node: Group, label: string, kind: RenderObject['kind'] = 'primitive', bbox?: BBox,
-    group?: { key: string; name: string }) => {
+    group?: { key: string; name: string }, pathPts?: [number, number][]) => {
     let lid = d.layerId != null ? String(d.layerId) : '0';
     if (group) lid = group.key; // synthetic per-face sub-group (pour:1 / pour:2)
     if (HIDDEN_LAYERS.has(lid)) return; // never-painted utility layers (#27 area)
@@ -841,7 +841,9 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     if (alpha !== undefined && node.opacity === undefined) node.opacity = alpha;
     // `bbox` lets callers hand in an exact painted box (glyph ink / rotated
     // image frame) instead of the generic estimate (#string-bbox, #image-bbox)
-    api.addObject({ id: obj.id, rec: obj, node, label, kind, bbox: bbox ?? objBBox(obj, xf) ?? undefined });
+    // `layerKey` 落定对象实际所在层组(含合成组),供活跃层优先拾取与隐藏判定
+    // `pathPts` 线类图元的实际路径,选中框沿路径贴合(#select-box-path)
+    api.addObject({ id: obj.id, rec: obj, node, label, kind, bbox: bbox ?? objBBox(obj, xf) ?? undefined, layerKey: lid, pathPts });
   };
 
   // ---- origin axes at the business origin (CANVAS originX/originY) (#11) ----
@@ -889,7 +891,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         node.add(t);
       }
       api.layer('panel', '面板轮廓', '#8a8a8a').add(node);
-      api.addObject({ id: 'panel-outline', rec: { type: 'CANVAS', id: 'CANVAS', data: c, lineNo: 0 } as unknown as Rec, node, label: '面板轮廓', kind: 'primitive', bbox: { minX: rx, minY: ry, maxX: rx + pw, maxY: ry + ph } });
+      api.addObject({ id: 'panel-outline', rec: { type: 'CANVAS', id: 'CANVAS', data: c, lineNo: 0 } as unknown as Rec, node, label: '面板轮廓', kind: 'primitive', bbox: { minX: rx, minY: ry, maxX: rx + pw, maxY: ry + ph }, layerKey: 'panel' });
     }
   }
 
@@ -1167,6 +1169,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       id: r.id, rec: r, node: g, label: `元件 ${r.id}`, kind: 'component',
       title: attrValue(attrs, 'Designator') ?? String(d.attrs?.['Designator'] ?? d.attrs?.['Name'] ?? r.id),
       bbox: footprintBBox(fp, g),
+      // 元件拾取归属按其自身所在面(封装图元经 wrapper 分散到各层组,#pick-active-layer)
+      layerKey: layerIdOf(d) || String(LAYER.TOP),
     });
   }
 
@@ -1207,19 +1211,27 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
             else netNameLayer(lk === '2' ? 2 : 1).add(t);
           }
         }
-        addToLayer(d, r, node, `走线 ${r.id} ${d.netName ?? ''}`, 'track');
+        addToLayer(d, r, node, `走线 ${r.id} ${d.netName ?? ''}`, 'track', undefined, undefined, [[x1, y1], [x2, y2]]);
         return;
       }
       case 'POLY': {
         const node = new Group();
         const stroke = strokeOf(d, layerColor(d.layerId ?? d.layer));
+        // 折线的实际路径顶点(points 与 path 两种形态合并;弧 token 只取弧端点,
+        // 选中框按顶点连线贴合,#select-box-path)
+        const polyPts: [number, number][] = [];
         if (Array.isArray(d.points)) {
           const pts: number[] = [];
-          for (const p of d.points as any[]) { const [x, y] = P(Number(p.x ?? 0), Number(p.y ?? 0), xf); pts.push(x, y); }
+          for (const p of d.points as any[]) { const [x, y] = P(Number(p.x ?? 0), Number(p.y ?? 0), xf); pts.push(x, y); polyPts.push([x, y]); }
           if (pts.length >= 4) node.add(new Line({ points: pts, closed: !!d.closed, stroke, strokeWidth: widthOf(d, 6), strokeCap: 'round', strokeJoin: 'round', hitStroke: 'all' }));
         }
         for (const path of multiPathToSvg(d.path ?? [], xf, false)) {
           node.add(new Path({ path, stroke, strokeWidth: widthOf(d, 6), strokeCap: 'round', strokeJoin: 'round' }));
+        }
+        if (Array.isArray(d.path)) for (const it of Array.isArray(d.path[0]) ? d.path : [d.path]) {
+          const raw: [number, number][] = [];
+          collectPathPts(it, raw);
+          for (const [px, py] of raw) polyPts.push(P(px, py, xf));
         }
         // panel shapes: ploys tokens in a normalized rect (local y-DOWN), placed by
         // row-major 2x3 matrix into doc y-UP space: y' = f − d·x − e·y
@@ -1251,7 +1263,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
             }
           }
         }
-        addToLayer(d.layerId == null && d.layer != null ? { ...d, layerId: d.layer } : d, r, node, `折线 ${r.id}`);
+        addToLayer(d.layerId == null && d.layer != null ? { ...d, layerId: d.layer } : d, r, node, `折线 ${r.id}`,
+          'primitive', undefined, undefined, polyPts.length >= 2 ? polyPts : undefined);
         return;
       }
       case 'CIRCLE': {
@@ -1276,8 +1289,10 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const [x1, y1] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), xf);
         const [x2, y2] = P(Number(d.endX ?? 0), Number(d.endY ?? 0), xf);
         const node = new Group();
-        node.add(new Path({ path: arcD(x1, y1, x2, y2, Number(d.angle ?? 0)), stroke: colorForNet(d.netName, layerColor(d.layerId)), strokeWidth: widthOf(d, 6), strokeCap: 'round' }));
-        addToLayer(d, r, node, `圆弧走线 ${r.id} ${d.netName ?? ''}`, 'track');
+        const deg = Number(d.angle ?? 0);
+        node.add(new Path({ path: arcD(x1, y1, x2, y2, deg), stroke: colorForNet(d.netName, layerColor(d.layerId)), strokeWidth: widthOf(d, 6), strokeCap: 'round' }));
+        // 弧采样与 arcD 同一套弦长/扫角/扫向公式,采样点落在所画弧上(#select-box-path)
+        addToLayer(d, r, node, `圆弧走线 ${r.id} ${d.netName ?? ''}`, 'track', undefined, undefined, arcPts(x1, y1, x2, y2, deg, true, 20));
         return;
       }
       case 'PAD': {

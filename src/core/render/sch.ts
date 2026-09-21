@@ -2,7 +2,7 @@
 import { Group, Line, Rect, Path, Text, Ellipse, Image as LeaferImage } from 'leafer-ui';
 import type { OpenedDoc, Rec, DocSegment } from '../types';
 import type { RenderApi, RenderObject } from './layers';
-import { X, Y, P, ang, strokeOf, fillOf, widthOf, xfOf, objBBox, bboxFromPts, arcSeg, arc3Seg, COLORS, type Xf, type BBox } from './geom';
+import { X, Y, P, ang, strokeOf, fillOf, widthOf, xfOf, objBBox, bboxFromPts, arcSeg, arc3Seg, arcPts, arc3Pts, COLORS, type Xf, type BBox } from './geom';
 import { resolveLibGraphics, resolveAttrRef } from '../model';
 
 /** record types that contribute real graphics (for component bbox sizing) */
@@ -895,6 +895,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   function drawPrimitive(r: Rec) {
     const d = r.data;
     let node: Group | null = null;
+    // 线类图元的实际绘制路径顶点(屏幕坐标)—— 选中高亮沿路径贴合而非
+    // 取整体 bbox 最大矩形;仅导线/多段线/弧设置(#select-box-path)
+    let pathPts: [number, number][] | undefined;
     switch (r.type) {
       case 'LINE': {
         const gk = String(d.lineGroup ?? '');
@@ -906,6 +909,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           // zero-length wire segment = junction marker (red dot in EasyEDA)
           node.add(new Ellipse({ x: x1 - 1.8, y: y1 - 1.8, width: 3.6, height: 3.6, fill: '#d40000', hittable: false }));
         } else {
+          pathPts = [[x1, y1], [x2, y2]];
           node.add(new Line({
             points: [x1, y1, x2, y2],
             stroke: strokeOf(d, COLORS.net),
@@ -926,6 +930,10 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       case 'POLY': case 'FILL': {
         const pts = (d.points ?? []).flatMap((pt: any) => [X(pt.x ?? 0, xf), Y(pt.y ?? 0, xf)]);
         if (pts.length >= 4) {
+          if (r.type === 'POLY') { // FILL 矩形填充保持 bbox 框
+            pathPts = [];
+            for (let i = 0; i + 1 < pts.length; i += 2) pathPts.push([pts[i], pts[i + 1]]);
+          }
           node = new Group();
           node.add(new Line({
             points: pts, closed: r.type === 'FILL' || !!d.closed,
@@ -964,6 +972,10 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         const seg = hasRefer
           ? arc3Seg(sx, sy, rx, ry, ex, ey)
           : arcSeg(sx, sy, ex, ey, Number(d.angle ?? 0), xf.flip);
+        // 采样弧为折线顶点,与 seg 画出的 SVG 弧逐点吻合(#select-box-path)
+        pathPts = hasRefer
+          ? arc3Pts(sx, sy, rx, ry, ex, ey)
+          : arcPts(sx, sy, ex, ey, Number(d.angle ?? 0), xf.flip);
         node = new Group();
         node.add(new Path({
           path: `M ${sx} ${sy} ${seg}`,
@@ -1059,6 +1071,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       id: r.id, rec: r, node, label: `${r.type} ${r.id}`, kind: 'primitive',
       bbox: objBBox(r, xf) ?? undefined,
       hit: strokeHit(r, d, xf),
+      pathPts,
     });
   }
 

@@ -162,27 +162,92 @@ export function arcSeg(sx: number, sy: number, ex: number, ey: number, deg: numb
   return `A ${rad} ${rad} 0 ${large} ${sweep} ${ex} ${ey}`;
 }
 
+/** three-point circle fit (start / on-arc reference / end): center + radius;
+ *  null when the points are collinear (degenerate circle) */
+export function circum3(sx: number, sy: number, rx: number, ry: number, ex: number, ey: number): { cx: number; cy: number; rad: number } | null {
+  const d = 2 * (sx * (ry - ey) + rx * (ey - sy) + ex * (sy - ry));
+  if (!Number.isFinite(d) || Math.abs(d) < 1e-9) return null;
+  const s2 = sx * sx + sy * sy, r2 = rx * rx + ry * ry, e2 = ex * ex + ey * ey;
+  const cx = (s2 * (ry - ey) + r2 * (ey - sy) + e2 * (sy - ry)) / d;
+  const cy = (s2 * (ex - rx) + r2 * (sx - ex) + e2 * (rx - sx)) / d;
+  const rad = Math.hypot(sx - cx, sy - cy);
+  if (!Number.isFinite(rad) || rad < 1e-9) return null;
+  return { cx, cy, rad };
+}
+
 /** three-point arc (start / on-arc reference / end) → svg `A` segment.
  *  All coords are already in screen space (y-down), so angles from atan2 line up
  *  with the svg sweep convention: sweep=1 = increasing atan2 angle. Falls back to
  *  a straight `L` when the points are collinear (degenerate circle). */
 export function arc3Seg(sx: number, sy: number, rx: number, ry: number, ex: number, ey: number): string {
-  const d = 2 * (sx * (ry - ey) + rx * (ey - sy) + ex * (sy - ry));
-  if (!Number.isFinite(d) || Math.abs(d) < 1e-9) return `L ${ex} ${ey}`;
-  const s2 = sx * sx + sy * sy, r2 = rx * rx + ry * ry, e2 = ex * ex + ey * ey;
-  const cx = (s2 * (ry - ey) + r2 * (ey - sy) + e2 * (sy - ry)) / d;
-  const cy = (s2 * (ex - rx) + r2 * (sx - ex) + e2 * (rx - sx)) / d;
-  const rad = Math.hypot(sx - cx, sy - cy);
-  if (!Number.isFinite(rad) || rad < 1e-9) return `L ${ex} ${ey}`;
+  const c = circum3(sx, sy, rx, ry, ex, ey);
+  if (!c) return `L ${ex} ${ey}`;
   const norm = (a: number): number => ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-  const a0 = Math.atan2(sy - cy, sx - cx);
-  const dR = norm(Math.atan2(ry - cy, rx - cx) - a0); // start → refer
-  const d1 = norm(Math.atan2(ey - cy, ex - cx) - a0); // start → end
+  const a0 = Math.atan2(sy - c.cy, sx - c.cx);
+  const dR = norm(Math.atan2(ry - c.cy, rx - c.cx) - a0); // start → refer
+  const d1 = norm(Math.atan2(ey - c.cy, ex - c.cx) - a0); // start → end
   // the drawn arc is the one passing through the refer point
   const sweep = dR < d1 ? 1 : 0;
   const span = sweep === 1 ? d1 : Math.PI * 2 - d1;
   const large = span > Math.PI ? 1 : 0;
-  return `A ${rad} ${rad} 0 ${large} ${sweep} ${ex} ${ey}`;
+  return `A ${c.rad} ${c.rad} 0 ${large} ${sweep} ${ex} ${ey}`;
+}
+
+/** 圆弧采样为折线顶点(屏幕坐标)—— 选中框沿实际路径贴合用(#select-box-path)。
+ *  参数与 arcSeg 完全一致(deg = 扫角,flip 决定扫向旗标):内部按弦长/扫角
+ *  反推半径与两个候选圆心,取与 sweep/large 旗标自洽的那一个,再沿扫角等分
+ *  采样,采样结果与 arcSeg/arcD 画出的 SVG 弧逐点吻合。 */
+export function arcPts(sx: number, sy: number, ex: number, ey: number, deg: number, flip = true, samples = 24): [number, number][] {
+  const chord = Math.hypot(ex - sx, ey - sy);
+  if (chord < 1e-6) return [[sx, sy]];
+  const a = Math.abs(deg) > 359.9 ? 359.9 : Math.abs(deg);
+  const rad = chord / (2 * Math.sin((a * Math.PI) / 360));
+  const sweep = flip ? (deg > 0 ? 0 : 1) : (deg > 0 ? 1 : 0);
+  const large = a > 180 ? 1 : 0;
+  const h2 = rad * rad - (chord / 2) ** 2;
+  const h = h2 > 0 ? Math.sqrt(h2) : 0;
+  const mx = (sx + ex) / 2, my = (sy + ey) / 2;
+  const ux = (ex - sx) / chord, uy = (ey - sy) / chord;
+  const TWO = Math.PI * 2;
+  const norm = (v: number): number => ((v % TWO) + TWO) % TWO;
+  for (const side of [1, -1]) {
+    const cx = mx - side * uy * h, cy = my + side * ux * h;
+    const a0 = Math.atan2(sy - cy, sx - cx);
+    const a1 = Math.atan2(ey - cy, ex - cx);
+    // sweep=1 沿角度增大方向扫;span 与 large 旗标自洽的候选圆心即真实圆心
+    const span = sweep === 1 ? norm(a1 - a0) : TWO - norm(a1 - a0);
+    if ((span > Math.PI ? 1 : 0) !== large) continue;
+    const n = Math.max(2, Math.round(samples));
+    const pts: [number, number][] = [];
+    // sweep=0 时角度沿减小方向扫(span 为扫角的绝对值)
+    const dir = sweep === 1 ? 1 : -1;
+    for (let i = 0; i <= n; i++) {
+      const t = a0 + dir * span * (i / n);
+      pts.push([cx + rad * Math.cos(t), cy + rad * Math.sin(t)]);
+    }
+    return pts;
+  }
+  return [[sx, sy], [ex, ey]]; // 旗标不自洽(退化)——按弦直线处理
+}
+
+/** 三点弧(起点/参考点/终点)采样为折线顶点(屏幕坐标,#select-box-path)。
+ *  与 arc3Seg 同一套三点定圆 + 过参考点定向的逻辑,采样点落在同一弧上。 */
+export function arc3Pts(sx: number, sy: number, rx: number, ry: number, ex: number, ey: number, samples = 24): [number, number][] {
+  const c = circum3(sx, sy, rx, ry, ex, ey);
+  if (!c) return [[sx, sy], [ex, ey]];
+  const norm = (a: number): number => ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const a0 = Math.atan2(sy - c.cy, sx - c.cx);
+  const dR = norm(Math.atan2(ry - c.cy, rx - c.cx) - a0);
+  const d1 = norm(Math.atan2(ey - c.cy, ex - c.cx) - a0);
+  const sweep = dR < d1 ? 1 : 0;
+  const span = sweep === 1 ? d1 : Math.PI * 2 - d1;
+  const n = Math.max(2, Math.round(samples));
+  const pts: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const t = a0 + (sweep === 1 ? 1 : -1) * span * (i / n);
+    pts.push([c.cx + c.rad * Math.cos(t), c.cy + c.rad * Math.sin(t)]);
+  }
+  return pts;
 }
 
 export interface BBox { minX: number; minY: number; maxX: number; maxY: number }
@@ -308,7 +373,9 @@ export function objBBox(r: { type: string; data: any }, xf: Xf, local = false): 
   return b && expand(b, 3);
 }
 
-function collectPathPts(item: any[], raw: [number, number][]): void {
+/** walk a flat path item's coordinate vertices into `raw`(doc 空间原始坐标,
+ *  ARC 扫角度数跳过)—— 供 bbox 估计与折线路径贴合共用 */
+export function collectPathPts(item: any[], raw: [number, number][]): void {
   if (item[0] === 'CIRCLE') { raw.push([Number(item[1]), Number(item[2])]); raw.push([Number(item[1]) + Number(item[3]), Number(item[2]) + Number(item[3])]); return; }
   // R's y is the top edge (max-y, y-up doc space): rect spans y ∈ [y−h, y]
   if (item[0] === 'R') { raw.push([Number(item[1]), Number(item[2])], [Number(item[1]) + Number(item[3]), Number(item[2]) - Number(item[4])]); return; }

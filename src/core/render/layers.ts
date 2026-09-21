@@ -24,6 +24,12 @@ export interface RenderObject {
    * primitives so clicking inside an unfilled rect outline does NOT select it.
    */
   hit?(wx: number, wy: number, tol: number): boolean;
+  /** 对象实际加入的层组 key(渲染时由 addToLayer 落定的最终 id,含合成组
+   *  pour:/pn: 等)—— 活跃层优先拾取与隐藏层判定都以此为准(#pick-active-layer) */
+  layerKey?: string;
+  /** 线类图元(导线/走线/弧/折线)的实际绘制路径顶点(世界屏幕坐标)——
+   *  选中高亮沿路径贴合而非取整体 bbox 最大矩形(#select-box-path) */
+  pathPts?: [number, number][];
 }
 
 export interface RenderLayer {

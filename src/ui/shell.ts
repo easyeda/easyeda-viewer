@@ -6,7 +6,7 @@
  * hidden until a primitive is selected or layers exist. Both columns resize.
  * The single stateful component used by main.ts (standalone) and embed.ts.
  */
-import { Leafer, Group, Rect } from 'leafer-ui';
+import { Leafer, Group, Rect, Line } from 'leafer-ui';
 import '../styles.css';
 import type { ProjectModel, TreeNode, OpenedDoc } from '../core/types';
 import { loadFromFiles, loadFromMap } from '../core/parse/container';
@@ -104,7 +104,10 @@ export class Shell {
   private constantStrokes: { node: LeaferLine; baseW: number }[] = [];
   private layerVisible = new Map<string, boolean>();
   private selected: RenderObject | null = null;
-  private selRect: Rect | null = null;
+  /** 选中高亮图形(bbox 控制框或沿路径的高亮线,#select-box-path) */
+  private selShapes: (Rect | Line)[] = [];
+  /** 当前激活图层 id(图层面板点击行时的拾取优先层,#pick-active-layer) */
+  private activeLayerId: string | null = null;
   private destroyed = false;
 
   private docLoaded = false;
@@ -273,6 +276,8 @@ export class Shell {
       // 最上)连同其上的板框/工具层一起按栈序重新压回;再把活跃面的焊盘
       // 编号 / 网络名标注置顶 —— 切顶层 → 顶层标注,切底层 → 底层标注。
       onActivate: (id) => {
+        // 记住激活层,画布点选命中重叠图元时优先拾取它(#pick-active-layer)
+        this.activeLayerId = id;
         const l = this.layers.find((x) => x.id === id);
         if (!l || l.count <= 0 || !this.currentRoot) return;
         const root = this.currentRoot;
@@ -297,6 +302,8 @@ export class Shell {
       // 升序 = 从底到顶)重新 add 所有层组,撤销激活置顶造成的层叠改动
       onReset: () => {
         if (!this.currentRoot) return;
+        // 重置恢复默认栈序,同时撤销激活层的拾取优先(与面板行高亮的清除一致)
+        this.activeLayerId = null;
         const root = this.currentRoot;
         for (const l of [...this.layers].sort((a, b) => pcbStackKey(a) - pcbStackKey(b))) {
           l.group.visible = true;
@@ -618,6 +625,10 @@ export class Shell {
     // rulers belong to the document they were drawn on — a doc switch leaves
     // the measure mode and drops them (#measure)
     this.measure.reset();
+    // 换文档 = 活跃层复位(#pick-active-layer):面板行高亮与拾取优先层
+    // 一并清空,避免跨文档残留同 id 的层(不同 PCB 共用 1/2/11… 层号)
+    this.activeLayerId = null;
+    this.layerList.clearActive();
     // doc open (a large PCB takes seconds) blocks the main thread — show the
     // busy overlay and let it paint before that work starts (#loading);
     // schematic pages open in ~100ms, there the overlay's double-rAF wait is
@@ -817,7 +828,8 @@ export class Shell {
         this.constantStrokes = [];
         this.layerVisible.clear();
         this.selected = null;
-        if (this.selRect) { this.selRect.remove(); this.selRect = null; }
+        this.clearSelShapes();
+        this.activeLayerId = null;
         this.curNode = node;
         this.docKind = 'other';
         this.syncDocBg('other');
@@ -901,48 +913,91 @@ export class Shell {
     const wx = (px - this.camera.tx) / this.camera.scale;
     const wy = (py - this.camera.ty) / this.camera.scale;
     const tol = 6 / this.camera.scale;
+    // 隐藏层判定优先用渲染时落定的层组 key(合成组 pour:/pn:/nn: 与元件等
+    // 由此精确归层,兼容开旧记录 data.layerId 兜底)—— #pick-active-layer
+    const hidden = (o: RenderObject): boolean => {
+      const lk = o.layerKey ?? (o.rec.data.layerId != null ? String(o.rec.data.layerId) : null);
+      return lk != null && this.layerVisible.get(lk) === false;
+    };
+    const pass = (o: RenderObject): boolean => {
+      const b = o.bbox!;
+      if (wx < b.minX || wx > b.maxX || wy < b.minY || wy > b.maxY) return false;
+      if (o.hit && !o.hit(wx, wy, tol)) return false; // stroke-only pick (#23)
+      return true;
+    };
+    const areaOf = (o: RenderObject): number => {
+      const b = o.bbox!;
+      return (b.maxX - b.minX) * (b.maxY - b.minY);
+    };
+    // 活跃层优先仅在 PCB 族文档生效;原理图无层激活概念,行为不变
+    const act = this.activeLayerId != null
+      && (this.docKind === 'pcb' || this.docKind === 'panel' || this.docKind === 'footprint')
+      ? this.activeLayerId : null;
+    // 命中优先级:激活层有命中 → 选激活层上 bbox 最小的图元;否则回退到
+    // 既有"整体 bbox 最小面积"规则(激活层无命中/未设激活层时不变)
     let best: RenderObject | null = null;
     let bestArea = Infinity;
+    let bestActive: RenderObject | null = null;
+    let bestActiveArea = Infinity;
     for (const o of this.objects) {
       if (!o.bbox) continue;
-      // skip objects on hidden layers (PCB objects live in layer groups keyed by layerId)
-      const lid = o.rec.data.layerId;
-      if (lid != null && this.layerVisible.get(String(lid)) === false) continue;
-      const b = o.bbox;
-      if (wx >= b.minX && wx <= b.maxX && wy >= b.minY && wy <= b.maxY) {
-        if (o.hit && !o.hit(wx, wy, tol)) continue; // stroke-only pick (#23)
-        const area = (b.maxX - b.minX) * (b.maxY - b.minY);
-        if (area < bestArea) { bestArea = area; best = o; }
-      }
+      if (hidden(o)) continue;
+      if (!pass(o)) continue;
+      const area = areaOf(o);
+      if (area < bestArea) { bestArea = area; best = o; }
+      if (act && o.layerKey === act && area < bestActiveArea) { bestActiveArea = area; bestActive = o; }
     }
-    this.select(best);
+    this.select(bestActive ?? best);
   }
 
   private select(obj: RenderObject | null): void {
     this.selected = obj;
-    if (this.selRect) { this.selRect.remove(); this.selRect = null; }
+    this.clearSelShapes();
     this.props.show(obj);
     this.objList.select(obj ? this.rowIdOf(obj.id) : null);
-    if (obj?.bbox) {
-      const b = obj.bbox;
+    if (obj) {
       const selStroke = (this.docKind === 'pcb' || this.docKind === 'footprint' || this.docKind === 'panel') ? '#c9ccd1' : '#2563eb';
-      this.selRect = new Rect({
-        x: b.minX, y: b.minY,
-        width: Math.max(2, b.maxX - b.minX), height: Math.max(2, b.maxY - b.minY),
-        stroke: selStroke, strokeWidth: 2 / this.camera.scale,
-        // constant-pixel dashes (4on/3off): dense at any zoom, gaps never scale
-        dashPattern: [4 / this.camera.scale, 3 / this.camera.scale], fill: null, hittable: false,
-      } as any);
-      this.overlay.add(this.selRect);
+      const s = this.camera.scale;
+      // 恒定像素虚线(4 开 3 关),任意缩放下线宽与疏密不变
+      const common = {
+        stroke: selStroke, strokeWidth: 2 / s,
+        dashPattern: [4 / s, 3 / s], fill: null, hittable: false,
+      } as any;
+      // 线类图元(导线/走线/弧/折线)沿实际路径描亮(#select-box-path):
+      // 整体 bbox 最大矩形对斜线/折线会出现大角度失配的粗框,与 EDA 客户端
+      // 的沿线高亮习惯不符;其余图元(元件/焊盘/文本…)保持 bbox 控制框
+      const pts = obj.pathPts;
+      if (pts && pts.length >= 2) {
+        const flat: number[] = [];
+        for (const [x, y] of pts) flat.push(x, y);
+        const ln = new Line({ points: flat, ...common });
+        this.selShapes.push(ln);
+        this.overlay.add(ln);
+      } else if (obj.bbox) {
+        const b = obj.bbox;
+        const rect = new Rect({
+          x: b.minX, y: b.minY,
+          width: Math.max(2, b.maxX - b.minX), height: Math.max(2, b.maxY - b.minY),
+          ...common,
+        } as any);
+        this.selShapes.push(rect);
+        this.overlay.add(rect);
+      }
     }
     this.applyChrome(); // properties panel appears on first pick (#1)
     this.events.onSelect?.(obj);
   }
 
+  private clearSelShapes(): void {
+    for (const n of this.selShapes) n.remove();
+    this.selShapes = [];
+  }
+
   private updateSelStroke(): void {
-    if (this.selRect) {
-      (this.selRect as any).strokeWidth = 2 / this.camera.scale;
-      (this.selRect as any).dashPattern = [4 / this.camera.scale, 3 / this.camera.scale];
+    const s = this.camera.scale;
+    for (const n of this.selShapes) {
+      (n as any).strokeWidth = 2 / s;
+      (n as any).dashPattern = [4 / s, 3 / s];
     }
   }
 
