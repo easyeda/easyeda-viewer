@@ -6,8 +6,9 @@
  *   ① X / Y coordinate rows first;
  *   ② the record type's key attributes (designator / value / net / layer,
  *      pad shape·size·drill, track width, via diameters …);
- *   ③ the remaining built-in record fields, decoded (mil sizes, degrees,
- *      colors with swatches, readable enum names, yes/no flags), plus ALL
+ *   ③ the remaining built-in record fields, decoded (sizes in the current
+ *      display unit #unit-toggle, degrees, colors with swatches, readable
+ *      enum names, yes/no flags), plus ALL
  *      instance ATTR records — unaffected by the canvas valueVisible paint
  *      rules (those decide what is drawn, not what the inspector lists) —
  *      with symbol/footprint library defaults and device META attributes
@@ -19,6 +20,7 @@ import type { RenderObject, RenderLayer } from '../core/render/layers';
 import type { OpenedDoc, Rec, TreeNode } from '../core/types';
 import { collectAttrs, collectAttrsById, resolveAttrRef, resolveLibGraphics, type AttrEntry } from '../core/model';
 import { t, typeLabel, attrLabel, valueLabel } from './i18n';
+import { fmtLen, unitSuffix, onUnitChange } from './units';
 
 type Row = [label: string, value: string, swatch?: string];
 type RowFn = (label: string, value: string, swatch?: string) => void;
@@ -31,7 +33,10 @@ function fmt(n: unknown): string {
   if (!Number.isFinite(v)) return String(n);
   return String(Math.round(v * 1000) / 1000);
 }
-const mil = (n: unknown): string => `${fmt(n)} ${t('mil')}`;
+/** 长度显示:文档坐标单位值 → 当前显示单位(全局单位切换 #unit-toggle) */
+const len = (n: unknown): string => `${fmtLen(Number(n))} ${unitSuffix()}`;
+/** 坐标对显示:换算到当前显示单位并带后缀(#unit-toggle) */
+const xy = (x: unknown, y: unknown): string => `${fmtLen(Number(x))}, ${fmtLen(Number(y))} ${unitSuffix()}`;
 
 /** record data fields that are raw implementation/geometry data — never listed */
 const INTERNAL_KEYS = new Set([
@@ -64,7 +69,7 @@ const FLAG_KEYS = new Set([
   'valid', 'visible', 'cover',
 ]);
 
-/** length fields shown in mil */
+/** length fields shown in the current display unit (#unit-toggle) */
 const MIL_KEYS = new Set([
   'width', 'height', 'strokeWidth', 'radius', 'radiusX', 'radiusY', 'viaDiameter',
   'holeDiameter', 'diameter', 'fontSize', 'length', 'padOffsetX', 'padOffsetY',
@@ -178,6 +183,8 @@ export class PropsView {
     this.host = host;
     this.host.className = 'ev-props';
     this.clear();
+    // 显示单位切换(#unit-toggle):重建当前属性行,坐标/尺寸按新单位换算
+    onUnitChange(() => this.refresh());
   }
 
   /** layerId -> file layer name, so "图层 1" reads "Top Layer" etc. */
@@ -256,36 +263,37 @@ export class PropsView {
     this.host.appendChild(table);
   }
 
-  /** ① the X / Y band: center, corners, endpoints — whatever the record carries */
+  /** ① the X / Y band: center, corners, endpoints — whatever the record carries
+   *  (converted to the current display unit, #unit-toggle) */
   private xyRows(d: any, row: RowFn, used: Set<string>): void {
     const mark = (...ks: string[]): void => { for (const k of ks) used.add(k); };
     if (isNum(d.centerX) || isNum(d.centerY)) {
-      row('X / Y', `${fmt(d.centerX ?? 0)}, ${fmt(d.centerY ?? 0)}`);
+      row('X / Y', xy(d.centerX ?? 0, d.centerY ?? 0));
       mark('centerX', 'centerY');
     }
     if (isNum(d.x) && isNum(d.y)) {
       if (isNum(d.x2) && isNum(d.y2)) {
-        row('X₁ / Y₁', `${fmt(d.x)}, ${fmt(d.y)}`);
-        row('X₂ / Y₂', `${fmt(d.x2)}, ${fmt(d.y2)}`);
+        row('X₁ / Y₁', xy(d.x, d.y));
+        row('X₂ / Y₂', xy(d.x2, d.y2));
         mark('x', 'y', 'x2', 'y2', 'x1', 'y1');
       } else {
-        row('X / Y', `${fmt(d.x)}, ${fmt(d.y)}`);
+        row('X / Y', xy(d.x, d.y));
         mark('x', 'y');
       }
     }
     if (isNum(d.dotX1) && isNum(d.dotY1)) {
       const both = isNum(d.dotX2) && isNum(d.dotY2);
-      row(both ? 'X₁ / Y₁' : 'X / Y', `${fmt(d.dotX1)}, ${fmt(d.dotY1)}`);
-      if (both) row('X₂ / Y₂', `${fmt(d.dotX2)}, ${fmt(d.dotY2)}`);
+      row(both ? 'X₁ / Y₁' : 'X / Y', xy(d.dotX1, d.dotY1));
+      if (both) row('X₂ / Y₂', xy(d.dotX2, d.dotY2));
       mark('dotX1', 'dotY1', 'dotX2', 'dotY2');
     }
     if (isNum(d.startX) && isNum(d.startY)) {
       if (isNum(d.endX) && isNum(d.endY)) {
-        row('X₁ / Y₁', `${fmt(d.startX)}, ${fmt(d.startY)}`);
-        row('X₂ / Y₂', `${fmt(d.endX)}, ${fmt(d.endY)}`);
+        row('X₁ / Y₁', xy(d.startX, d.startY));
+        row('X₂ / Y₂', xy(d.endX, d.endY));
         mark('startX', 'startY', 'endX', 'endY');
       } else {
-        row('X / Y', `${fmt(d.startX)}, ${fmt(d.startY)}`);
+        row('X / Y', xy(d.startX, d.startY));
         mark('startX', 'startY');
       }
     }
@@ -311,20 +319,20 @@ export class PropsView {
       const w = dp ? dp.width : d.width, h = dp ? dp.height : d.height;
       mark('padSize', 'width', 'height', 'defaultPad');
       return isNum(w) && isNum(h)
-        ? [`${attrLabel('width')} × ${attrLabel('height')}`, `${mil(w)} × ${mil(h)}`]
+        ? [`${attrLabel('width')} × ${attrLabel('height')}`, `${len(w)} × ${len(h)}`]
         : null;
     }
     if (v == null || v === '' || INTERNAL_KEYS.has(k)) return null;
     // type-aware labels: a pad's number, a circle's radius
     if (k === 'num' && type === 'PAD') { mark('num'); return [attrLabel('padNumber'), String(v)]; }
-    if (k === 'radius' && type === 'CIRCLE') { mark('radius'); return [attrLabel('circleRadius'), mil(v)]; }
+    if (k === 'radius' && type === 'CIRCLE') { mark('radius'); return [attrLabel('circleRadius'), len(v)]; }
     // folded composites: inline attrs live in the attribute bands, the default
     // pad spec is decoded as pad shape / size rows
     if (k === 'attrs' || k === 'defaultPad') { mark(k); return null; }
     if (k === 'hole' && v && typeof v === 'object') {
       const ht = String(v.holeType ?? 'ROUND').toUpperCase();
       const hw = Number(v.width ?? 0), hh = Number(v.height ?? hw);
-      const size = hw === hh ? `Ø${fmt(hw)} ${t('mil')}` : `${fmt(hw)} × ${fmt(hh)} ${t('mil')}`;
+      const size = hw === hh ? `Ø${len(hw)}` : `${len(hw)} × ${len(hh)}`;
       mark('hole', 'holeType');
       return [attrLabel('hole'), `${valueLabel(ht)} · ${size}`];
     }
@@ -333,7 +341,7 @@ export class PropsView {
       if (v && typeof v === 'object') {
         const pt = valueLabel(String(v.pourType ?? '').toUpperCase());
         const fin = Number(v.fineness);
-        return [attrLabel('pourType'), Number.isFinite(fin) && fin > 0 ? `${pt} · ${t('pourEdge')} ${mil(fin)}` : pt];
+        return [attrLabel('pourType'), Number.isFinite(fin) && fin > 0 ? `${pt} · ${t('pourEdge')} ${len(fin)}` : pt];
       }
       return [attrLabel('pourType'), valueLabel(String(v).toUpperCase())];
     }
@@ -377,7 +385,7 @@ export class PropsView {
       // track/pour/region outline widths read better as 线宽 than 宽
       const label = (k === 'width' && ['LINE', 'ARC', 'POUR', 'REGION'].includes(type))
         ? attrLabel('strokeWidth') : attrLabel(k);
-      return [label, mil(v)];
+      return [label, len(v)];
     }
     if (DEG_KEYS.has(k)) return isNum(v) ? [attrLabel(k), `${fmt(v)}${t('deg')}`] : null;
     if (ENUM_KEYS.has(k)) {
@@ -396,7 +404,7 @@ export class PropsView {
     const custom: Row[] = [];
     // combined size row when both dimensions exist and no key row consumed them
     if (!used.has('width') && !used.has('height') && isNum(d.width) && isNum(d.height)) {
-      known.push([`${attrLabel('width')} × ${attrLabel('height')}`, `${mil(d.width)} × ${mil(d.height)}`]);
+      known.push([`${attrLabel('width')} × ${attrLabel('height')}`, `${len(d.width)} × ${len(d.height)}`]);
       used.add('width'); used.add('height');
     }
     for (const k of Object.keys(d)) {

@@ -20,6 +20,7 @@ import { PropsView } from './props';
 import { MeasureController } from './measure';
 import { icon, easyedaMark } from './icons';
 import { t, setLang as setI18nLang, getLang, layerLabel, type Lang } from './i18n';
+import { fmtCoord, getUnit, toggleUnit, unitSuffix, setDocScale, docScaleFor, onUnitChange } from './units';
 
 export interface ShellEvents {
   onReady?(): void;
@@ -87,6 +88,10 @@ export class Shell {
   private langBtn!: HTMLButtonElement;
   private measureBtn!: HTMLButtonElement;
   private measure!: MeasureController;
+  /** units 广播退订(#unit-toggle) */
+  private offUnit: (() => void) | null = null;
+  /** 最近一次指针的视口坐标(单位切换时据此重算状态栏坐标) */
+  private lastCursor: { x: number; y: number } | null = null;
   /** null = auto behavior (hidden on welcome / until selection) */
   private leftForced: boolean | null = null;
   private rightForced: boolean | null = null;
@@ -141,6 +146,7 @@ export class Shell {
         <input class="ev-zoom" type="text" inputmode="decimal" spellcheck="false" data-tip="zoomPh"/>
         <button class="ev-btn ev-btn-icon" data-act="measure" data-tip="tipMeasure" disabled>${icon('ruler')}</button>
         <span class="ev-title"></span>
+        <button class="ev-btn ev-btn-unit" data-act="unit" data-tip="tipUnit"><span class="ev-unit-code"></span></button>
         <button class="ev-btn ev-btn-icon ev-btn-lang" data-act="lang" data-tip="tipLang">${icon('globe')}<span class="ev-lang-code"></span></button>
         <button class="ev-btn ev-btn-icon" data-act="theme" data-tip="tipTheme">${icon('moon')}</button>
         <button class="ev-btn ev-btn-icon" data-act="panelL" data-tip="tipPanelL">${icon('panelLeft')}</button>
@@ -307,9 +313,14 @@ export class Shell {
     this.bindSplitters();
     this.applyI18n();
 
+    // 显示单位切换(#unit-toggle):按钮文字显示目标单位,状态栏坐标立即按
+    // 新单位重算;props / measure 各自订阅 units 广播
+    this.offUnit = onUnitChange(() => this.applyUnit());
+    this.applyUnit();
+
     this.canvasHost.addEventListener('pointerup', (e) => this.onCanvasClick(e));
 
-    // status bar bottom-left live cursor position in document mil (#cursor-pos)
+    // status bar bottom-left live cursor position in document coords (#cursor-pos)
     this.canvasHost.addEventListener('pointermove', (e) => this.showCursorPos(e));
     this.canvasHost.addEventListener('pointerleave', () => { /* keep the last position */ });
 
@@ -347,6 +358,8 @@ export class Shell {
     // measure mode toggle (#measure): exit keeps the rulers, right-click clears them
     this.measureBtn.addEventListener('click', () => this.measure.toggle());
     this.el.querySelector('[data-act="lang"]')!.addEventListener('click', () => this.setLang(this.lang === 'zh' ? 'en' : 'zh'));
+    // 单位切换(#unit-toggle):mm/mil 跟随 units 广播刷新各显示面
+    this.el.querySelector('[data-act="unit"]')!.addEventListener('click', () => toggleUnit());
     this.themeBtn.addEventListener('click', () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark'));
     this.el.querySelector('[data-act="panelL"]')!.addEventListener('click', () => { this.leftForced = !this.leftVisible(); this.applyChrome(); });
     this.el.querySelector('[data-act="panelR"]')!.addEventListener('click', () => { this.rightForced = !this.rightVisible(); this.applyChrome(); });
@@ -445,6 +458,14 @@ export class Shell {
     });
     this.el.querySelector('.ev-lang-code')!.textContent = this.lang === 'zh' ? 'EN' : '中';
     if (!this.model && !this.curNode) this.statusMsgEl.textContent = t('statusInit');
+  }
+
+  /** 单位切换后的按钮与状态栏刷新(#unit-toggle):按钮文字显示目标单位
+   *  (当前 mm → 显示 mil,与语言按钮显示 EN/中 同一习惯) */
+  private applyUnit(): void {
+    const code = this.el.querySelector('.ev-unit-code') as HTMLElement | null;
+    if (code) code.textContent = getUnit() === 'mm' ? 'mil' : 'mm';
+    this.renderCursorPos();
   }
 
   // ---------- theme & chrome ----------
@@ -609,6 +630,9 @@ export class Shell {
       this.deviceNoteEl.classList.add('ev-hidden');
       const opened = openDoc(this.model, node);
       const kind = docKind(node.docType ?? '');
+      // 显示换算基准(#unit-toggle):pcb/footprint 1 单位 = 1mil,sch/panel
+      // 1 单位 = 0.254mm = 10mil —— 状态栏/属性面板/量测的换算都以此为基准
+      setDocScale(docScaleFor(kind));
       // measure entry is a PCB-family feature (#measure)
       const measurable = kind === 'pcb' || kind === 'footprint' || kind === 'panel';
       this.measureBtn.disabled = !measurable;
@@ -781,6 +805,8 @@ export class Shell {
     if (node.docType === 'DEVICE' && node.fileKey && node.uuid) {
       try {
         const opened = openDoc(this.model, node);
+        // DEVICE 元数据无几何;显示换算基准回 sch 族尺度(#unit-toggle)
+        setDocScale(docScaleFor('other'));
         // a DEVICE carries only attributes, no graphics — clear the canvas and
         // show the hint instead of leaving stale content around (#10)
         this.currentRoot?.remove();
@@ -950,16 +976,23 @@ export class Shell {
     this.statusEl.classList.toggle('ev-err', error);
   }
 
-  /** live cursor position (document mil) at the status-bar bottom-left */
+  /** live cursor position at the status-bar bottom-left (#cursor-pos) */
   private showCursorPos(e: PointerEvent): void {
-    if (!this.model || !this.docLoaded) { this.statusPosEl.textContent = ''; return; }
+    this.lastCursor = { x: e.clientX, y: e.clientY };
+    this.renderCursorPos();
+  }
+
+  /** 由最近指针位置刷新状态栏坐标:文档坐标按当前显示单位换算(#unit-toggle) */
+  private renderCursorPos(): void {
+    if (!this.lastCursor || !this.model || !this.docLoaded) { this.statusPosEl.textContent = ''; return; }
     const r = this.canvasHost.getBoundingClientRect();
-    const wx = (e.clientX - r.left - this.camera.tx) / this.camera.scale;
-    const wy = (e.clientY - r.top - this.camera.ty) / this.camera.scale;
+    const wx = (this.lastCursor.x - r.left - this.camera.tx) / this.camera.scale;
+    const wy = (this.lastCursor.y - r.top - this.camera.ty) / this.camera.scale;
     // PCB-family docs render with a Y-flip (file space is Y-up) — report file coordinates
     const flipped = this.docKind === 'pcb' || this.docKind === 'panel' || this.docKind === 'footprint';
     const dx = wx, dy = flipped ? -wy : wy;
-    this.statusPosEl.textContent = `X: ${dx.toFixed(1)} ${t('mil')}  Y: ${dy.toFixed(1)} ${t('mil')}`;
+    const u = unitSuffix();
+    this.statusPosEl.textContent = `X: ${fmtCoord(dx)} ${u}  Y: ${fmtCoord(dy)} ${u}`;
   }
 
   getModel(): ProjectModel | null {
@@ -969,6 +1002,7 @@ export class Shell {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.offUnit?.();
     this.dnd.destroy();
     this.measure.destroy();
     this.leafer.destroy();
