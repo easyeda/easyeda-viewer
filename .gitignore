@@ -155,6 +155,8 @@ qa/shots/
 desktop/build/
 desktop/dist/*
 !desktop/dist/.gitkeep
+# windres 编译产物,由 build-desktop.mjs 在 go build 前从 versioninfo.rc 重新生成
+desktop/rsrc_windows_amd64.syso
 
 .bridge-work
 desktop/easyeda-viewer-desktop.exe
