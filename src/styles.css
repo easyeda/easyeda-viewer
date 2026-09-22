@@ -91,8 +91,14 @@ input.ev-zoom {
 }
 input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background: transparent; }
 .ev-lang-code { font-size: 10px; font-weight: 700; opacity: 0.8; }
-/* 顶部单位切换按钮(#unit-toggle):无图标,文字直接显示目标单位(mil/mm) */
-.ev-btn-unit { min-width: 40px; justify-content: center; font-size: 11px; font-weight: 700; letter-spacing: 0.02em; }
+/* 顶部单位切换按钮(#unit-toggle):无图标,文字直接显示当前单位(mil/mm);
+   用户反馈要"样式明显"——淡底描边常亮 + 悬停实底,与普通图标按钮区分 */
+.ev-btn-unit {
+  min-width: 44px; justify-content: center; font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+  background: var(--ev-accent-weak); color: var(--ev-accent);
+  border: 1px solid var(--ev-accent); border-radius: var(--ev-radius-sm);
+}
+.ev-btn-unit:hover { background: var(--ev-accent); color: var(--ev-accent-text); }
 .ev-title { margin-left: auto; color: var(--ev-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 12px; }
 .ev-title b { color: var(--ev-text); font-weight: 600; }
 

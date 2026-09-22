@@ -448,12 +448,15 @@ export class Shell {
     if (!this.model && !this.curNode) this.statusMsgEl.textContent = t('statusInit');
   }
 
-  /** 单位切换后的按钮与状态栏刷新(#unit-toggle):按钮文字显示目标单位
-   *  (当前 mm → 显示 mil,与语言按钮显示 EN/中 同一习惯) */
+  /** 单位切换后的按钮与状态栏刷新(#unit-toggle):按钮文字显示**当前**单位
+   *  (与画布显示单位一致,v0.4.0 由"目标单位"改为当前单位,用户反馈) */
   private applyUnit(): void {
     const code = this.el.querySelector('.ev-unit-code') as HTMLElement | null;
-    if (code) code.textContent = getUnit() === 'mm' ? 'mil' : 'mm';
+    if (code) code.textContent = getUnit();
     this.renderCursorPos();
+    // 属性面板重建兜底:props 自己订阅了 units 广播,这里直接再刷一次,
+    // 防止 dev 热更拆分模块实例等极端情况下订阅丢失导致面板不跟随
+    this.props.refresh();
   }
 
   // ---------- theme & chrome ----------
