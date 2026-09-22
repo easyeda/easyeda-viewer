@@ -568,6 +568,21 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   for (const [key, lm] of layerMeta) {
     if (lm.trans < 1) api.layer(key, lm.name, lm.color, lm.show, lm.type).opacity = lm.trans;
   }
+  // 通孔类对象(过孔/通孔焊盘)贯穿的铜层集合(#via-pick-any-layer):物理上
+  // 贯穿全部铜层的对象,激活任一铜层都应能点中,拾取按 pickLayers 集合包含
+  // 判定而非单 layerKey。铜面 = TOP/BOTTOM/SIGNAL/PLANE/INNER*;无 layerType
+  // 的文档按数字层号 1/2 与 15..46(Inner1..32)兜底。盲埋孔样例暂无,VIA
+  // 数据未解析起止层,缺省视为全铜层
+  const allCopperPick: string[] = (() => {
+    const keys: string[] = [];
+    for (const [key, lm] of layerMeta) {
+      const t = lm.type.toUpperCase();
+      const n = Number(key);
+      if (t ? (t === 'TOP' || t === 'BOTTOM' || t === 'SIGNAL' || t === 'PLANE' || t.startsWith('INNER'))
+          : ((n >= 1 && n <= 2) || (n >= 15 && n <= 46))) keys.push(key);
+    }
+    return keys.length ? keys : ['1', '2'];
+  })();
   const layerColor = (id: unknown): string => {
     const lm = layerMeta.get(String(id));
     if (lm) return lm.color;
@@ -833,7 +848,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   }
 
   const addToLayer = (d: any, obj: Rec, node: Group, label: string, kind: RenderObject['kind'] = 'primitive', bbox?: BBox,
-    group?: { key: string; name: string }, pathPts?: [number, number][], selPoly?: [number, number][]) => {
+    group?: { key: string; name: string }, pathPts?: [number, number][], selPoly?: [number, number][], pickLayers?: string[]) => {
     let lid = d.layerId != null ? String(d.layerId) : '0';
     if (group) lid = group.key; // synthetic per-face sub-group (pour:1 / pour:2)
     if (HIDDEN_LAYERS.has(lid)) return; // never-painted utility layers (#27 area)
@@ -849,7 +864,8 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     // `layerKey` 落定对象实际所在层组(含合成组),供活跃层优先拾取与隐藏判定
     // `pathPts` 线类图元的实际路径,选中框沿路径贴合(#select-box-path)
     // `selPoly` 旋转非零图元的旋转外框四角,选中框闭合贴合(#select-box-rot)
-    api.addObject({ id: obj.id, rec: obj, node, label, kind, bbox: bbox ?? objBBox(obj, xf) ?? undefined, layerKey: lid, pathPts, selPoly });
+    // `pickLayers` 通孔类对象贯穿的铜层集合,激活层过滤按集合包含(#via-pick-any-layer)
+    api.addObject({ id: obj.id, rec: obj, node, label, kind, bbox: bbox ?? objBBox(obj, xf) ?? undefined, layerKey: lid, pathPts, selPoly, pickLayers });
   };
 
   // ---- origin axes at the business origin (CANVAS originX/originY) (#11) ----
@@ -1024,9 +1040,11 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
               label: `焊盘 ${d.num ?? r.id ?? ''}`,
               kind: 'pad',
               bbox: { minX: pb.minX - 2, minY: pb.minY - 2, maxX: pb.maxX + 2, maxY: pb.maxY + 2 },
-              // 通孔焊盘铜皮虽挂在 MULTI 组,拾取仍归元件自身面层(记录里的
-              // layerId 对通孔焊盘是 12/MULTI,归 12 会被激活层过滤永久排除)
-              layerKey: String(thPad ? numFace : (d.layerId ?? LAYER.TOP)),
+              // 通孔焊盘铜皮挂在 MULTI 组(layerKey=12),但拾取贯穿全部铜层
+              // (pickLayers)—— 与过孔同一语义,激活任一铜层都能点中,
+              // 不再被激活层独占过滤永久排除(#via-pick-any-layer)
+              layerKey: String(thPad ? LAYER.MULTI : (d.layerId ?? LAYER.TOP)),
+              pickLayers: thPad ? allCopperPick : undefined,
               selPoly: rot2 ? world : undefined,
             });
           }
@@ -1383,10 +1401,12 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           const [pcx, pcy] = P(Number(d.centerX ?? 0), Number(d.centerY ?? 0), xf);
           padPoly = rotateBoxPoly({ minX: pcx - pw / 2, minY: pcy - ph / 2, maxX: pcx + pw / 2, maxY: pcy + ph / 2 }, Number(d.padAngle ?? 0));
         }
-        // through-hole pads stack with MULTI-Layer (see the footprint pad case)
+        // through-hole pads stack with MULTI-Layer (see the footprint pad case);
+        // 拾取贯穿全部铜层 —— 激活任一铜层都能点中安装孔/通孔焊盘
+        // (#via-pick-any-layer)
         const thPage = Number(d.hole?.width ?? 0) > 0;
         addToLayer(thPage ? { ...d, layerId: LAYER.MULTI } : d, r, node, `焊盘 ${r.id} #${d.num ?? ''}`, 'pad',
-          undefined, undefined, undefined, padPoly);
+          undefined, undefined, undefined, padPoly, thPage ? allCopperPick : undefined);
         return;
       }
       case 'FILL': {
@@ -1445,7 +1465,12 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
           if (md <= 0) continue;
           maskLayer(face).add(new Ellipse({ x: cx - md / 2, y: cy - md / 2, width: md, height: md, fill: maskColor(face) }));
         }
-        addToLayer({ layerId: LAYER.MULTI }, r, node, `过孔 ${r.id} ${d.netName ?? ''}`, 'pad');
+        // 过孔铜环绘制挂 MULTI 组(永远在最上),但物理上贯穿全部铜层 ——
+        // 拾取按 pickLayers 集合放行:激活任一铜层(含默认顶层)都能点中,
+        // 不再被激活层独占过滤排除(#via-pick-any-layer);隐藏可见性仍按
+        // MULTI 组现状不动
+        addToLayer({ layerId: LAYER.MULTI }, r, node, `过孔 ${r.id} ${d.netName ?? ''}`, 'pad',
+          undefined, undefined, undefined, undefined, allCopperPick);
         return;
       }
       case 'POUR': {

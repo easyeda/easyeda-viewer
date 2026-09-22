@@ -35,6 +35,10 @@ export interface RenderObject {
    *  退化为轴对齐最大矩形;0° 图元不标注,继续走 bbox 框,自然回归现状
    *  (#select-box-rot) */
   selPoly?: [number, number][];
+  /** 通孔类对象(过孔/通孔焊盘)贯穿的铜层集合(#via-pick-any-layer)——
+   *  激活层过滤时只要激活层属于该集合即放行(物理上贯穿全部铜层的对象,
+   *  激活任一铜层都应能点中);缺省 = 只按 layerKey 单层判定 */
+  pickLayers?: string[];
 }
 
 export interface RenderLayer {

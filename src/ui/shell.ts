@@ -981,7 +981,8 @@ export class Shell {
     // 命中规则(#pick-active-layer 收紧 + #pick-precise):
     // 1) 依次过隐藏层/激活层过滤——设了激活层就只看激活层上的图元,激活层
     //    无命中等于点了空白(取消选中),绝不回退穿透到其他层;未设激活层
-    //    时保持整体命中规则不变;
+    //    时保持整体命中规则不变;通孔类对象(过孔/通孔焊盘)物理上贯穿全部
+    //    铜层,激活任一铜层都可命中(#via-pick-any-layer);
     // 2) 线类图元走精确命中,非线类保持 bbox 包含 + 既有描边命中;
     // 3) 线类之间取段距离最小者(近距平行导线取更近者),非线类之间沿用
     //    bbox 面积最小;两类并存时按 bbox 面积比较——焊盘/文本等小目标不被
@@ -995,7 +996,9 @@ export class Shell {
     for (const o of this.objects) {
       if (!o.bbox) continue;
       if (hidden(o)) continue;
-      if (act && o.layerKey !== act) continue;
+      // 激活层独占过滤(#pick-active-layer):激活层 ∈ 对象拾取层集合(通孔类
+      // 过孔/通孔焊盘贯穿全部铜层 #via-pick-any-layer)或等于对象层组即放行
+      if (act && o.layerKey !== act && !o.pickLayers?.includes(act)) continue;
       const pts = o.pathPts;
       if (pts && pts.length >= 2) {
         const b = o.bbox;
