@@ -37,6 +37,18 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro / 嘉立创EDA专业
 | `.esym2` | Single symbol document |
 | `.epru` | Project record stream (commonly found inside `.epro2`) |
 
+
+## TODO
+
+- [ ] 1. Support hierarchical graph
+- [ ] 2. Support network tree
+- [ ] 3. PCB replacement display engine, performance optimization
+
+## Known Issues
+
+- The default font is inconsistent with that in EDA: This is because the default font in EDA is a self-drawn path, which is not saved in the file. The viewer uses a different default font, leading to inconsistency
+
+
 ---
 
 ## Quick Start
