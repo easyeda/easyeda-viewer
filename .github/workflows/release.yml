@@ -1,0 +1,146 @@
+# 版本发布:package.json 的 version 变化时,自动构建免安装 exe 并创建 GitHub Release。
+#
+# 触发与幂等:push 到 main 且 package.json 被改动 → 读出版本号 vX.Y.Z → 若该 tag
+# 的 Release 已存在则整条流水线跳过(所以改 package.json 的其它字段、或重复推送
+# 都不会产生重复发布)。要主动补发历史版本,用 workflow_dispatch 手动跑。
+#
+# 产物(Release 附件):
+#   easyeda-viewer_v{version}.exe   免安装桌面版(Windows 10/11 + WebView2 运行时)
+#   easyeda-viewer_v{version}.html  浏览器版单文件,双击即用(Windows 7 等旧系统走这个)
+#
+# 构建链复用 scripts/build-desktop.mjs(vite 单文件产物 → desktop/dist → go build),
+# 与本地打包完全同一条路径;windres 负责把 versioninfo.rc 的图标/版本资源编进 exe。
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+  workflow_dispatch:
+
+# gh release create 需要写仓库内容的权限
+permissions:
+  contents: write
+
+# 同一时间只跑一条发布流水线
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 读取版本号
+        id: ver
+        shell: bash
+        run: |
+          V=$(node -p "require('./package.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=v$V" >> "$GITHUB_OUTPUT"
+          echo "package.json 版本:$V"
+
+      - name: 检查 Release 是否已存在
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ steps.ver.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::${{ steps.ver.outputs.tag }} 已发布,跳过。"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::将发布 ${{ steps.ver.outputs.tag }}"
+          fi
+
+      - name: 安装 Node
+        if: steps.check.outputs.exists == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装 Go
+        if: steps.check.outputs.exists == 'false'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: 安装依赖
+        if: steps.check.outputs.exists == 'false'
+        run: npm ci
+
+      - name: 类型检查与单元测试
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          npm run check
+          npm test
+
+      # exe 的图标与版本资源由 windres 编入;cgo(webview 绑定)还需要 gcc。
+      # windows runner 通常自带 MinGW,缺失时用 choco 补上。这里显式断言,
+      # 避免静默产出没有版本资源的 exe。
+      - name: 准备 MinGW 工具链(windres + gcc)
+        if: steps.check.outputs.exists == 'false'
+        shell: bash
+        run: |
+          if command -v windres >/dev/null 2>&1 && command -v gcc >/dev/null 2>&1; then
+            echo "windres: $(windres --version | head -1)"
+            echo "gcc: $(gcc --version | head -1)"
+          else
+            echo "未找到 MinGW,安装中…"
+            choco install mingw -y --no-progress
+            echo "C:/ProgramData/chocolatey/bin" >> "$GITHUB_PATH"
+          fi
+          export PATH="$PATH:/c/ProgramData/chocolatey/bin"
+          command -v windres >/dev/null 2>&1 || { echo "::error::windres 不可用,exe 将缺少版本资源"; exit 1; }
+
+      - name: 构建 exe(vite → desktop/dist → go build)
+        if: steps.check.outputs.exists == 'false'
+        run: node scripts/build-desktop.mjs
+
+      - name: 校验产物
+        if: steps.check.outputs.exists == 'false'
+        shell: bash
+        run: |
+          EXE="desktop/build/easyeda-viewer_v${{ steps.ver.outputs.version }}.exe"
+          test -f "$EXE" || { echo "::error::$EXE 未生成"; exit 1; }
+          test -f dist/index.html || { echo "::error::dist/index.html 未生成"; exit 1; }
+          ls -lh "$EXE" dist/index.html
+
+      - name: 收集发布附件并生成更新说明
+        if: steps.check.outputs.exists == 'false'
+        shell: bash
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          mkdir -p release-assets
+          cp "desktop/build/easyeda-viewer_v$V.exe" "release-assets/easyeda-viewer_v$V.exe"
+          cp dist/index.html "release-assets/easyeda-viewer_v$V.html"
+          {
+            echo "## 下载"
+            echo ""
+            echo "| 附件 | 说明 |"
+            echo "| --- | --- |"
+            echo "| \`easyeda-viewer_v$V.exe\` | 免安装桌面版,双击即用(Windows 10/11,需已安装 WebView2 运行时;缺失时会弹官方下载提示) |"
+            echo "| \`easyeda-viewer_v$V.html\` | 浏览器版单文件,双击用浏览器打开(Win7 等旧系统请用这个) |"
+            echo ""
+            node scripts/release-notes.mjs "$V"
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: 创建 GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            --title "easyeda-viewer ${{ steps.ver.outputs.tag }}" \
+            --notes-file release-notes.md \
+            release-assets/*

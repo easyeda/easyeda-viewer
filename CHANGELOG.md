@@ -4,10 +4,17 @@
 
 提交级细节见 git log 与 [docs/PRD.md](PRD.md) 的需求条目(`#tag` 可在 PRD 内全文检索)。
 
-## [0.4.1] - 2026-09-22
+## [0.4.2] - 2026-10-08
 
 ### Fixed
 - 画布被巨型文本遮挡(One-Air-Max 工程,用户反馈):电源标志/网络端口的 Name 结构性豁免原先只要求"非 true",把用户主动取消勾选的 `valueVisible:false` 也一并画出,而 KiCad 导入器给这类属性写了 mm/mil 串味的字号(约 196 单位,正常 5),122 个巨字铺满画布。收紧为只豁免 `null/缺失`(#flag-name-vvfalse);全样例 5481 处 null 类豁免照常渲染,10 页官方 PNG 对照像素差零变化。
+
+### Added
+- GitHub Actions 自动发布:push 到 main 若 `package.json` 版本号对应 tag 尚不存在,自动在 windows runner 上构建 exe 并创建 GitHub Release 附上 `easyeda-viewer_v{version}.exe` 与浏览器版 `index.html`(`.github/workflows/release.yml`)。
+
+## [0.4.1] - 2026-09-22
+
+### Fixed
 - 过孔与通孔焊盘激活任一铜层均可点中(#via-pick-any-layer,用户反馈):通孔类对象物理上贯穿全部铜层,激活层过滤按对象拾取层集合(铜层全集)放行,修复"顶层激活时过孔无法选中";隐藏层可见性与未设激活层行为不变(盲埋孔暂无样例,过孔起止层未解析,缺省视为全铜层)。
 
 ### Docs
