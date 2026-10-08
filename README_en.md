@@ -1,5 +1,7 @@
 # easyeda-viewer
 
+[简体中文](README.md) | **English**
+
 A lightweight, offline, embeddable viewer for **EasyEDA Pro / 嘉立创EDA专业版** projects. Parsing and rendering are performed 100% locally in the browser — no upload, no server required. A single HTML file is all you need: double-click it and drop a project.
 
 

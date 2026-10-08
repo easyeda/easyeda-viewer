@@ -1,5 +1,6 @@
 # easyeda-viewer
 
+**简体中文** | [English](README_en.md)
 
 一个轻量、离线、可嵌入的 **嘉立创EDA专业版 / EasyEDA Pro** 工程查看器。纯本地解析与渲染，文件无需上传，无需安装服务端，单个 HTML 文件双击即可使用。
 
