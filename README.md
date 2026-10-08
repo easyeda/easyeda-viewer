@@ -19,9 +19,9 @@
 - **双向定位**：点击对象树节点定位到画布，点击画布图元同步高亮对象树。
 - **现代 UI**：深色 / 浅色双主题、中 / 英双语界面、可拖拽调整 / 隐藏各面板。
 - **可嵌入 API**：`createViewer` JS API + `postMessage` 协议，方便集成到第三方页面。
-- **可选桌面版**：Windows 免安装可执行文件（Go + WebView2，约 7 MB），支持原生对话框与拖放打开。
+- **可选桌面版**：Windows 免安装可执行文件（Go + WebView2，约 7 MB），支持原生对话框与拖放打开。支持Windows10及以上, win7 请在Chrome 109 / Firefox 115 ESR打开 `/dist/index.html`
 
-> 注意：v0.2 为**只读查看器**，不支持编辑、保存、DRC/ERC、BOM、3D 视图、Gerber 导出，也不支持 `.efp2` 文件。
+> 注意：本项目为**只读查看器**，不支持编辑、保存、DRC/ERC、BOM、3D 视图、Gerber 导出等操作。
 
 ---
 
