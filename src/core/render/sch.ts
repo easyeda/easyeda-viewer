@@ -876,13 +876,21 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       // Verified across all samples: every painted attr carries an explicit flag.
       // Exception — net flags & ports (symbol docType 18/19): the net name IS the
       // symbol's label, the client paints a value-bearing Name / Global Net Name
-      // whatever the flag says. Older saves keep every GNN at null (327 across
-      // X86-PC's 71 sheets, vv=true 0) yet the official renders show the labels;
-      // newer client saves moved them to Name vv=true. A null-value Name (GND
-      // flags on the CPU sheet, the CPU's own Name) still stays hidden.
+      // when the flag was NEVER checked (null). Older saves keep every GNN at
+      // null (327 across X86-PC's 71 sheets, vv=true 0) yet the official renders
+      // show the labels; newer client saves moved them to Name vv=true. A
+      // null-value Name (GND flags on the CPU sheet, the CPU's own Name) still
+      // stays hidden.
+      // 明确的 false 不进豁免:false 是用户在属性面板主动取消勾选,官方不画。
+      // KiCad 导入工程(easyeda2kicad_* 器件)的电源标志 Name 常带 vv=false 且
+      // fontSize 是 mm/mil 串味的异常大值,promoting them 会画出 196 单位的巨字
+      // 铺满画布(用户反馈 One-Air-Max);收紧为只放行 null 后与官方一致。
       if (ad.valueVisible !== true) {
         const dt = Number(sym.meta?.docType);
-        const flagLabel = (dt === 18 || dt === 19) && (key === 'Name' || key === 'Global Net Name') && String(ad.value ?? '').trim() !== '';
+        const flagLabel = ad.valueVisible == null
+          && (dt === 18 || dt === 19)
+          && (key === 'Name' || key === 'Global Net Name')
+          && String(ad.value ?? '').trim() !== '';
         if (!flagLabel) continue;
       }
       const def = libDefAttr(sym, partId, key);
