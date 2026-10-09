@@ -805,7 +805,27 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       drawSymbolPart(target, sym, String(d.partId ?? ''), 0, 0, 0, false, rot, isBorder && !titleBlockEnabled, gray, titleValues);
       //        ^ rotation stays 0 — the component rotation lives on the outer
       //          chain; `rot` only cancels itself for pin text (antiRot)
-      drawComponentAttrs(g, attrs, sym, String(d.partId ?? ''), { gray, hideAll: isBorder && !titleBlockEnabled });
+      // 符号库里的属性坐标是**符号局部坐标**(相对元件原点),作实例缺失定位的
+      // 回退时必须走与符号图元同一条变换链落到页面坐标(#netflag-lib-attr):
+      // 与 ncAnchor 的 pin 端点映射同一套 R·M / M·R 共轭 + 平移
+      const libSxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
+      const libToWorld = (lx: number, ly: number): [number, number] => {
+        const lx0 = X(lx, libSxf), ly0 = Y(ly, libSxf);
+        const ra = (ang(Number(d.rotation ?? 0), xf) * Math.PI) / 180;
+        const c = Math.cos(ra), sn = Math.sin(ra);
+        let ddx: number, ddy: number;
+        if (xf.flip) {
+          const mx = d.isMirror ? -lx0 : lx0;
+          ddx = mx * c - ly0 * sn;
+          ddy = mx * sn + ly0 * c;
+        } else {
+          const rx = lx0 * c - ly0 * sn, ry = lx0 * sn + ly0 * c;
+          ddx = d.isMirror ? -rx : rx;
+          ddy = ry;
+        }
+        return [X(Number(d.x ?? 0), xf) + ddx, Y(Number(d.y ?? 0), xf) + ddy];
+      };
+      drawComponentAttrs(g, attrs, sym, String(d.partId ?? ''), { gray, hideAll: isBorder && !titleBlockEnabled, libToWorld });
     } else if (symUuid && !isBorder) {
       // unresolved symbol — fallback marker so user sees something (border
       // components are rendered by the synthesized frame above instead)
@@ -836,7 +856,10 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
    * Net names (NET / Global Net Name) paint blue, everything else black;
    * "Add into BOM = no" parts (DNP/NC) render gray.
    */
-  function drawComponentAttrs(g: Group, attrs: Rec[], sym: DocSegment, partId: string, opts: { gray: boolean; hideAll: boolean }): void {
+  function drawComponentAttrs(
+    g: Group, attrs: Rec[], sym: DocSegment, partId: string,
+    opts: { gray: boolean; hideAll: boolean; libToWorld: (lx: number, ly: number) => [number, number] },
+  ): void {
     if (opts.hideAll) return; // border component with the title block switched off
     // multi-part symbol: designator gets ".N" from the part's position in the PART list
     const partList = sym.recs.filter((r) => r.type === 'PART').map((r) => String(r.id ?? ''));
@@ -859,7 +882,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const firstToken = descText.split(/\s+/).find((t) => tokenRe.test(t)) ?? '';
     const grayColor = opts.gray ? '#999999' : null;
     const defaultColor = (key: string) => grayColor ?? (key === 'NET' || key === 'Global Net Name' ? '#0000ff' : '#000000');
-    type Item = { key: string; label: string; a: Rec; def: Rec | null; pos: [number, number] };
+    type Item = { key: string; label: string; a: Rec; def: Rec | null; pos: [number, number]; libPos: boolean };
     const items: Item[] = [];
     // 网络标志 / 端口(symbol docType 18/19)的 Name / Global Net Name 是符号
     // 自身的结构性标签:实例属性常常只带值,定位与可见性留在符号库里(实测
@@ -877,6 +900,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       const def = libDefAttr(sym, partId, key);
       const isNetLabelKey = isNetFlag && (key === 'Name' || key === 'Global Net Name');
       // 定位:实例自带坐标优先;标志/端口的网络名回退符号库默认定位
+      const fromLib = typeof ad.x !== 'number' && isNetLabelKey && !!def;
       const ax = typeof ad.x === 'number' ? ad.x : isNetLabelKey ? def?.data.x : undefined;
       const ay = typeof ad.y === 'number' ? ad.y : isNetLabelKey ? def?.data.y : undefined;
       if (typeof ax !== 'number' || typeof ay !== 'number') continue;
@@ -912,7 +936,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       }
       if (key === 'Designator' && suffix) value = `${value}.${suffix}`;
       if (!value.trim()) continue;
-      items.push({ key, label: ad.keyVisible === true ? `${key}: ${value}` : value, a, def, pos: [ax, ay] });
+      items.push({ key, label: ad.keyVisible === true ? `${key}: ${value}` : value, a, def, pos: [ax, ay], libPos: fromLib });
     }
     // power flags carry the net in both 'Name' and 'Global Net Name' at the same
     // spot; EasyEDA paints it once — keep the blue Global Net Name copy
@@ -930,8 +954,14 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         verticalAlign: alignY(align ?? 'LEFT_BOTTOM'),
         autoSizeAlign: true,
       });
-      t.x = X(it.pos[0], xf);
-      t.y = Y(it.pos[1], xf);
+      if (it.libPos) {
+        // 库坐标 → 页面坐标(元件位置/旋转/镜像链),不能当绝对坐标直接画
+        const [wx, wy] = opts.libToWorld(it.pos[0], it.pos[1]);
+        t.x = wx; t.y = wy;
+      } else {
+        t.x = X(it.pos[0], xf);
+        t.y = Y(it.pos[1], xf);
+      }
       if (typeof ad.rotation === 'number' && ad.rotation) t.rotation = ang(ad.rotation, xf);
       if (it.key === 'Designator') desPos = [t.x, t.y];
       if (it.key === 'Name' || it.key === 'Value' || it.key === 'NET' || it.key === 'Global Net Name') sawNetText = true;
