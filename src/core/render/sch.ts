@@ -859,17 +859,27 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const firstToken = descText.split(/\s+/).find((t) => tokenRe.test(t)) ?? '';
     const grayColor = opts.gray ? '#999999' : null;
     const defaultColor = (key: string) => grayColor ?? (key === 'NET' || key === 'Global Net Name' ? '#0000ff' : '#000000');
-    type Item = { key: string; label: string; a: Rec; def: Rec | null };
+    type Item = { key: string; label: string; a: Rec; def: Rec | null; pos: [number, number] };
     const items: Item[] = [];
+    // 网络标志 / 端口(symbol docType 18/19)的 Name / Global Net Name 是符号
+    // 自身的结构性标签:实例属性常常只带值,定位与可见性留在符号库里(实测
+    // TEST 工程:实例 Global Net Name="+3.3V" 而 x/y/vv 全 null,库里同名
+    // 属性带 x=0,y=-15,vv=true)——客户端按库位把标签画出来。所以这两条 key
+    // 允许回退库定位与库可见性;其余属性维持已实测结论:无坐标的实例属性是
+    // 库元数据,一律不画(R100 的 Value "0Ω"、Q5 的 Footprint uuid…#attr-vis)。
+    const isNetFlag = Number(sym.meta?.docType) === 18 || Number(sym.meta?.docType) === 19;
     for (const a of attrs) {
       const ad = a.data;
       const key = String(ad.key ?? '');
       // Symbol/Device hold uuids (the border's Symbol attr even has coordinates)
       // and Pin Name/Number live on PIN records — metadata, never painted here
       if (!key || key === 'Symbol' || key === 'Device' || key === 'Pin Name' || key === 'Pin Number') continue;
-      // unpositioned instance attrs are library metadata (R100's Value "0Ω",
-      // Q5's Footprint uuid …) — EasyEDA does not paint them at all
-      if (typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
+      const def = libDefAttr(sym, partId, key);
+      const isNetLabelKey = isNetFlag && (key === 'Name' || key === 'Global Net Name');
+      // 定位:实例自带坐标优先;标志/端口的网络名回退符号库默认定位
+      const ax = typeof ad.x === 'number' ? ad.x : isNetLabelKey ? def?.data.x : undefined;
+      const ay = typeof ad.y === 'number' ? ad.y : isNetLabelKey ? def?.data.y : undefined;
+      if (typeof ax !== 'number' || typeof ay !== 'number') continue;
       // valueVisible is the per-value display switch the client's property panel
       // toggles: true = shown, false = unchecked, null = never checked (stored
       // for every attr, e.g. OFFPAGELEFT_R's IREF or a CPU's Name — not painted).
@@ -881,19 +891,19 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       // show the labels; newer client saves moved them to Name vv=true. A
       // null-value Name (GND flags on the CPU sheet, the CPU's own Name) still
       // stays hidden.
+      // 实例未设置(null)时改用库默认可见性:TEST 工程的电源标志把网络名勾成
+      // 可见的那一笔存在符号库里(vv=true),实例永远读不到(用户反馈)。
       // 明确的 false 不进豁免:false 是用户在属性面板主动取消勾选,官方不画。
       // KiCad 导入工程(easyeda2kicad_* 器件)的电源标志 Name 常带 vv=false 且
       // fontSize 是 mm/mil 串味的异常大值,promoting them 会画出 196 单位的巨字
       // 铺满画布(用户反馈 One-Air-Max);收紧为只放行 null 后与官方一致。
-      if (ad.valueVisible !== true) {
-        const dt = Number(sym.meta?.docType);
+      const visible = ad.valueVisible ?? def?.data.valueVisible;
+      if (visible !== true) {
         const flagLabel = ad.valueVisible == null
-          && (dt === 18 || dt === 19)
-          && (key === 'Name' || key === 'Global Net Name')
-          && String(ad.value ?? '').trim() !== '';
+          && isNetLabelKey
+          && String(ad.value ?? def?.data.value ?? '').trim() !== '';
         if (!flagLabel) continue;
       }
-      const def = libDefAttr(sym, partId, key);
       const raw = ad.value ?? def?.data.value ?? metaAttrs[key] ?? '';
       let value = resolveAttrRef(varMap, String(raw)) ?? '';
       if (key === 'Footprint' && /^[0-9a-f]{16,}$/i.test(value)) {
@@ -902,7 +912,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       }
       if (key === 'Designator' && suffix) value = `${value}.${suffix}`;
       if (!value.trim()) continue;
-      items.push({ key, label: ad.keyVisible === true ? `${key}: ${value}` : value, a, def });
+      items.push({ key, label: ad.keyVisible === true ? `${key}: ${value}` : value, a, def, pos: [ax, ay] });
     }
     // power flags carry the net in both 'Name' and 'Global Net Name' at the same
     // spot; EasyEDA paints it once — keep the blue Global Net Name copy
@@ -920,8 +930,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         verticalAlign: alignY(align ?? 'LEFT_BOTTOM'),
         autoSizeAlign: true,
       });
-      t.x = X(Number(ad.x), xf);
-      t.y = Y(Number(ad.y), xf);
+      t.x = X(it.pos[0], xf);
+      t.y = Y(it.pos[1], xf);
       if (typeof ad.rotation === 'number' && ad.rotation) t.rotation = ang(ad.rotation, xf);
       if (it.key === 'Designator') desPos = [t.x, t.y];
       if (it.key === 'Name' || it.key === 'Value' || it.key === 'NET' || it.key === 'Global Net Name') sawNetText = true;

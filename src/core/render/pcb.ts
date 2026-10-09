@@ -486,18 +486,6 @@ function bottomMirrorWrap(d: any, node: Group, center: BBox | undefined): Group 
   return wrap;
 }
 
-/** 底面透视用的 origin 反向(#bottom-mirror):把锚点的左右/上下对调
- *  (LEFT_BOTTOM ↔ RIGHT_TOP 等),配合节点自身的 scaleX 翻转,等价于"绕文本
- *  盒中线镜像、盒子本身不动"。mkLabel 与 glyphLabel 都按 origin 算锚点,
- *  所以这一处改动同时覆盖普通文本与 FONT 字形两条渲染路径。空 origin 的
- *  默认锚点是 LEFT_MIDDLE(mkLabel 的 alignX/alignY 兜底),同样被正确翻转。 */
-function flipOrigin(origin: unknown): string {
-  const s = String(origin ?? '').toUpperCase();
-  const h = s.includes('RIGHT') ? 'LEFT' : s.includes('CENTER') ? 'CENTER' : 'RIGHT';
-  const v = s.includes('BOTTOM') ? 'BOTTOM' : s.includes('TOP') ? 'TOP' : 'MIDDLE';
-  return `${h}_${v}`;
-}
-
 export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   const seg = opened.self;
   const xf = xfOf(seg.canvas);
@@ -1244,17 +1232,14 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       if (hasPos && wantsShow) {
         // 底层元件的属性文本(位号/值/自定义属性)随底面透视翻转字形
         // (#bottom-mirror):属性记录在底层层上(layerId 属 BOTTOM_LAYERS),
-        // 与板级底层图元同一条已实测规则 —— 绕自身渲染盒镜像,**位置与尺寸
-        // 保持记录坐标不动**,只有字形内容翻转。实现上把 origin 锚点的
-        // 左右/上下反向再对节点做 scaleX 翻转:锚点反向把字形盒摆回原位,
-        // 翻转只改字形朝向 —— 等价于绕文本盒中线镜像而不移动盒子(比先生成
-        // 再量 bbox 更省,且默认字体的文本量不出 FONT 盒)。此前属性文本只
-        // 做了透明度、漏了这一步,底面位号因此正立(用户反馈 USB1 位号未
-        // 镜像)。记录自带 mirror:true 时数据已是翻转形态,与图形同规则 XOR
-        // 跳过(bottomMirrorWrap 的同一约定);reverse(文本反向)标志与底面
-        // 镜像正交,XOR 后取消彼此的横向翻转。
+        // 此前只做了透明度、漏了翻转,底面位号因此正立(用户反馈 USB1)。
+        // 翻转**绕文字自身的原点(origin 锚点)**进行:节点定位于记录坐标、
+        // 锚点不动,scaleX 取反把字形盒翻到锚点另一侧 —— 这正是客户端看到的
+        // "以文字原点为轴镜像"(用户反馈:锚点反向、盒子不动的做法位置不对)。
+        // 记录自带 mirror:true 时数据已是翻转形态,XOR 跳过(与 bottomMirrorWrap
+        // 同一约定);reverse(文本反向)与底面镜像正交,XOR 后取消彼此的横向翻转。
         const flipped = mirror && !ad.mirror;
-        const t = mkLabel(flipped ? { ...ad, origin: flipOrigin(ad.origin) } : ad, layerColor(ad.layerId), xf, true, false);
+        const t = mkLabel(ad, layerColor(ad.layerId), xf, true, false);
         if (flipped) (t as any).scaleX = ad.reverse ? 1 : -1;
         const al = BOTTOM_ALPHA[String(ad.layerId)];
         if (al !== undefined) t.opacity = al;
@@ -1270,6 +1255,12 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       selPoly: Number(d.angle ?? 0) % 360 !== 0 ? footprintFrame(fp, g).poly : undefined,
       // 元件拾取归属按其自身所在面(封装图元经 wrapper 分散到各层组,#pick-active-layer)
       layerKey: layerIdOf(d) || String(LAYER.TOP),
+      // 元件是跨面层的整体对象(同一元件的图形按 layerId 分布在铜/丝印/阻焊/
+      // 助焊各层,底层元件经 faceRemap 落到 2/4/6/8/10),因此激活该面的**任一**
+      // 层都应能拾取到它 —— 否则切到底层丝印层后点封装框选不中元件(用户反馈)。
+      // 与通孔类对象带全铜层集合(#via-pick-any-layer)同一机制,只是集合换成
+      // "元件所在面的全部层";隐藏层判定仍用 layerKey 不受影响。
+      pickLayers: mirror ? ['2', '4', '6', '8', '10'] : ['1', '3', '5', '7', '9'],
     });
   }
 
