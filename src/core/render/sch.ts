@@ -5,6 +5,12 @@ import type { RenderApi, RenderObject } from './layers';
 import { X, Y, P, ang, strokeOf, fillOf, widthOf, xfOf, objBBox, bboxFromPts, arcSeg, arc3Seg, arcPts, arc3Pts, textFramePoly, COLORS, type Xf, type BBox } from './geom';
 import { resolveLibGraphics, resolveAttrRef } from '../model';
 
+/** EasyEDA 默认字体:客户端的"默认"= 宋体(中文版),记录里 fontFamily 为
+ *  空/default 时按宋体渲染 —— 浏览器默认 sans-serif 与客户端的字形/字宽都
+ *  对不上(用户反馈:EDA 打开是宋体,查看器不是)。字体栈带 SimSun 与 serif
+ *  兜底,缺失环境下仍有合理回退。 */
+const DEFAULT_FONT = '宋体, SimSun, serif';
+
 /** record types that contribute real graphics (for component bbox sizing) */
 const DRAWABLE_TYPES = ['POLY', 'FILL', 'LINE', 'RECT', 'CIRCLE', 'ELLIPSE', 'OVAL', 'PIN', 'TEXT', 'STRING', 'TABLE', 'OBJ'];
 
@@ -307,6 +313,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
             const [lx, ly] = P(Number(ad.x), Number(ad.y), sxf);
             const t = new Text({
               text: v, fontSize: Number(ad.fontSize) || 8, fill: gray ? '#999999' : '#000000',
+              fontFamily: DEFAULT_FONT,
               textAlign: alignX(ad.align), verticalAlign: alignY(ad.align), autoSizeAlign: true,
             });
             t.x = lx; t.y = ly;
@@ -328,7 +335,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
             const t = new Text({
               text: value, fontSize: fs,
               fill: gray ? '#999999' : strokeOf(r.data, COLORS.schComponent),
-              fontFamily: r.data.fontFamily || undefined,
+              fontFamily: r.data.fontFamily || DEFAULT_FONT,
               textAlign: alignX(r.data.align), verticalAlign: alignY(r.data.align || 'LEFT_BOTTOM'),
               // 数值 lineHeight 在 leafer 里是绝对单位而非 em 倍数,传 fontSize 即 1em
               lineHeight: fs,
@@ -395,6 +402,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           if (!value.trim()) break;
           const t = new Text({
             text: value, fontSize: Number(ad.fontSize) || 8, fill: gray ? '#999999' : '#000000',
+            fontFamily: DEFAULT_FONT,
             textAlign: alignX(ad.align), verticalAlign: alignY(ad.align ?? 'LEFT_BOTTOM'), autoSizeAlign: true,
           });
           t.x = X(Number(ad.x), sxf); t.y = Y(Number(ad.y), sxf);
@@ -475,6 +483,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       const t = new Text({
         text: value, fontSize: Number(fs.fontSize ?? cell?.fontSize) || 9,
         fill: fs.color ?? COLORS.schText,
+        fontFamily: DEFAULT_FONT,
         textAlign: ha,
         verticalAlign: va,
         autoSizeAlign: true,
@@ -496,7 +505,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       // the record's own font name (e.g. 宋体) when the file names one — the
       // browser falls back to its default face when it is not installed
       fontFamily: (typeof d.fontFamily === 'string' && d.fontFamily && d.fontFamily !== 'default')
-        ? d.fontFamily : undefined,
+        ? d.fontFamily : DEFAULT_FONT,
       textAlign: alignX(d.align),
       // EasyEDA 文本锚点即 canvas em 盒语义:align 缺省为 LEFT_BOTTOM —— y 是
       // 含下降部的盒底(基线在 y 上方 ≈0.2em),x 为字形左缘。对照官方导出实测
@@ -685,7 +694,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     };
     const lbl = (text: string, x: number, v: number, align = 'CENTER_MIDDLE', size = 10, fill = col) => {
       const t = new Text({
-        text, fontSize: size, fill, fontFamily: fill === col ? '宋体' : undefined,
+        text, fontSize: size, fill, fontFamily: fill === col ? DEFAULT_FONT : undefined,
         textAlign: alignX(align), verticalAlign: alignY(align), autoSizeAlign: true,
       });
       const p = P2(x, v);
@@ -782,6 +791,31 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const g = new Group({ name: `comp:${r.id}` });
     g.x = X(d.x ?? 0, xf);
     g.y = Y(d.y ?? 0, xf);
+    // 标题栏类图框符号的右下角锚定(#titleblock-anchor):TITLE-BLOCK-* 这类符号
+    // 只覆盖标题栏那一块(PART BBOX 远小于整页),客户端把它锚在页面右下角;
+    // 而元件记录的位置是 (0,0)、符号局部原点也不落在页面上 —— 照元件位置渲染
+    // 会把整块表格画到页面中部(用户反馈 TEST 工程"图纸表格偏移,应在右下角")。
+    // 这里按"符号内容的右下角对齐页面右下角(各留 10 边距)"重新定位。整页图框
+    // 符号(Sheet-Symbol_*,PART BBOX 即页面尺寸)尺寸判定不满足,平移量为 0,
+    // 现有正确渲染的样例不受影响。
+    if (isBorder && sym) {
+      const bbRaw = sym.recs.find((rr) => rr.type === 'PART')?.data?.BBOX as number[] | undefined;
+      const Wp = Number(attrValue(attrs, 'Width'));
+      const Hp = Number(attrValue(attrs, 'Height'));
+      if (bbRaw && bbRaw.length >= 4 && Wp > 0 && Hp > 0) {
+        const bx = bbRaw.map(Number);
+        const wSpan = Math.abs(bx[2] - bx[0]);
+        const hSpan = Math.abs(bx[3] - bx[1]);
+        if (wSpan < Wp * 0.8 && hSpan < Hp * 0.6) {
+          // 纵向平移量为 0:这类符号的内容 y 本就是"距页面底边"的基准
+          // (标题栏 y∈[9.5, 210.5] 即距底边 10~210),原点就落在页面左下角;
+          // 只有 x 需要把内容右边缘推到页面右边缘(留 10 边距)。实测校准:
+          // 该页标题栏落在右下角,与客户端一致(用户反馈的那张对照图)。
+          g.x = X(Wp - 10 - Math.max(bx[0], bx[2]), xf);
+          g.y = Y(0, xf);
+        }
+      }
+    }
     // EasyEDA mirrors about the component's own vertical axis, then rotates —
     // R·M in doc space. On Y-up pages ang() keeps the raw angle and one group
     // with rotation+scaleX realizes it (leafer composes T·R·M, mirror
@@ -950,6 +984,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       const t = new Text({
         text: it.label, fontSize: Number(ad.fontSize ?? it.def?.data.fontSize) || 8,
         fill: strokeOf({ strokeColor: ad.color ?? it.def?.data.color }, defaultColor(it.key)),
+        fontFamily: DEFAULT_FONT,
         textAlign: alignX(align),
         verticalAlign: alignY(align ?? 'LEFT_BOTTOM'),
         autoSizeAlign: true,
@@ -1255,6 +1290,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const plain = ad.align == null || ad.align === '';
     const t = new Text({
       text: v, fontSize: Number(ad.fontSize) || 8, fill: strokeOf({ strokeColor: ad.color }, '#0000ff'),
+      fontFamily: DEFAULT_FONT,
       textAlign: plain ? 'left' : alignX(ad.align), verticalAlign: plain ? 'bottom' : alignY(ad.align), autoSizeAlign: true,
       lineHeight: 1, // default line-height > 1 leaves an invisible gap under the glyphs (#net-gap)
     });

@@ -13,11 +13,15 @@
 - 激活底层丝印层后无法拾取元件(#pick-fp-face-layers,用户反馈):元件的拾取层此前只记自身 layerId(底层铜 2),激活同面其他层(丝印 4/阻焊 6/助焊 8/装配 10)时被独占过滤排除。改为元件带"所在面全部层"的拾取集合(与过孔的全铜层集合同一机制),激活该面任一层都能点中元件。
 - 画布被巨型文本遮挡(One-Air-Max 工程,用户反馈):电源标志/网络端口的 Name 结构性豁免原先只要求"非 true",把用户主动取消勾选的 `valueVisible:false` 也一并画出,而 KiCad 导入器给这类属性写了 mm/mil 串味的字号(约 196 单位,正常 5),122 个巨字铺满画布。收紧为只豁免 `null/缺失`(#flag-name-vvfalse);全样例 5481 处 null 类豁免照常渲染,10 页官方 PNG 对照像素差零变化。
 
+### Fixed
+- 默认字体改为宋体(#default-font,用户反馈:EDA 打开是宋体、查看器不是):客户端"默认字体"即宋体(中文版),而记录里 fontFamily 为空/`default` 时查看器回退浏览器 sans-serif,字形与字宽都对不上。原理图全部文本路径(页面文本、符号内文本/引脚标签、元件属性、标题栏表格与槽位、网络标签)在缺省字体时统一用 `宋体, SimSun, serif`。10 页官方 PNG 对照 ref-diff **9 个原理图案例全部改善**(ESP32-S31 −10850 像素、Power −9055、Audio −6955…)。
+- 标题栏类图框符号未锚定到页面右下角(#titleblock-anchor,用户反馈 TEST 工程"图纸表格偏移"):TITLE-BLOCK-* 这类符号只覆盖标题栏那一块(PART BBOX 远小于整页),客户端把它锚在页面右下角,而元件记录的位置是 (0,0)、符号局部原点也不落在页面上 —— 照元件位置渲染会把整块表格画到页面中部。改为按"内容右边缘对齐页面右边缘(留 10 边距)"定位(符号的 y 基准本就是距页面底边,纵向平移量为 0);整页图框符号(Sheet-Symbol_*,BBOX 即页面尺寸)尺寸判定不满足,不受影响(ref-diff 10 页 delta 全 0)。
+
 ### Added
 - 属性文本可单独拾取(#attr-pick-self,用户需求):PCB 的位号/值/网络名等 ATTR 文本注册为独立可拾取对象,点文字选中**文本本身**并在属性面板列出该条 ATTR(键/值/X·Y/图层/线宽/角度/对齐),不再落到整个元件;文本框面积小于元件本体,按"命中者面积最小胜出"自然优先,元件保留含文本区的拾取盒作兜底。
 
 ### Fixed
-- PCB 文本笔画比客户端细(#text-stroke,用户反馈:客户端默认字体 stroke 6mil,查看器实测 4.2mil):客户端默认字体是自绘路径、笔画宽取记录里的 `strokeWidth`,而浏览器默认字体自然笔画仅约 0.093em;现按 `strokeWidth − 0.093em×fontSize` 用 text stroke 补齐差值,使笔画总宽贴近客户端。自定义字体(FONT 字形/具名字体)自带正确粗细,不参与补偿。
+- PCB 文本笔画比客户端细(#text-stroke,用户反馈:客户端默认字体 stroke 6mil,查看器实测 4.2mil):客户端默认字体是自绘路径、笔画宽取记录里的 `strokeWidth`,而浏览器默认字体自然笔画仅约 0.093em;现按 `(strokeWidth − 0.093em×fontSize) / 2` 用 text stroke 补齐差值 —— canvas 的 stroke 沿字形轮廓两侧各加线宽一半,离屏标定实测笔画总宽增量 ≈ **2×lineWidth**(45px 字体 lineWidth 1.815 → 笔画 +2px),故描边量取差值的一半(首版未除 2,实测笔画 7.6mil 偏粗,用户复测)。自定义字体(FONT 字形/具名字体)自带正确粗细,不参与补偿。
 
 ### Added
 - GitHub Actions 自动发布:push 到 main 若 `package.json` 版本号对应 tag 尚不存在,自动在 windows runner 上构建 exe 并创建 GitHub Release 附上 `easyeda-viewer_v{version}.exe` 与浏览器版 `index.html`(`.github/workflows/release.yml`)。

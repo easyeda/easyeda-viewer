@@ -630,8 +630,12 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   const LABEL_PX = 9;
   /** 浏览器默认字体的自然笔画宽(em 比例):位号 45mil 字号实测约 4.2mil,
    *  而客户端自绘字体是记录里的 strokeWidth(6mil)—— 差值由 text stroke 补齐
-   *  (#text-stroke) */
+   *  (#text-stroke)。canvas 的 stroke 沿字形轮廓两侧各加线宽的一半,实测笔画
+   *  总宽增量 ≈ 2×lineWidth(离屏标定:45px 字体 lineWidth 1.815 → 笔画 +2px),
+   *  故描边量取差值的一半。 */
   const NATURAL_STROKE_EM = 0.093;
+  /** canvas 描边对笔画总宽的实际放大系数(实测 ≈2) */
+  const STROKE_GAIN = 2;
 
   // custom-font strings render from the file's own FONT glyph outlines (#font-glyph)
   const fontGlyphs = fontGlyphMap(opened.libs);
@@ -676,7 +680,7 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     const swField = Number(d.strokeWidth);
     if (!fam || fam === 'default') {
       if (Number.isFinite(swField) && swField > 0) {
-        const add = swField - fs * NATURAL_STROKE_EM;
+        const add = (swField - fs * NATURAL_STROKE_EM) / STROKE_GAIN;
         if (add > 0.01) { (t as any).stroke = color; (t as any).strokeWidth = add; }
       }
     }
