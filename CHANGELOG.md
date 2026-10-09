@@ -14,6 +14,12 @@
 - 画布被巨型文本遮挡(One-Air-Max 工程,用户反馈):电源标志/网络端口的 Name 结构性豁免原先只要求"非 true",把用户主动取消勾选的 `valueVisible:false` 也一并画出,而 KiCad 导入器给这类属性写了 mm/mil 串味的字号(约 196 单位,正常 5),122 个巨字铺满画布。收紧为只豁免 `null/缺失`(#flag-name-vvfalse);全样例 5481 处 null 类豁免照常渲染,10 页官方 PNG 对照像素差零变化。
 
 ### Added
+- 属性文本可单独拾取(#attr-pick-self,用户需求):PCB 的位号/值/网络名等 ATTR 文本注册为独立可拾取对象,点文字选中**文本本身**并在属性面板列出该条 ATTR(键/值/X·Y/图层/线宽/角度/对齐),不再落到整个元件;文本框面积小于元件本体,按"命中者面积最小胜出"自然优先,元件保留含文本区的拾取盒作兜底。
+
+### Fixed
+- PCB 文本笔画比客户端细(#text-stroke,用户反馈:客户端默认字体 stroke 6mil,查看器实测 4.2mil):客户端默认字体是自绘路径、笔画宽取记录里的 `strokeWidth`,而浏览器默认字体自然笔画仅约 0.093em;现按 `strokeWidth − 0.093em×fontSize` 用 text stroke 补齐差值,使笔画总宽贴近客户端。自定义字体(FONT 字形/具名字体)自带正确粗细,不参与补偿。
+
+### Added
 - GitHub Actions 自动发布:push 到 main 若 `package.json` 版本号对应 tag 尚不存在,自动在 windows runner 上构建 exe 并创建 GitHub Release 附上 `easyeda-viewer_v{version}.exe` 与浏览器版 `index.html`(`.github/workflows/release.yml`)。
 
 ## [0.4.1] - 2026-09-22

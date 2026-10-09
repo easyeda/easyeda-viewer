@@ -628,6 +628,10 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   };
   /** fallback font size (doc units) when a record carries no fontSize */
   const LABEL_PX = 9;
+  /** 浏览器默认字体的自然笔画宽(em 比例):位号 45mil 字号实测约 4.2mil,
+   *  而客户端自绘字体是记录里的 strokeWidth(6mil)—— 差值由 text stroke 补齐
+   *  (#text-stroke) */
+  const NATURAL_STROKE_EM = 0.093;
 
   // custom-font strings render from the file's own FONT glyph outlines (#font-glyph)
   const fontGlyphs = fontGlyphMap(opened.libs);
@@ -663,6 +667,19 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     t.rotation = ang(Number(d.angle ?? d.rotation ?? 0));
     if (d.reverse) t.scaleX = -1;
     if (d.mirror) t.scaleY = -1;
+    // 笔画粗细补偿(#text-stroke):客户端的默认字体是自绘路径,笔画宽 = 记录里的
+    // strokeWidth(位号 fontSize 45 → 6mil);浏览器默认字体的自然笔画只有约
+    // 0.093em(同字号实测 4.2mil),视觉上明显偏细(用户反馈)。用 text stroke 把
+    // 差值补上:总宽 = 自然笔画 + strokeWidth,故描边量取"记录值 − 自然值";
+    // 记录没带 strokeWidth 或本来就够粗时不动。自定义字体(glyph 路径/具名字体)
+    // 自带正确粗细,不参与补偿。
+    const swField = Number(d.strokeWidth);
+    if (!fam || fam === 'default') {
+      if (Number.isFinite(swField) && swField > 0) {
+        const add = swField - fs * NATURAL_STROKE_EM;
+        if (add > 0.01) { (t as any).stroke = color; (t as any).strokeWidth = add; }
+      }
+    }
     return t;
   }
 
@@ -1260,11 +1277,24 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         // 文本框按渲染同源的对齐/角度算(textFramePoly),底面镜像会把框翻到
         // 锚点另一侧 —— 镜像前后的框都并进拾取范围,两种朝向都能点中。
         const frame0 = textFramePoly(a, xf);
-        if (frame0) {
-          const f = flipped ? [...frame0, ...frame0.map(([x, y]) => [2 * X(Number(ad.x ?? 0), xf) - x, y] as [number, number])] : frame0;
-          const fb = bboxFromPts(f);
-          if (fb) pickBox = pickBox ? unionBox(pickBox, fb) : fb;
-        }
+        const frameAll = frame0
+          ? (flipped ? [...frame0, ...frame0.map(([x, y]) => [2 * X(Number(ad.x ?? 0), xf) - x, y] as [number, number])] : frame0)
+          : null;
+        const fb = frameAll ? (bboxFromPts(frameAll) ?? undefined) : undefined;
+        if (fb) pickBox = pickBox ? unionBox(pickBox, fb) : fb;
+        // 属性文本自身也是可拾取对象(#attr-pick-self,用户需求):点这些文字
+        // 应当选中**文本本身**并在属性面板列出这条 ATTR(位号/值/网络名…),
+        // 而不是选中整个元件。文本框面积通常小于元件本体,按"命中者中面积
+        // 最小胜出"的既有规则自然优先于元件;元件仍保留含文本区的 pickBox
+        // 作为兜底(文本不可拾取时才落到元件)。
+        api.addObject({
+          id: a.id, rec: a, node: t as unknown as Group,
+          label: `属性 ${String(ad.key ?? '')}`,
+          kind: 'primitive',
+          title: `${String(ad.key ?? '')} ${String(ad.value ?? '')}`.trim(),
+          bbox: fb,
+          layerKey: String(ad.layerId ?? LAYER.TOP),
+        });
       }
     }
     api.addObject({
