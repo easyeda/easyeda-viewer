@@ -486,6 +486,18 @@ function bottomMirrorWrap(d: any, node: Group, center: BBox | undefined): Group 
   return wrap;
 }
 
+/** 底面透视用的 origin 反向(#bottom-mirror):把锚点的左右/上下对调
+ *  (LEFT_BOTTOM ↔ RIGHT_TOP 等),配合节点自身的 scaleX 翻转,等价于"绕文本
+ *  盒中线镜像、盒子本身不动"。mkLabel 与 glyphLabel 都按 origin 算锚点,
+ *  所以这一处改动同时覆盖普通文本与 FONT 字形两条渲染路径。空 origin 的
+ *  默认锚点是 LEFT_MIDDLE(mkLabel 的 alignX/alignY 兜底),同样被正确翻转。 */
+function flipOrigin(origin: unknown): string {
+  const s = String(origin ?? '').toUpperCase();
+  const h = s.includes('RIGHT') ? 'LEFT' : s.includes('CENTER') ? 'CENTER' : 'RIGHT';
+  const v = s.includes('BOTTOM') ? 'BOTTOM' : s.includes('TOP') ? 'TOP' : 'MIDDLE';
+  return `${h}_${v}`;
+}
+
 export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
   const seg = opened.self;
   const xf = xfOf(seg.canvas);
@@ -1230,7 +1242,20 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
       const hasPos = typeof ad.x === 'number' && isFinite(ad.x);
       const wantsShow = ad.valueVisible !== false;
       if (hasPos && wantsShow) {
-        const t = mkLabel(ad, layerColor(ad.layerId), xf, true, false);
+        // 底层元件的属性文本(位号/值/自定义属性)随底面透视翻转字形
+        // (#bottom-mirror):属性记录在底层层上(layerId 属 BOTTOM_LAYERS),
+        // 与板级底层图元同一条已实测规则 —— 绕自身渲染盒镜像,**位置与尺寸
+        // 保持记录坐标不动**,只有字形内容翻转。实现上把 origin 锚点的
+        // 左右/上下反向再对节点做 scaleX 翻转:锚点反向把字形盒摆回原位,
+        // 翻转只改字形朝向 —— 等价于绕文本盒中线镜像而不移动盒子(比先生成
+        // 再量 bbox 更省,且默认字体的文本量不出 FONT 盒)。此前属性文本只
+        // 做了透明度、漏了这一步,底面位号因此正立(用户反馈 USB1 位号未
+        // 镜像)。记录自带 mirror:true 时数据已是翻转形态,与图形同规则 XOR
+        // 跳过(bottomMirrorWrap 的同一约定);reverse(文本反向)标志与底面
+        // 镜像正交,XOR 后取消彼此的横向翻转。
+        const flipped = mirror && !ad.mirror;
+        const t = mkLabel(flipped ? { ...ad, origin: flipOrigin(ad.origin) } : ad, layerColor(ad.layerId), xf, true, false);
+        if (flipped) (t as any).scaleX = ad.reverse ? 1 : -1;
         const al = BOTTOM_ALPHA[String(ad.layerId)];
         if (al !== undefined) t.opacity = al;
         api.layer(String(ad.layerId ?? LAYER.TOP)).add(t);

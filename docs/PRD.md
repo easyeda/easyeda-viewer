@@ -185,7 +185,7 @@ MyProject/
 | FR-3.17 | **铺铜保真**:fineness 决定填充质量;孤儿 POURED 缓存(无对应 POUR 记录)只画包边描线(避免错误黑块填充);nonzero 填充规则使铺铜间隙/孔洞自然穿透;POUR_FILL_DIM=0.7 暗化填充与全亮包边配合(v0.2.4 按官方导出图实测由 0.6 校正:#B20000 填充对 #FF0000 走线,见 FR-3.9) | P0 |
 | FR-3.18 | **焊盘保真**:POLYGON 轮廓焊盘按**封装坐标原样**绘制(v0.3.2 #pad-polygon-ring:轮廓 path 预置位/预旋转烤死在封装坐标系,直接 as-is 绘制、不重定心到 centerX/centerY、也不吃 padAngle 旋转——安装环类封装 SMD_BD5.6-D3.6/SMD-1_BD4.4-D2.8 的四个环形扇区 path 围绕封装原点、与形状 bbox 中心偏差 ~8.3/6.6 文档单位,按声明中心重定心会把每个扇区沿切向推移 ≈4.8°(r 的 8.35%),视觉即"整体多转了几度";PRPAK5X6 七个库副本 pad-5 path 逐字节相同而 padAngle=0/90/180/270,证明 padAngle 对 POLYGON 铜皮只是钻孔/编号元数据;centerX/centerY 仍锚定钻孔(含 padOffset)与编号/网络名标签;阻焊/助焊窗同步按原样轮廓生成;off=0 的普通多边形焊盘(USPQ-4B04、ssc338q 等)as-is 与重定心等价)并同步生成阻焊/助焊窗;ELLIPSE 圆头焊盘;槽孔按 relativeAngle 随焊盘旋转;padOffset 仅偏移钻孔不偏移铜皮;通孔焊盘挂 MULTI 层组(顶/底层之上);封装内 Multi-Layer 填充形状解析为挖槽到孔层 | P0 |
 | FR-3.19 | **阻焊/助焊窗**:按 SOLDER_MASK/PASTE 规则对焊盘/过孔开窗,扩展量按规则记录分面(顶/底)取值;规则记录(`ruleContext`)数值为 **mil 文档单位**——其 `unit:"mm"` 字段是客户端 UI 显示偏好而非存储单位,默认规则 padTopExpan:2 即 0.05mm,不得按 mm 换算(v0.2.3 修复,曾致外扩 ~40 倍);−1000 哨兵=不开窗(过孔默认盖油 tented,记录可逐面覆盖;焊盘同 ≤−1000 哨兵约定) | P0 |
-| FR-3.20 | **底面透视**:底层铜/丝印以 BOTTOM_ALPHA 半透明透板显示,元件/焊盘按 M_y·R(θ) 镜像矩阵变换(与客户端一致);透板镜像文本/图片自动生成 twins,与 FR-3.10 去重规则一致 | P0 |
+| FR-3.20 | **底面透视**:底层铜/丝印以 BOTTOM_ALPHA 半透明透板显示,元件/焊盘按 M_y·R(θ) 镜像矩阵变换(与客户端一致);透板镜像文本/图片自动生成 twins,与 FR-3.10 去重规则一致;**底层元件的属性文本同步翻转**(v0.4.2 #bottom-attr-mirror,用户反馈:底层 USB1 位号正立、与客户端不符):位号/值/自定义属性等 ATTR 文本随底面透视翻转字形,但**位置与尺寸保持记录坐标不动** —— 属性记录里存的是绝对方位(非元件局部坐标),与板级底层图元适用同一条已实测规则(绕自身渲染盒中线镜像,只有字形内容翻转,见 bottomMirrorWrap);实现为 origin 的水平锚点反向(LEFT↔RIGHT)叠加节点 scaleX 翻转:锚点反向把字形盒摆回原位,翻转只改字形朝向,等价于绕文本盒中线镜像而不移动盒子,且默认字体量不出 FONT 盒时同样精确;记录自带 `mirror:true` 时数据已是翻转形态,XOR 跳过(与 bottomMirrorWrap 同约定);`reverse` 标志与底面镜像正交,XOR 后取消彼此的横向翻转;顶层元件属性不受影响 | P0 |
 | FR-3.21 | **文本保真**:内嵌 FONT 文档的 glyph 走**预矢量化轮廓**渲染(轮廓 path,不再回退 canvas 字体);STRING 支持 CARC(圆弧文本路径)token | P0 |
 
 ### 4.4 FR-4 画布交互
@@ -461,6 +461,8 @@ desktop/build/
 - [x] v0.4.0 拾取批次(#default-top-layer #fp-pad-pick #via-pick-any-layer):PCB 族文档打开默认激活顶层铜皮(只落拾取态与行高亮,不触发置顶重排);封装内焊盘注册为独立可拾取对象(选框/属性面板/面积定胜负齐备);过孔与通孔焊盘(页级与封装内)带全铜层拾取集合 pickLayers,激活任一铜层都能点中,修"顶层激活时过孔无法选中"的用户反馈;隐藏层可见性与未设激活层行为零回归,过孔与走线重叠仍按 bbox 面积定胜负。无头 Chrome QA 14/14(X86 顶层/底层/内层(16)激活点过孔选中、走线穿过过孔中心过孔胜出、重置后无激活层回归、RA6E2 封装内通孔焊盘顶层激活可点选;tsc 0 警告,vitest 12/12,smoke 122/122)。
 
 - [x] v0.4.2 属性可见性豁免收紧批次(#flag-name-vvfalse,用户反馈 One-Air-Max 巨字遮挡):电源标志/端口的 Name/GNN 结构性豁免从"非 true 即放行"收紧为"仅放行 vv=null/缺失",明确的 vv=false(用户主动取消勾选)不再绘制。触发场景为 KiCad 导入工程(easyeda2kicad_* 器件)的 355 条 vv=false 属性,其 fontSize 被导入器写成 mm/mil 串味值 196.85(正常 5),122 个电源标志 Name 渲染成贯穿整页的巨字;修复后该页最大渲染字号 9、文本对象 1418→1296。全样例 null 类豁免 2027(GNN)+3454(Name) 处照旧渲染;X86-PC 10 页官方 PNG 对照 ref-diff 像素差 delta 全 0(零回归);tsc 0 警告,vitest 12/12,smoke 122/122。
+
+- [x] v0.4.2 底面属性文本镜像批次(#bottom-attr-mirror,用户反馈 ProDoc_Board1 底层 USB1 位号未镜像):底层元件的 ATTR 属性文本(位号/值/自定义属性)此前只做 BOTTOM_ALPHA 透明度、未经过任何镜像变换,渲染为**正立**文本,与客户端不符;改为随底面透视翻转字形、位置保持记录坐标(与板级底层图元同一条 bottomMirrorWrap 已实测规则),实现为 origin 水平锚点反向 + scaleX 翻转(等价绕文本盒中线镜像且不移动盒子,默认字体无需 FONT 盒);mirror:true 记录 XOR 跳过、reverse 与之正交、顶层元件零影响。QA:用户样例实机渲染位号方位与客户端一致(截图 tmp/qa-usb1-zoom.png);X86-PC 等 10 页官方 PNG 对照 ref-diff 像素差 delta 全 0(零回归);tsc 0 警告、vitest 12/12、smoke 122/122。
 
 ---
 
