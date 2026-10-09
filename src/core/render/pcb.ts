@@ -2,7 +2,7 @@
 import { Group, Line, Rect, Path, Text, Ellipse, Image as LeaferImage } from 'leafer-ui';
 import type { OpenedDoc, Rec, DocSegment } from '../types';
 import type { RenderApi, RenderObject } from './layers';
-import { X, Y, P, ang, strokeOf, widthOf, xfOf, objBBox, bboxFromPts, multiPathToSvg, scalePourItems, arcPts, collectPathPts, rotateBoxPoly, type BBox, type Xf } from './geom';
+import { X, Y, P, ang, strokeOf, widthOf, xfOf, objBBox, bboxFromPts, multiPathToSvg, scalePourItems, arcPts, collectPathPts, rotateBoxPoly, textFramePoly, type BBox, type Xf } from './geom';
 import { glyphKey, glyphPathD, fontGlyphMap, GLYPH_UNIT, type FontGlyph } from './font';
 import { resolveLibGraphics } from '../model';
 
@@ -469,6 +469,14 @@ function stringCorners(d: any, glyphs: Map<string, FontGlyph>, xfc: Xf): [number
 
 function stringBBox(d: any, glyphs: Map<string, FontGlyph>, xfc: Xf): BBox | undefined {
   return bboxFromPts(stringCorners(d, glyphs, xfc) ?? []) ?? undefined;
+}
+
+/** 两个世界包围盒的并集 —— 元件拾取范围合并本体框与属性文本框用(#attr-pick) */
+function unionBox(a: BBox, b: BBox): BBox {
+  return {
+    minX: Math.min(a.minX, b.minX), minY: Math.min(a.minY, b.minY),
+    maxX: Math.max(a.maxX, b.maxX), maxY: Math.max(a.maxY, b.maxY),
+  };
 }
 
 /** bottom-face viewing flip (#bottom-mirror): the official 2D view reads records
@@ -1224,6 +1232,9 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
     // flag allows it — false hides it on the board exactly like the client
     // (this sample's PCB doc carries valueVisible:false on every placed
     // Designator, so none of them render — data-driven) (#attr-vis)
+    const compBox = footprintBBox(fp, g);
+    /** 元件里可见属性文本的并集(拾取专用,见 #attr-pick) */
+    let pickBox: BBox | null = null;
     for (const a of attrs) {
       const ad = a.data;
       if (isDocIdText(ad, r.id, allIds, netNames, padNumbers)) continue;
@@ -1244,12 +1255,23 @@ export function renderPcb(opened: OpenedDoc, api: RenderApi): void {
         const al = BOTTOM_ALPHA[String(ad.layerId)];
         if (al !== undefined) t.opacity = al;
         api.layer(String(ad.layerId ?? LAYER.TOP)).add(t);
+        // 属性文本参与元件拾取(#attr-pick):位号/值常落在封装框之外,元件的
+        // 本体 bbox 不含它们,点这些文字此前选不中任何东西(用户反馈)。
+        // 文本框按渲染同源的对齐/角度算(textFramePoly),底面镜像会把框翻到
+        // 锚点另一侧 —— 镜像前后的框都并进拾取范围,两种朝向都能点中。
+        const frame0 = textFramePoly(a, xf);
+        if (frame0) {
+          const f = flipped ? [...frame0, ...frame0.map(([x, y]) => [2 * X(Number(ad.x ?? 0), xf) - x, y] as [number, number])] : frame0;
+          const fb = bboxFromPts(f);
+          if (fb) pickBox = pickBox ? unionBox(pickBox, fb) : fb;
+        }
       }
     }
     api.addObject({
       id: r.id, rec: r, node: g, label: `元件 ${r.id}`, kind: 'component',
       title: attrValue(attrs, 'Designator') ?? String(d.attrs?.['Designator'] ?? d.attrs?.['Name'] ?? r.id),
-      bbox: footprintBBox(fp, g),
+      bbox: compBox,
+      pickBox: pickBox ? (compBox ? unionBox(compBox, pickBox) : pickBox) : undefined,
       // 旋转非零的元件按自身坐标系联合外框的旋转后四角贴合选中;0° 不标注,
       // 选中框维持轴对齐矩形(现状)(#select-box-rot)
       selPoly: Number(d.angle ?? 0) % 360 !== 0 ? footprintFrame(fp, g).poly : undefined,

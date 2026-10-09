@@ -948,8 +948,10 @@ export class Shell {
       const lk = o.layerKey ?? (o.rec.data.layerId != null ? String(o.rec.data.layerId) : null);
       return lk != null && this.layerVisible.get(lk) === false;
     };
+    // 粗筛用 pickBox(缺省=bbox):元件的可点范围含落在封装框外的可见属性
+    // 文本(位号/值),点那些文字同样选中元件(#attr-pick,用户反馈)
     const pass = (o: RenderObject): boolean => {
-      const b = o.bbox!;
+      const b = o.pickBox ?? o.bbox!;
       if (wx < b.minX || wx > b.maxX || wy < b.minY || wy > b.maxY) return false;
       if (o.hit && !o.hit(wx, wy, tol)) return false; // stroke-only pick (#23)
       return true;
@@ -1001,7 +1003,7 @@ export class Shell {
       if (act && o.layerKey !== act && !o.pickLayers?.includes(act)) continue;
       const pts = o.pathPts;
       if (pts && pts.length >= 2) {
-        const b = o.bbox;
+        const b = o.pickBox ?? o.bbox;
         if (wx < b.minX - tol || wx > b.maxX + tol || wy < b.minY - tol || wy > b.maxY + tol) continue;
         const d = segDist(pts, wx, wy);
         if (d > tol) continue;
