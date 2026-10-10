@@ -297,18 +297,13 @@ export class LayerListView {
     if (rows.length) {
       const head = document.createElement('div');
       head.className = 'ev-layer-head';
-      // 批量显隐拆成两个明确动作(#layer-batch):此前只有一个"按现状取反"的
-      // 切换按钮,想确定全部打开/关闭得先看清当前状态(用户反馈希望直接批量开/关)
-      const showAll = document.createElement('button');
-      showAll.className = 'ev-btn ev-btn-icon ev-layer-eye';
-      showAll.innerHTML = icon('eye', 14);
-      showAll.title = t('layerShowAll');
-      showAll.onclick = () => this.cb.onToggleAll(true);
-      const hideAll = document.createElement('button');
-      hideAll.className = 'ev-btn ev-btn-icon ev-layer-eye';
-      hideAll.innerHTML = icon('eyeOff', 14);
-      hideAll.title = t('layerHideAll');
-      hideAll.onclick = () => this.cb.onToggleAll(false);
+      // 批量显隐:单个切换按钮,按当前状态取反(用户确认不必拆成两个)
+      const anyOn = rows.some((l) => l.show);
+      const all = document.createElement('button');
+      all.className = 'ev-btn ev-btn-icon ev-layer-eye';
+      all.innerHTML = icon(anyOn ? 'eyeOff' : 'eye', 14);
+      all.title = t(anyOn ? 'layerHideAll' : 'layerShowAll');
+      all.onclick = () => this.cb.onToggleAll(!anyOn);
       const lbl = document.createElement('span');
       lbl.className = 'ev-layer-name';
       lbl.textContent = t('paneLayers');
@@ -321,7 +316,7 @@ export class LayerListView {
         this.activeId = null;
         this.cb.onReset?.();
       };
-      head.append(showAll, hideAll, lbl, reset);
+      head.append(all, lbl, reset);
       this.host.appendChild(head);
     }
     // 分组渲染(#layer-group,用户建议):顶层/底层/内层/其他/元件各成一段,
@@ -348,21 +343,21 @@ export class LayerListView {
         if (this.collapsed.has(gid)) this.collapsed.delete(gid); else this.collapsed.add(gid);
         this.setLayers(items, isSch);
       };
-      // 组头同样是两个明确动作(用户要求):全部显示 / 全部隐藏
-      const gShow = document.createElement('button');
-      gShow.className = 'ev-btn ev-btn-icon ev-layer-eye';
-      gShow.innerHTML = icon('eye', 14);
-      gShow.title = t('layerShowAll');
-      gShow.onclick = (e) => { e.stopPropagation(); this.cb.onToggleGroup?.(gid, true); };
-      const gHide = document.createElement('button');
-      gHide.className = 'ev-btn ev-btn-icon ev-layer-eye';
-      gHide.innerHTML = icon('eyeOff', 14);
-      gHide.title = t('layerHideAll');
-      gHide.onclick = (e) => { e.stopPropagation(); this.cb.onToggleGroup?.(gid, false); };
+      // 组头:单个切换按钮,按该组当前状态取反(用户确认不必拆两个)
+      const gAnyOn = list.some((l) => l.show);
+      const gEye = document.createElement('button');
+      gEye.className = 'ev-btn ev-btn-icon ev-layer-eye';
+      gEye.innerHTML = icon(gAnyOn ? 'eyeOff' : 'eye', 14);
+      if (!gAnyOn) gEye.classList.add('ev-off');
+      gEye.title = t(gAnyOn ? 'layerHideAll' : 'layerShowAll');
+      gEye.onclick = (e) => {
+        e.stopPropagation();
+        this.cb.onToggleGroup?.(gid, !gAnyOn);
+      };
       const glbl = document.createElement('span');
       glbl.className = 'ev-layer-name';
       glbl.textContent = `${t(('layerGroup_' + gid) as never)} (${list.length})`;
-      ghead.append(tw, gShow, gHide, glbl);
+      ghead.append(tw, gEye, glbl);
       this.host.appendChild(ghead);
       if (this.collapsed.has(gid)) continue;
       for (const l of list) {
