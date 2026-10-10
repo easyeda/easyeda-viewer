@@ -5,11 +5,13 @@ import type { RenderApi, RenderObject } from './layers';
 import { X, Y, P, ang, strokeOf, fillOf, widthOf, xfOf, objBBox, bboxFromPts, arcSeg, arc3Seg, arcPts, arc3Pts, textFramePoly, COLORS, type Xf, type BBox } from './geom';
 import { resolveLibGraphics, resolveAttrRef } from '../model';
 
-/** EasyEDA 默认字体:客户端的"默认"= 宋体(中文版),记录里 fontFamily 为
- *  空/default 时按宋体渲染 —— 浏览器默认 sans-serif 与客户端的字形/字宽都
- *  对不上(用户反馈:EDA 打开是宋体,查看器不是)。字体栈带 SimSun 与 serif
- *  兜底,缺失环境下仍有合理回退。 */
-const DEFAULT_FONT = '宋体, SimSun, serif';
+/** EasyEDA 的默认字体是 **Arial**(客户端默认字体名即 Arial,用户更正);
+ *  记录里 fontFamily 为空或 `default` 时按它渲染。字体栈把中文回退显式写成
+ *  宋体/SimSun:客户端的默认中文衬字就是宋体,而浏览器对 Arial 的中文回退会
+ *  落到系统 sans(微软雅黑一类),字宽与官方导出对不上 —— 显式指定后西文走
+ *  Arial、中文走宋体,与客户端一致。记录里**显式写了字体名**的(如标题栏表格
+ *  文字标注"宋体")仍优先用它,不受此默认影响。 */
+const DEFAULT_FONT = 'Arial, Helvetica, 宋体, SimSun, sans-serif';
 
 /** record types that contribute real graphics (for component bbox sizing) */
 const DRAWABLE_TYPES = ['POLY', 'FILL', 'LINE', 'RECT', 'CIRCLE', 'ELLIPSE', 'OVAL', 'PIN', 'TEXT', 'STRING', 'TABLE', 'OBJ'];
