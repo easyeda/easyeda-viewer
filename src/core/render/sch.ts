@@ -25,6 +25,16 @@ function applyStroke<T extends object>(t: T, d: any, fill: string, fs: number): 
   return t;
 }
 
+/** 镜像元件里的文本要"再镜像一次"抵消容器的水平翻转(#mirror-text):元件
+ *  isMirror 时容器整体 scaleX=-1(图形该镜像),但文本字形会跟着反掉(用户
+ *  反馈:U3 的引脚名反了)。做法与 PCB 侧 #bottom-attr-mirror 同一套 ——
+ *  先把对齐锚点反向、再翻转节点,等价于绕文本盒中线镜像:字形回正、位置不动。 */
+function unmirrorText(t: any): void {
+  const ha = String(t?.textAlign ?? '');
+  t.textAlign = ha === 'left' ? 'right' : ha === 'right' ? 'left' : ha;
+  t.scaleX = -(t.scaleX ?? 1);
+}
+
 /** record types that contribute real graphics (for component bbox sizing) */
 const DRAWABLE_TYPES = ['POLY', 'FILL', 'LINE', 'RECT', 'CIRCLE', 'ELLIPSE', 'OVAL', 'PIN', 'TEXT', 'STRING', 'TABLE', 'OBJ'];
 
@@ -221,7 +231,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   /** @param antiRot screen-deg to cancel out (component group rotation) so pin text stays upright */
   /** @param titleValues old-style border frames only: attribute name → resolved
    *  value painted at the symbol's positioned ATTR slots (see the ATTR case) */
-  function drawSymbolPart(target: Group, sym: DocSegment, partId: string, sx: number, sy: number, rotation: number, mirror: boolean, antiRot = 0, skipTitleBlock = false, gray = false, titleValues?: Record<string, string>): void {
+  function drawSymbolPart(target: Group, sym: DocSegment, partId: string, sx: number, sy: number, rotation: number, mirror: boolean, antiRot = 0, skipTitleBlock = false, gray = false, titleValues?: Record<string, string>, compMirror = false): void {
     const sxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
     // title-block hiding (#2): the A4 frame symbol groups the region frame under
     // a GROUP titled "border"; graphics outside that group are title-block
@@ -332,6 +342,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
             });
             t.x = lx; t.y = ly;
             t.rotation = (typeof ad.rotation === 'number' ? ang(Number(ad.rotation), sxf) : 0) - antiRot;
+            if (compMirror) unmirrorText(t);
             pinG.add(t);
           }
           local.add(pinG);
@@ -361,6 +372,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
             t.x += nudge * Math.sin(rr);
             t.y += -nudge * Math.cos(rr);
             if (rot) t.rotation = rot;
+            if (compMirror) unmirrorText(t);
             const tg = new Group(); tg.add(t);
             local.add(tg);
             made = true;
@@ -471,8 +483,33 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const rot = ang(d.rotation ?? 0, xfc);
     const grid = new Group({ x: p0x, y: p0y });
     if (rot) grid.rotation = rot;
-    for (const x of xs) grid.add(new Line({ points: [lx(x), ly(ys[0]), lx(x), ly(ys[ys.length - 1])], stroke, strokeWidth: sw }));
-    for (const y of ys) grid.add(new Line({ points: [lx(xs[0]), ly(y), lx(xs[xs.length - 1]), ly(y)], stroke, strokeWidth: sw }));
+    // 合并单元格的内部不画分隔线(#table-span,用户反馈"表格的横线还在"):
+    // tableCell 的 colSpan/rowSpan 覆盖到的区域,其内部的横/竖线段要跳过,
+    // 否则合并格中间会多出横穿的线。先把"被覆盖的段"标出来,再逐段绘制。
+    const cells = Array.isArray(d.tableCell) ? d.tableCell : [];
+    const skipV = new Set<string>(), skipH = new Set<string>();
+    for (const cell of cells) {
+      const ci = Math.min(Number(cell?.columnIndex ?? 0), cols.length - 1);
+      const ri = Math.min(Number(cell?.rowIndex ?? 0), rows.length - 1);
+      const cs = Math.max(1, Math.min(Number(cell?.colSpan ?? cell?.columnSpan ?? 1), cols.length - ci));
+      const rs = Math.max(1, Math.min(Number(cell?.rowSpan ?? cell?.rowSpan ?? 1), rows.length - ri));
+      // 竖线:第 ci+1..ci+cs-1 条,在 ri..ri+rs-1 各行内不画
+      for (let c = ci + 1; c < ci + cs; c++) for (let r = ri; r < ri + rs; r++) skipV.add(`${c}:${r}`);
+      // 横线:第 ri+1..ri+rs-1 条,在 ci..ci+cs-1 各列内不画
+      for (let r = ri + 1; r < ri + rs; r++) for (let c = ci; c < ci + cs; c++) skipH.add(`${r}:${c}`);
+    }
+    for (let i = 0; i < xs.length; i++) {
+      for (let r = 0; r < rows.length; r++) {
+        if (skipV.has(`${i}:${r}`)) continue;
+        grid.add(new Line({ points: [lx(xs[i]), ly(ys[r]), lx(xs[i]), ly(ys[r + 1])], stroke, strokeWidth: sw }));
+      }
+    }
+    for (let r = 0; r < ys.length; r++) {
+      for (let c = 0; c < cols.length; c++) {
+        if (skipH.has(`${r}:${c}`)) continue;
+        grid.add(new Line({ points: [lx(xs[c]), ly(ys[r]), lx(xs[c + 1]), ly(ys[r])], stroke, strokeWidth: sw }));
+      }
+    }
     const attrRecord = Object.fromEntries(pageAttrs);
     for (const cell of Array.isArray(d.tableCell) ? d.tableCell : []) {
       const value = resolveAttrRef(attrRecord, String(cell?.value ?? '')) ?? '';
@@ -852,7 +889,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     }
     page.add(g);
     if (sym) {
-      drawSymbolPart(target, sym, String(d.partId ?? ''), 0, 0, 0, false, rot, isBorder && !titleBlockEnabled, gray, titleValues);
+      drawSymbolPart(target, sym, String(d.partId ?? ''), 0, 0, 0, false, rot, isBorder && !titleBlockEnabled, gray, titleValues, !!d.isMirror);
       //        ^ rotation stays 0 — the component rotation lives on the outer
       //          chain; `rot` only cancels itself for pin text (antiRot)
       // 符号库里的属性坐标是**符号局部坐标**(相对元件原点),作实例缺失定位的
