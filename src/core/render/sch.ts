@@ -11,6 +11,20 @@ import { resolveLibGraphics, resolveAttrRef } from '../model';
  *  了字体名**的(如标题栏文字标注宋体)仍优先用它,不受此默认影响。 */
 const DEFAULT_FONT = 'Arial, sans-serif';
 
+/** 文本笔画粗细补偿(#text-stroke,与 PCB 侧同一套):客户端默认字体是自绘
+ *  路径,笔画宽 = 记录里的 `strokeWidth`;浏览器字体的自然笔画约 0.093em,
+ *  差值用 text stroke 补齐。canvas 的 stroke 沿字形轮廓两侧各加线宽一半,
+ *  实测笔画总宽增量 ≈ 2×lineWidth,故描边量取差值的一半。记录没带
+ *  strokeWidth、或本就够粗时不动(非默认字体的记录自带正确粗细)。 */
+function applyStroke<T extends object>(t: T, d: any, fill: string, fs: number): T {
+  const sw = Number(d.strokeWidth);
+  if (Number.isFinite(sw) && sw > 0) {
+    const add = (sw - fs * 0.093) / 2;
+    if (add > 0.01) { (t as any).stroke = fill; (t as any).strokeWidth = add; }
+  }
+  return t;
+}
+
 /** record types that contribute real graphics (for component bbox sizing) */
 const DRAWABLE_TYPES = ['POLY', 'FILL', 'LINE', 'RECT', 'CIRCLE', 'ELLIPSE', 'OVAL', 'PIN', 'TEXT', 'STRING', 'TABLE', 'OBJ'];
 
@@ -445,7 +459,13 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const cols = (Array.isArray(d.colSizes) ? d.colSizes : []).map(Number);
     const rows = (Array.isArray(d.rowSizes) ? d.rowSizes : []).map(Number);
     if (!cols.length || !rows.length) return;
-    const x0 = Number(d.startX ?? 0), y0 = Number(d.startY ?? 0);
+    const x0 = Number(d.startX ?? 0);
+    // 标题栏符号(TITLE-BLOCK-*)里的表格用**负值**表达"距页面底边的高度",
+    // 而同一符号的属性槽位用正值 —— 两种基准混用会让表格线与文字错开
+    // (用户反馈:标题栏里的线横穿文字)。统一取正,按"距底边高度"落位
+    // (#titleblock-anchor)。
+    const y0raw = Number(d.startY ?? 0);
+    const y0 = y0raw < 0 ? -y0raw : y0raw;
     const xs: number[] = [x0]; for (const c of cols) xs.push(xs[xs.length - 1] + c);
     const ys: number[] = [y0]; for (const r of rows) ys.push(ys[ys.length - 1] + r);
     const p0x = X(x0, xfc), p0y = Y(y0, xfc);
@@ -480,15 +500,17 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       let ty = top + pad;
       if (va === 'middle') ty = (top + bottom) / 2;
       else if (va === 'bottom') ty = bottom - pad;
+      const cellFill = fs.color ?? COLORS.schText;
       const t = new Text({
         text: value, fontSize: Number(fs.fontSize ?? cell?.fontSize) || 9,
-        fill: fs.color ?? COLORS.schText,
+        fill: cellFill,
         fontFamily: DEFAULT_FONT,
         textAlign: ha,
         verticalAlign: va,
         autoSizeAlign: true,
       });
       t.x = tx; t.y = ty;
+      applyStroke(t, { strokeWidth: cell?.strokeWidth ?? fs.strokeWidth }, cellFill, Number(fs.fontSize ?? cell?.fontSize) || 9);
       grid.add(t);
     }
     target.add(grid);
@@ -981,14 +1003,16 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       if (it.key === 'Name' && gnn && gnn.label === it.label) continue;
       const ad = it.a.data;
       const align = ad.align ?? it.def?.data.align;
+      const attrFill = strokeOf({ strokeColor: ad.color ?? it.def?.data.color }, defaultColor(it.key));
       const t = new Text({
         text: it.label, fontSize: Number(ad.fontSize ?? it.def?.data.fontSize) || 8,
-        fill: strokeOf({ strokeColor: ad.color ?? it.def?.data.color }, defaultColor(it.key)),
+        fill: attrFill,
         fontFamily: DEFAULT_FONT,
         textAlign: alignX(align),
         verticalAlign: alignY(align ?? 'LEFT_BOTTOM'),
         autoSizeAlign: true,
       });
+      applyStroke(t, ad, attrFill, Number(ad.fontSize ?? it.def?.data.fontSize) || 8);
       if (it.libPos) {
         // 库坐标 → 页面坐标(元件位置/旋转/镜像链),不能当绝对坐标直接画
         const [wx, wy] = opts.libToWorld(it.pos[0], it.pos[1]);
