@@ -31,7 +31,7 @@
 - 属性文本可单独拾取(#attr-pick-self,用户需求):PCB 的位号/值/网络名等 ATTR 文本注册为独立可拾取对象,点文字选中**文本本身**并在属性面板列出该条 ATTR(键/值/X·Y/图层/线宽/角度/对齐),不再落到整个元件;文本框面积小于元件本体,按"命中者面积最小胜出"自然优先,元件保留含文本区的拾取盒作兜底。
 
 ### Fixed
-- PCB 文本笔画比客户端细(#text-stroke,用户反馈:客户端默认字体 stroke 6mil,查看器实测 4.2mil):客户端默认字体是自绘路径、笔画宽取记录里的 `strokeWidth`,而浏览器默认字体自然笔画仅约 0.093em;现按 `(strokeWidth − 0.093em×fontSize) / 2` 用 text stroke 补齐差值 —— canvas 的 stroke 沿字形轮廓两侧各加线宽一半,离屏标定实测笔画总宽增量 ≈ **2×lineWidth**(45px 字体 lineWidth 1.815 → 笔画 +2px),故描边量取差值的一半(首版未除 2,实测笔画 7.6mil 偏粗,用户复测)。自定义字体(FONT 字形/具名字体)自带正确粗细,不参与补偿。
+- PCB 文本笔画比客户端细(#text-stroke,用户反馈:客户端默认字体 stroke 6mil,查看器实测 4.2mil):客户端默认字体是自绘路径、笔画宽取记录里的 `strokeWidth`,而浏览器默认字体自然笔画仅约 0.093em;现按 `(strokeWidth − 0.093em×fontSize) / 2` 用 text stroke 补齐差值 —— canvas 的 stroke 沿字形轮廓两侧各加线宽一半,离屏标定实测笔画总宽增量 ≈ **2×lineWidth**(45px 字体 lineWidth 1.815 → 笔画 +2px),故描边量取差值的一半(首版未除 2,实测笔画 7.6mil 偏粗;修正后用户复测 **6mil 达标**)。自定义字体(FONT 字形/具名字体)自带正确粗细,不参与补偿。
 
 ### Added
 - GitHub Actions 自动发布:push 到 main 若 `package.json` 版本号对应 tag 尚不存在,自动在 windows runner 上构建 exe 并创建 GitHub Release 附上 `easyeda-viewer_v{version}.exe` 与浏览器版 `index.html`(`.github/workflows/release.yml`)。
