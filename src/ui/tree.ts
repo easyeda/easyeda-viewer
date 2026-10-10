@@ -293,14 +293,20 @@ export class LayerListView {
     if (this.activeId && !items.some((l) => l.id === this.activeId)) this.activeId = null;
     const rows = items.filter((l) => l.count > 0);
     if (rows.length) {
-      const anyOn = rows.some((l) => l.show);
       const head = document.createElement('div');
       head.className = 'ev-layer-head';
-      const all = document.createElement('button');
-      all.className = 'ev-btn ev-btn-icon ev-layer-eye';
-      all.innerHTML = icon(anyOn ? 'eyeOff' : 'eye', 14);
-      all.title = t(anyOn ? 'layerHideAll' : 'layerShowAll');
-      all.onclick = () => this.cb.onToggleAll(!anyOn);
+      // 批量显隐拆成两个明确动作(#layer-batch):此前只有一个"按现状取反"的
+      // 切换按钮,想确定全部打开/关闭得先看清当前状态(用户反馈希望直接批量开/关)
+      const showAll = document.createElement('button');
+      showAll.className = 'ev-btn ev-btn-icon ev-layer-eye';
+      showAll.innerHTML = icon('eye', 14);
+      showAll.title = t('layerShowAll');
+      showAll.onclick = () => this.cb.onToggleAll(true);
+      const hideAll = document.createElement('button');
+      hideAll.className = 'ev-btn ev-btn-icon ev-layer-eye';
+      hideAll.innerHTML = icon('eyeOff', 14);
+      hideAll.title = t('layerHideAll');
+      hideAll.onclick = () => this.cb.onToggleAll(false);
       const lbl = document.createElement('span');
       lbl.className = 'ev-layer-name';
       lbl.textContent = t('paneLayers');
@@ -313,7 +319,7 @@ export class LayerListView {
         this.activeId = null;
         this.cb.onReset?.();
       };
-      head.append(all, lbl, reset);
+      head.append(showAll, hideAll, lbl, reset);
       this.host.appendChild(head);
     }
     for (const l of rows) {

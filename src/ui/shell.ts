@@ -108,6 +108,9 @@ export class Shell {
   private selShapes: (Rect | Line)[] = [];
   /** 当前激活图层 id(图层面板点击行时的拾取优先层,#pick-active-layer) */
   private activeLayerId: string | null = null;
+  /** 图层显隐按文档缓存(node id → 层 id → 是否可见,#layer-state):
+   *  切到原理图再切回来时恢复用户之前的开关,而不是回到默认全显(用户反馈) */
+  private layerStateCache = new Map<string, Map<string, boolean>>();
   private destroyed = false;
 
   private docLoaded = false;
@@ -257,6 +260,7 @@ export class Shell {
         this.layerVisible.set(id, show);
         const l = this.layers.find((x) => x.id === id);
         if (l) l.group.visible = show;
+        this.rememberLayerState();
       },
       onToggleAll: (show) => {
         for (const it of this.lastLayerItems) {
@@ -267,6 +271,7 @@ export class Shell {
           if (l) l.group.visible = show;
         }
         this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
+        this.rememberLayerState();
       },
       // 点击行 = 激活层 (#active-layer):有实体图元的层把它的层组临时提到
       // 最前(重新 add 即移动到末尾 = 绘制顺序最上,与 renderDoc 的重排同一
@@ -292,6 +297,7 @@ export class Shell {
         }
         for (const it of this.lastLayerItems) it.show = true;
         this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
+        this.rememberLayerState();
       },
     });
     this.props = new PropsView(this.el.querySelector('.ev-props-host') as HTMLElement);
@@ -643,7 +649,10 @@ export class Shell {
       this.layers = result.layers;
       this.constantTexts = result.constantTexts as { node: LeaferText; basePx: number }[];
       this.constantStrokes = result.constantStrokes;
-      this.layerVisible = new Map(this.layers.map((l) => [l.id, l.show]));
+      // 图层显隐按文档记忆(#layer-state):优先用该文档上次的开关状态
+      const cachedLayers = this.layerStateCache.get(node.id);
+      this.layerVisible = new Map(this.layers.map((l) => [l.id, cachedLayers?.get(l.id) ?? l.show]));
+      for (const l of this.layers) l.group.visible = this.layerVisible.get(l.id) !== false;
       this.curNode = node;
       this.docKind = kind;
       this.syncDocBg(kind);
@@ -749,7 +758,7 @@ export class Shell {
         // NOT the renderer's paint order, which puts pour/annotation groups first
         this.lastLayerItems = [...this.layers]
           .sort((a, b) => uiLayerRank(a.id, a.name, a.type) - uiLayerRank(b.id, b.name, b.type))
-          .map((l) => ({ id: l.id, name: layerLabel(l.name), color: l.color, show: l.show, count: l.count }));
+          .map((l) => ({ id: l.id, name: layerLabel(l.name), color: l.color, show: this.layerVisible.get(l.id) !== false, count: l.count }));
         this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
         this.props.setLayerNames(this.layers);
         // PCB 族文档打开默认激活顶层铜皮(#default-top-layer):与客户端习惯
@@ -834,6 +843,12 @@ export class Shell {
       const g = this.layers.find((x) => x.id === gid);
       if (g) root.add(g.group);
     }
+  }
+
+  /** 记下当前文档的图层显隐,供再次打开该文档时恢复(#layer-state) */
+  private rememberLayerState(): void {
+    if (!this.curNode) return;
+    this.layerStateCache.set(this.curNode.id, new Map(this.layerVisible));
   }
 
   private onTreeNode(node: TreeNode): void {
