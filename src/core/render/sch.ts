@@ -459,13 +459,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const cols = (Array.isArray(d.colSizes) ? d.colSizes : []).map(Number);
     const rows = (Array.isArray(d.rowSizes) ? d.rowSizes : []).map(Number);
     if (!cols.length || !rows.length) return;
-    const x0 = Number(d.startX ?? 0);
-    // 标题栏符号(TITLE-BLOCK-*)里的表格用**负值**表达"距页面底边的高度",
-    // 而同一符号的属性槽位用正值 —— 两种基准混用会让表格线与文字错开
-    // (用户反馈:标题栏里的线横穿文字)。统一取正,按"距底边高度"落位
-    // (#titleblock-anchor)。
-    const y0raw = Number(d.startY ?? 0);
-    const y0 = y0raw < 0 ? -y0raw : y0raw;
+    const x0 = Number(d.startX ?? 0), y0 = Number(d.startY ?? 0);
     const xs: number[] = [x0]; for (const c of cols) xs.push(xs[xs.length - 1] + c);
     const ys: number[] = [y0]; for (const r of rows) ys.push(ys[ys.length - 1] + r);
     const p0x = X(x0, xfc), p0y = Y(y0, xfc);
