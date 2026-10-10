@@ -273,7 +273,9 @@ export class LayerListView {
   /** currently highlighted (active) layer row — clicking a row raises that
    *  layer's group to the top of the paint order (#active-layer) */
   private activeId: string | null = null;
-  constructor(host: HTMLElement, private cb: { onToggle(id: string, show: boolean): void; onToggleAll(show: boolean): void; onActivate?(id: string): void; onReset?: () => void }) {
+  /** 折叠起来的图层分组(#layer-group,用户建议):组名 → 是否收起 */
+  private collapsed = new Set<string>();
+  constructor(host: HTMLElement, private cb: { onToggle(id: string, show: boolean): void; onToggleAll(show: boolean): void; onToggleGroup?(group: string, show: boolean): void; onActivate?(id: string): void; onReset?: () => void }) {
     this.host = host;
   }
   /** clear the highlighted (active) layer row highlight */
@@ -288,7 +290,7 @@ export class LayerListView {
     for (const el of this.host.querySelectorAll('.ev-layer-row.ev-active')) el.classList.remove('ev-active');
     if (id) this.host.querySelector(`.ev-layer-row[data-id="${CSS.escape(id)}"]`)?.classList.add('ev-active');
   }
-  setLayers(items: { id: string; name: string; color: string; show: boolean; count: number }[], isSch = false): void {
+  setLayers(items: { id: string; name: string; color: string; show: boolean; count: number; group?: string }[], isSch = false): void {
     this.host.innerHTML = '';
     if (this.activeId && !items.some((l) => l.id === this.activeId)) this.activeId = null;
     const rows = items.filter((l) => l.count > 0);
@@ -322,7 +324,48 @@ export class LayerListView {
       head.append(showAll, hideAll, lbl, reset);
       this.host.appendChild(head);
     }
+    // 分组渲染(#layer-group,用户建议):顶层/底层/内层/其他/元件各成一段,
+    // 组头带折叠三角与该组的批量眼睛 —— 与客户端的图层面板一致
+    const byGroup = new Map<string, typeof rows>();
     for (const l of rows) {
+      const g = l.group ?? 'other';
+      const arr = byGroup.get(g) ?? (byGroup.set(g, []).get(g) as typeof rows);
+      arr.push(l);
+    }
+    // 固定组序:顶层 → 底层 → 内层 → 其他 → 元件(与客户端一致),未知组殿后
+    const GROUP_ORDER = ['top', 'bottom', 'inner', 'other', 'component'];
+    const ordered = [...GROUP_ORDER.filter((g) => byGroup.has(g)), ...[...byGroup.keys()].filter((g) => !GROUP_ORDER.includes(g))];
+    for (const gid of ordered) {
+      const list = byGroup.get(gid);
+      if (!list) continue;
+      const ghead = document.createElement('div');
+      ghead.className = 'ev-layer-group';
+      const tw = document.createElement('span');
+      tw.className = 'ev-twisty' + (this.collapsed.has(gid) ? '' : ' ev-open');
+      tw.innerHTML = icon('chevronRight', 13);
+      tw.onclick = (e) => {
+        e.stopPropagation();
+        if (this.collapsed.has(gid)) this.collapsed.delete(gid); else this.collapsed.add(gid);
+        this.setLayers(items, isSch);
+      };
+      // 组头同样是两个明确动作(用户要求):全部显示 / 全部隐藏
+      const gShow = document.createElement('button');
+      gShow.className = 'ev-btn ev-btn-icon ev-layer-eye';
+      gShow.innerHTML = icon('eye', 14);
+      gShow.title = t('layerShowAll');
+      gShow.onclick = (e) => { e.stopPropagation(); this.cb.onToggleGroup?.(gid, true); };
+      const gHide = document.createElement('button');
+      gHide.className = 'ev-btn ev-btn-icon ev-layer-eye';
+      gHide.innerHTML = icon('eyeOff', 14);
+      gHide.title = t('layerHideAll');
+      gHide.onclick = (e) => { e.stopPropagation(); this.cb.onToggleGroup?.(gid, false); };
+      const glbl = document.createElement('span');
+      glbl.className = 'ev-layer-name';
+      glbl.textContent = `${t(('layerGroup_' + gid) as never)} (${list.length})`;
+      ghead.append(tw, gShow, gHide, glbl);
+      this.host.appendChild(ghead);
+      if (this.collapsed.has(gid)) continue;
+      for (const l of list) {
       const row = document.createElement('div');
       row.className = 'ev-layer-row' + (l.show ? ' ev-on' : ' ev-off') + (l.id === this.activeId ? ' ev-active' : '');
       row.dataset.id = l.id; // 供 setActive 编程式高亮定位(#default-top-layer)
@@ -360,6 +403,7 @@ export class LayerListView {
       cnt.textContent = String(l.count);
       row.append(eye, sw, name, cnt);
       this.host.appendChild(row);
+      }
     }
     if (!rows.length) {
       const hint = document.createElement('div');

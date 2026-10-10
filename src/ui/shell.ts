@@ -125,7 +125,7 @@ export class Shell {
   private compRowsCache = new Map<string, ObjectRow[]>();
   /** true while the object list spans the whole owning schematic, not just the open page */
   private schematicWide = false;
-  private lastLayerItems: { id: string; name: string; color: string; show: boolean; count: number }[] = [];
+  private lastLayerItems: { id: string; name: string; color: string; show: boolean; count: number; group?: string }[] = [];
 
   constructor(host: HTMLElement, private events: ShellOptions = {}) {
     this.theme = events.theme === 'dark' ? 'dark' : 'light';
@@ -260,6 +260,19 @@ export class Shell {
         this.layerVisible.set(id, show);
         const l = this.layers.find((x) => x.id === id);
         if (l) l.group.visible = show;
+        this.rememberLayerState();
+      },
+      // 分组批量显隐(#layer-group,用户建议):顶层/底层/内层/其他/元件各成一段,
+      // 组头带"全部显示""全部隐藏"两个动作
+      onToggleGroup: (group, show) => {
+        for (const it of this.lastLayerItems) {
+          if ((it.group ?? 'other') !== group || it.count <= 0) continue;
+          it.show = show;
+          this.layerVisible.set(it.id, show);
+          const l = this.layers.find((x) => x.id === it.id);
+          if (l) l.group.visible = show;
+        }
+        this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
         this.rememberLayerState();
       },
       onToggleAll: (show) => {
@@ -758,7 +771,7 @@ export class Shell {
         // NOT the renderer's paint order, which puts pour/annotation groups first
         this.lastLayerItems = [...this.layers]
           .sort((a, b) => uiLayerRank(a.id, a.name, a.type) - uiLayerRank(b.id, b.name, b.type))
-          .map((l) => ({ id: l.id, name: layerLabel(l.name), color: l.color, show: this.layerVisible.get(l.id) !== false, count: l.count }));
+          .map((l) => ({ id: l.id, name: layerLabel(l.name), color: l.color, show: this.layerVisible.get(l.id) !== false, count: l.count, group: layerGroupOf(l) }));
         this.layerList.setLayers(this.lastLayerItems, this.layers.length === 0);
         this.props.setLayerNames(this.layers);
         // PCB 族文档打开默认激活顶层铜皮(#default-top-layer):与客户端习惯
@@ -1174,6 +1187,19 @@ function canvasBg(kind: 'sch' | 'pcb' | 'panel' | 'footprint' | 'other'): string
   if (kind === 'pcb' || kind === 'footprint') return '#14161a';
   if (kind === 'sch' || kind === 'panel') return '#ffffff';
   return '#f5f6f7';
+}
+
+/** 图层面板的分组桶(#layer-group):与客户端一致 —— 顶层(TOP 系)/底层(BOTTOM
+ *  系)/内层(SIGNAL·PLANE·INNER)/元件(外形与标识层)/其他(板框·多层·文档·机械
+ *  钻孔·飞线·自定义等) */
+function layerGroupOf(l: RenderLayer): string {
+  const ty = String(l.type ?? '').toUpperCase();
+  const n = Number(l.id);
+  if (ty.startsWith('TOP') || (!ty && [1, 3, 5, 7, 9].includes(n))) return 'top';
+  if (ty.startsWith('BOTTOM') || ty.startsWith('BOT_') || (!ty && [2, 4, 6, 8, 10].includes(n))) return 'bottom';
+  if (ty === 'SIGNAL' || ty === 'PLANE' || ty.startsWith('INNER') || (!ty && n >= 15 && n <= 46)) return 'inner';
+  if (ty === 'COMPONENT_SHAPE' || ty === 'COMPONENT_MARKING' || (!ty && (n === 48 || n === 49))) return 'component';
+  return 'other';
 }
 
 /** layer-panel display rank — the order a person expects, mirroring the

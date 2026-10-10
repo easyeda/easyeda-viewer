@@ -191,7 +191,12 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 .ev-obj-row.ev-active { background: var(--ev-accent-weak); border-left-color: var(--ev-accent); color: var(--ev-accent); }
 
 /* ---------- layer list (eye toggles, #19) ---------- */
-.ev-layer-row { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: var(--ev-radius-sm); opacity: 0.7; cursor: pointer; }
+.ev-layer-row { display: flex; align-items: center; gap: 7px; padding: 3px 4px 3px 18px; border-radius: var(--ev-radius-sm); opacity: 0.7; cursor: pointer; }
+/* 图层分组头(#layer-group):折叠三角 + 批量显隐 + 组名,行向右缩进一级 */
+.ev-layer-group { display: flex; align-items: center; gap: 4px; padding: 3px 4px; margin-top: 3px; border-radius: var(--ev-radius-sm); cursor: default; user-select: none; font-weight: 700; font-size: 11.5px; color: var(--ev-dim); }
+.ev-layer-group:hover { background: var(--ev-hover); color: var(--ev-text); }
+.ev-layer-group .ev-twisty { cursor: pointer; }
+.ev-layer-group em { font-style: normal; font-weight: 500; opacity: 0.7; }
 .ev-layer-row:hover { background: var(--ev-hover); }
 .ev-layer-row.ev-active { background: var(--ev-hover); box-shadow: inset 2px 0 0 var(--ev-accent, #4a9eff); opacity: 1; }
 .ev-layer-row.ev-on { opacity: 1; }
