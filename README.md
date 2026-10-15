@@ -26,6 +26,16 @@
 
 ---
 
+## 界面预览
+
+| 起始页 | 原理图 |
+| --- | --- |
+| <img src="images/start.jpg" alt="起始页" width="440"> | <img src="images/sch.jpg" alt="原理图查看" width="440"> |
+| **PCB** | **元件库 / 封装** |
+| <img src="images/pcb.jpg" alt="PCB 查看" width="440"> | <img src="images/lib.jpg" alt="元件库查看" width="440"> |
+
+---
+
 ## 支持格式
 
 | 格式 | 说明 |
@@ -279,19 +289,6 @@ easyeda-viewer/
 ├── vite.config.ts
 └── LICENSE
 ```
-
----
-
-## 截图
-
-参考渲染截图位于 `samples/png/` 与 `qa/shots/`：
-
-- `samples/png/PCB_PCB1_2026-09-14.png` — PCB 渲染
-- `samples/png/Panel1_2026-09-14.png` — 面板渲染
-- `samples/png/Schematic1/SCH_Schematic1_1-P1_2026-09-14.png` — 原理图渲染
-- `qa/shots/welcome-light.png` — 起始页（浅色）
-- `qa/shots/pcb.png` / `qa/shots/pcb-dark.png` — PCB 预览
-- `qa/shots/canvas-only.png` — 纯画布模式
 
 ---
 

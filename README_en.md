@@ -26,6 +26,16 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro / 嘉立创EDA专业
 
 ---
 
+## Screenshots
+
+| Welcome | Schematic |
+| --- | --- |
+| <img src="images/start.jpg" alt="Start page" width="440"> | <img src="images/sch.jpg" alt="Schematic view" width="440"> |
+| **PCB** | **Library / Footprint** |
+| <img src="images/pcb.jpg" alt="PCB view" width="440"> | <img src="images/lib.jpg" alt="Library view" width="440"> |
+
+---
+
 ## Supported Formats
 
 | Format | Description |
@@ -281,19 +291,6 @@ easyeda-viewer/
 ├── vite.config.ts
 └── LICENSE
 ```
-
----
-
-## Screenshots
-
-Reference render screenshots are located in `samples/png/` and `qa/shots/`:
-
-- `samples/png/PCB_PCB1_2026-09-14.png` — PCB render
-- `samples/png/Panel1_2026-09-14.png` — Panel render
-- `samples/png/Schematic1/SCH_Schematic1_1-P1_2026-09-14.png` — Schematic render
-- `qa/shots/welcome-light.png` — Welcome screen (light theme)
-- `qa/shots/pcb.png` / `qa/shots/pcb-dark.png` — PCB preview
-- `qa/shots/canvas-only.png` — Canvas-only mode
 
 ---
 
