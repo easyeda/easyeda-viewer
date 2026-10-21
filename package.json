@@ -10,7 +10,8 @@
     "build:only": "vite build",
     "test": "vitest run",
     "smoke": "vite-node -c vite.smoke.config.ts scripts/smoke.mjs",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test:annotations": "node qa/annotations/run.cjs"
   },
   "dependencies": {
     "fflate": "^0.8.2",

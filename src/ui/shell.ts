@@ -14,6 +14,7 @@ import { openDoc, collectAttrs, resolveAttrRef, resolveLibGraphics } from '../co
 import { renderDoc, pcbStackKey, type RenderObject, type RenderLayer } from '../core/render/layers';
 import type { Text as LeaferText, Line as LeaferLine } from 'leafer-ui';
 import { Camera } from './camera';
+import { installAnnotations, type AnnotationController } from './annotations';
 import { setupDnd, pickFiles, pickFolder, type DndController } from './dnd';
 import { DocTreeView, ObjectListView, LayerListView, escapeHtml, type ObjectRow } from './tree';
 import { PropsView } from './props';
@@ -52,6 +53,7 @@ const FULL_CHROME: ChromeFlags = { toolbar: true, left: true, right: true, statu
 
 export class Shell {
   readonly el: HTMLElement;
+  readonly annotations: AnnotationController;
   private canvasHost: HTMLElement;
   /** user manually zoomed/panned — suspend the resize auto-refit */
   private userView = false;
@@ -349,6 +351,7 @@ export class Shell {
 
     this.applyTheme();
     this.applyChrome();
+    this.annotations = installAnnotations(this);
     this.events.onReady?.();
   }
 
@@ -1165,6 +1168,7 @@ export class Shell {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.annotations.destroy();
     this.offUnit?.();
     this.dnd.destroy();
     this.measure.destroy();

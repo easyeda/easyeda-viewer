@@ -10,7 +10,7 @@
 ## 核心特性
 
 - **纯本地解析**：基于 `fflate` 与自定义行记录解码器，解析与渲染全程在浏览器内存完成，不联网、不上传。
-- **单文件产物**：`npm run build` 生成 `dist/index.html`（约 334 kB，全部 JS/CSS 内联），双击打开或 iframe 嵌入均可。
+- **单文件产物**：`npm run build` 生成 `dist/index.html`（全部 JS/CSS 内联），双击打开或 iframe 嵌入均可。
 - **多格式支持**：
   - `.eprj3` 文件夹工程（也接受打包成 `.zip` 的工程目录）
   - `.epro2` 单文件工程（标准 ZIP 容器），含**复用块 / CBB 工程**（`cbb_project`）
@@ -20,9 +20,10 @@
 - **双向定位**：点击对象树节点定位到画布，点击画布图元同步高亮对象树。
 - **现代 UI**：深色 / 浅色双主题、中 / 英双语界面、可拖拽调整 / 隐藏各面板。
 - **可嵌入 API**：`createViewer` JS API + `postMessage` 协议，方便集成到第三方页面。
+- **工程批注**：文字、矩形框、圆形框、回复、处理状态、编辑拖动和全局显隐。批注随图纸缩放，数据通过 JS API 导入导出。DM 接入见 [批注 API](docs/annotations-api.md)，测试见 [批注回归测试](qa/annotations/README.md)。
 - **可选桌面版**：Windows 免安装可执行文件（Go + WebView2，约 7 MB），支持原生对话框与拖放打开。支持Windows10及以上, win7 请在Chrome 109 / Firefox 115 ESR打开 `/dist/index.html`
 
-> 注意：本项目为**只读查看器**，不支持编辑、保存、DRC/ERC、BOM、3D 视图、Gerber 导出等操作。
+> 注意：工程本身保持只读，不支持电路编辑、工程保存、DRC/ERC、BOM、3D 视图、Gerber 导出。批注是独立数据，由 DM 保存，不写回工程文件。
 
 ---
 

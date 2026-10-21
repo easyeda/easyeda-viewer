@@ -12,6 +12,7 @@ import { Shell, type Theme, type ChromeFlags } from './ui/shell';
 import type { Lang } from './ui/i18n';
 import type { ProjectModel, TreeNode } from './core/types';
 import type { RenderObject } from './core/render/layers';
+import type { AnnotationApi } from './ui/annotations';
 
 export interface CreateViewerOptions {
   /** start with these files immediately (drag-drop UI stays active as well) */
@@ -28,6 +29,8 @@ export interface CreateViewerOptions {
 }
 
 export interface EextViewer {
+  /** Annotation data API. DM owns persistence. */
+  readonly annotations: AnnotationApi;
   /** load File[] (eprj3 folder contents, .epro2 file, or single doc files) */
   loadFiles(files: File[]): Promise<void>;
   /** load an already-read path→bytes map */
@@ -56,6 +59,7 @@ export function createViewer(host: HTMLElement, opts: CreateViewerOptions = {}):
   });
   if (opts.files?.length) void shell.loadFiles(opts.files);
   return {
+    annotations: shell.annotations.api,
     loadFiles: (files) => shell.loadFiles(files),
     loadMap: (map) => shell.loadMap(map),
     open: (nodeId) => shell.openNodeId(nodeId),
@@ -69,3 +73,4 @@ export function createViewer(host: HTMLElement, opts: CreateViewerOptions = {}):
 }
 
 export type { ProjectModel, TreeNode, RenderObject, Theme, ChromeFlags, Lang };
+export type { AnnotationApi, Annotation, AnnotationSnapshot } from './ui/annotations';

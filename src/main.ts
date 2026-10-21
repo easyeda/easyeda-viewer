@@ -41,6 +41,10 @@ document.documentElement.dataset.theme = theme;
 document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
 
 const viewer: EextViewer = createViewer(host, { theme, lang, chrome });
+window.easyedaViewer = viewer.annotations;
+window.dispatchEvent(new CustomEvent('easyeda-annotations-ready', {
+  detail: { version: viewer.annotations.version }
+}));
 
 /** file↔base64 for host pages that cannot hand over File objects */
 function b64ToBytes(s: string): Uint8Array {
