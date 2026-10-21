@@ -302,6 +302,15 @@ iframe/postMessage 协议(`src/main.ts` 内置桥,**已实现**;消息均带 `so
 
 ---
 
+### 4.10 FR-10 工程批注
+
+| ID | 需求 | 优先级 |
+| --- | --- | --- |
+| FR-10.1 | **批注覆盖层**(v0.5.0 #annotations):原理图 / PCB / 面板文档上叠加独立 SVG 批注层,支持**文字、矩形框、圆形框**三类批注;批注随图纸缩放与平移,锚点贴住图元位置;批注数据与工程文件分离,不写回源文件 | P1 |
+| FR-10.2 | **批注面板**(v0.5.0 #annotations-panel):右侧面板按文档列出批注,显示批注人、内容与待处理 / 已解决状态;支持回复、标记解决 / 重新打开、编辑内容与拖动调整;批注人姓名可在面板内修改 | P1 |
+| FR-10.3 | **显隐与撤销重做**(v0.5.0 #annotations-history):工具栏一键显示 / 隐藏全部批注,显隐图标随状态切换;批注操作支持撤销 / 重做(50 步),绑定 `Ctrl+Z` / `Ctrl+Shift+Z` | P1 |
+| FR-10.4 | **导入导出与 JS API**(v0.5.0 #annotations-api):批注可导出 / 导入 JSON;`viewer.annotations`(接口版本 1.1.0,数据 schemaVersion 1)提供加载、增删改查、`onChange` 订阅与显隐控制,并通过 `easyeda-annotations-change` 事件通知变更;接入文档见 `docs/annotations-api.md` | P1 |
+
 ## 5. 非功能需求(NFR)
 
 | ID | 指标 | 目标值 |
@@ -455,7 +464,7 @@ desktop/build/
 - [ ] 每种已支持记录类型 ≥1 条真实 fixture 单测(现覆盖主要类型,长尾类型进行中);CI 化。
 - [x] 运行期 Network 面板零请求(样例加载全程;`?file=` 为宿主显式发起,不算查看器请求)。
 - [x] 中英双语 UI + 明暗主题 + chrome 参数裁剪全部可用(截图矩阵 `qa/shots/`)。
-- [x] Windows 免安装 exe:图标/文件属性(FileVersion 与 package.json 同步,0.4.4)正确、拖放与原生对话框可用;产物名带版本号、标题栏 `EasyEDA 查看器 - v{version}`、WebView2 缺失弹官方下载提示(FR-9.4/9.6/9.7)。
+- [x] Windows 免安装 exe:图标/文件属性(FileVersion 与 package.json 同步,0.5.0)正确、拖放与原生对话框可用;产物名带版本号、标题栏 `EasyEDA 查看器 - v{version}`、WebView2 缺失弹官方下载提示(FR-9.4/9.6/9.7)。
 - [x] v0.2.3 细节批次:文档切换无背景闪现(场景内 bgRect 原子重绘);网络名字号 5;阻焊外扩与官方客户端一致(规则 mil 直取);favicon=exe 同款 ico;缩放输入框位于适屏按钮右侧、无背景填充。
 - [x] v0.2.4 启动提速:宿主窗口先行显示(DPI 定尺居中、同色背景刷);WebView2 profile 固定 %LOCALAPPDATA% 并注入免首启参数;计时日志定位瓶颈(可见窗口 ~1s,WebView2 环境冷启 ~4-5s 为运行时固有开销)。
 - [x] v0.2.5 加载中过渡:忙碌遮罩覆盖工程加载与文档切换(SCH→PCB),阻塞前双帧让渡保证先渲染;铺铜填充亮度按官方导出实测 0.6→0.7 校正(FR-3.17)。

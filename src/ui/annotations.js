@@ -37,6 +37,18 @@ export function installAnnotations(shell) {
     parent?.append(el);
     return el;
   }
+  // toolbar buttons are icon-only with a tooltip, matching the main toolbar;
+  // the accessible name comes from aria-label so role queries stay stable
+  function iconButton(name, label, action, parent) {
+    const el = element('button', 'ev-btn ev-btn-icon');
+    el.type = 'button';
+    el.innerHTML = icon(name, 16);
+    el.title = label;
+    el.setAttribute('aria-label', label);
+    el.addEventListener('click', () => safely(action));
+    parent?.append(el);
+    return el;
+  }
   function safely(fn) {
     try {
       const result = fn();
@@ -250,7 +262,7 @@ export function installAnnotations(shell) {
     addButton.classList.remove('ev-on');
     addButton.setAttribute('aria-expanded', 'false');
   }
-  const addButton = button('添加批注', () => {
+  const addButton = iconButton('annAdd', '添加批注', () => {
     const open = !addPopup.classList.contains('ann-open');
     addPopup.classList.toggle('ann-open', open);
     addButton.classList.toggle('ev-on', open);
@@ -282,12 +294,13 @@ export function installAnnotations(shell) {
       buttons[(index + (event.key === 'ArrowDown' ? 1 : buttons.length - 1) + buttons.length) % buttons.length].focus();
     }
   });
-  const visibilityButton = button('批注显示', () => setAnnotationsVisible(!state.visible), toolbar);
-  visibilityButton.className = 'ev-btn ann-visibility ev-on';
-  visibilityButton.title = '显示或隐藏全部批注';
+  const visibilityButton = iconButton('eye', '显示或隐藏全部批注', () => setAnnotationsVisible(!state.visible), toolbar);
+  visibilityButton.className = 'ev-btn ev-btn-icon ann-visibility ev-on';
+  visibilityButton.title = '隐藏全部批注';
   visibilityButton.setAttribute('aria-pressed', 'true');
-  const undoButton = button('撤销', () => history('undo'), toolbar);
-  const redoButton = button('重做', () => history('redo'), toolbar);
+  toolbar.append(element('span', 'ev-sep'));
+  const undoButton = iconButton('undo', '撤销批注操作', () => history('undo'), toolbar);
+  const redoButton = iconButton('redo', '重做批注操作', () => history('redo'), toolbar);
   undoButton.title = '撤销批注操作 Ctrl+Z';
   redoButton.title = '重做批注操作 Ctrl+Shift+Z';
 
@@ -318,11 +331,11 @@ export function installAnnotations(shell) {
     const option = element('option', '', title); option.value = value; filter.append(option);
   }
   filter.addEventListener('change', () => { state.filter = filter.value; renderList(); });
-  const authorLabel = element('label', 'ann-author', '当前用户');
+  const authorLabel = element('label', 'ann-author', '批注人');
   const authorInput = element('input');
   authorInput.value = state.user.name;
   authorInput.maxLength = 200;
-  authorInput.setAttribute('aria-label', '当前用户');
+  authorInput.setAttribute('aria-label', '批注人');
   authorInput.addEventListener('change', () => {
     safely(() => { state.user = author({ ...state.user, name: authorInput.value }); });
     authorInput.value = state.user.name;
@@ -376,7 +389,8 @@ export function installAnnotations(shell) {
     state.visible = value;
     visibilityButton.classList.toggle('ev-on', state.visible);
     visibilityButton.classList.toggle('ev-off', !state.visible);
-    visibilityButton.textContent = state.visible ? '批注显示' : '批注隐藏';
+    visibilityButton.innerHTML = icon(state.visible ? 'eye' : 'eyeOff', 16);
+    visibilityButton.title = state.visible ? '隐藏全部批注' : '显示全部批注';
     visibilityButton.setAttribute('aria-pressed', String(state.visible));
     closeMenu();
     if (!state.visible) { cancelGesture(); cancelEditor(); setTool('select'); }

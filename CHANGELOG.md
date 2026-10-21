@@ -4,6 +4,18 @@
 
 提交级细节见 git log 与 [docs/PRD.md](PRD.md) 的需求条目(`#tag` 可在 PRD 内全文检索)。
 
+## [0.5.0] - 2026-10-21
+
+### Added
+- **工程批注**(#annotations):在原理图 / PCB / 面板图纸上叠加独立批注层,支持**文字、矩形框、圆形框**三类批注;批注随图纸缩放与平移,锚点始终贴住图元位置。右侧批注面板按文档列出批注,支持**回复**、标记已解决 / 重新打开、编辑内容与拖动调整;批注数据与工程文件分离,不写回源文件。
+- **批注显隐与撤销重做**(#annotations-history):工具栏可一键显示 / 隐藏全部批注;批注操作支持撤销 / 重做(最多 50 步),并绑定 `Ctrl+Z` / `Ctrl+Shift+Z` 快捷键。
+- **批注导入导出与 JS API**(#annotations-api):批注可导出为 JSON 并在后续会话导入恢复;`createViewer` 返回的 `viewer.annotations`(独立页面下即 `window.easyedaViewer`)提供加载、增删改查、`onChange` 订阅与显隐控制,事件为 `easyeda-annotations-change`,接入说明见 [docs/annotations-api.md](docs/annotations-api.md)。
+- **批注回归测试**(#annotations-qa):新增 `qa/annotations` 端到端用例与 `npm run test:annotations` 脚本,覆盖新建 / 回复 / 解决 / 撤销重做 / 显隐 / 导入导出等主流程。
+
+### Changed
+- 批注工具栏的「添加批注」「显示 / 隐藏批注」「撤销」「重做」改为**图标按钮**(与主工具栏一致,悬停显示中文提示):添加批注使用对话框加号图标,显隐按钮在睁眼 / 闭眼间随状态切换,撤销 / 重做使用回退箭头;各按钮保留 `aria-label` 与悬停提示,屏幕阅读器和自动化用例可按名称定位。
+- 批注面板的作者输入标签由「当前用户」改为「批注人」,语义更明确。
+
 ## [0.4.4] - 2026-10-10
 
 ### Fixed
