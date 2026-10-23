@@ -137,8 +137,8 @@ viewer.setLang('en');
 viewer.setChrome({ right: false });
 viewer.setChrome({ annotations: false }); // 预览模式：隐藏批注工具栏与右栏页签
 
-// 按位号选中并高亮（原理图跨页时自动打开所属图页）
-await viewer.selectByDesignator('R12');
+// 按位号批量选中并高亮（原理图当前页无命中时自动切到命中最多的图页）
+const matched = await viewer.selectByDesignators(['R12', 'C3']);
 viewer.clearSelection(); // 取消选中
 
 // 获取当前工程模型
@@ -175,7 +175,7 @@ viewer.destroy();
 </script>
 ```
 
-支持的 `cmd`：`load` | `open` | `fit` | `select` | `theme` | `chrome` | `lang`。`select` 传入 `designator` 按位号选中高亮（传空字符串取消选中）。viewer 会回发 `ready` / `load-ok` / `open-result` / `select-result` / `error` 事件。
+支持的 `cmd`：`load` | `open` | `fit` | `select` | `theme` | `chrome` | `lang`。`select` 传入 `designators` 位号数组批量选中高亮（传空数组取消选中）。viewer 会回发 `ready` / `load-ok` / `open-result` / `select-result` / `error` 事件。
 
 ### URL 参数
 

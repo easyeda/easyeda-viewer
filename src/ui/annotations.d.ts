@@ -1,4 +1,5 @@
 import type { Shell, Theme, ChromeFlags } from './shell';
+import type { Lang } from './i18n';
 
 export type AnnotationGroup = 'schematic' | 'pcb';
 export type AnnotationStatus = 'pending' | 'resolved';
@@ -62,8 +63,9 @@ export interface AnnotationApi {
   deleteAnnotation(id: string): void;
   addReply(id: string, content: string): AnnotationReply;
   focusAnnotation(id: string): Promise<void>;
-  /** select + highlight a component by designator; opens a sibling sheet if needed */
-  selectByDesignator(designator: string): Promise<boolean>;
+  /** select + highlight components by designator (batch); opens a sibling sheet if needed.
+   *  Resolves with the number of distinct matched designators. */
+  selectByDesignators(designators: string[]): Promise<number>;
   /** clear the current canvas selection */
   clearSelection(): void;
   open(nodeId: string): Promise<AnnotationContext>;
@@ -73,6 +75,8 @@ export interface AnnotationApi {
   setAnnotationsVisible(value: boolean): boolean;
   getAnnotationsVisible(): boolean;
   fit(): void;
+  /** switch the viewer UI language (annotation copy follows) */
+  setLang(lang: Lang): void;
   setTheme(theme: Theme): void;
   setChrome(flags: Partial<ChromeFlags>): void;
 }

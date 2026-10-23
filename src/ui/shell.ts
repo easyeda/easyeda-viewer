@@ -928,47 +928,73 @@ export class Shell {
   }
 
   /**
-   * Select and highlight a component by designator (位号). When the designator
-   * lives on another sheet of the same schematic, that page is opened first.
-   * Returns false when nothing matches.
+   * Select and highlight one or more components by designator (位号), e.g. a
+   * BOM row or netlist selection. Batch hits on the open document are all
+   * highlighted; the first hit is the primary (property panel / tree row).
+   * When nothing matches on the current sheet, the sibling sheet with the
+   * most hits is opened first. Returns the number of distinct designators
+   * matched on the highlighted drawing (0 = nothing).
    */
-  async selectByDesignator(designator: string): Promise<boolean> {
-    const query = typeof designator === 'string' ? designator.trim().toUpperCase() : '';
-    if (!query || !this.currentOpened || !this.curNode || !this.model) return false;
-    const matches = (rec: Rec, od: OpenedDoc): boolean => {
-      if (rec.type !== 'COMPONENT') return false;
+  async selectByDesignators(designators: string[]): Promise<number> {
+    if (!Array.isArray(designators)) throw new TypeError(t('annDesignatorsArray'));
+    const queries = new Set(designators
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => value.trim().toUpperCase())
+      .filter(Boolean));
+    if (!queries.size || !this.currentOpened || !this.curNode || !this.model) return 0;
+    const matches = (rec: Rec, od: OpenedDoc): string | null => {
+      if (rec.type !== 'COMPONENT') return null;
       const value = collectAttrs(rec, od).find((e) => e.key === 'Designator')?.value;
-      return typeof value === 'string' && value.trim().toUpperCase() === query;
+      const key = typeof value === 'string' ? value.trim().toUpperCase() : '';
+      return key && queries.has(key) ? key : null;
     };
-    let obj = this.objects.find((o) => matches(o.rec, this.currentOpened!)) ?? null;
-    // schematic pages: the component list spans the owning schematic, so a
-    // designator from a sibling page must open that page before selection
-    if (!obj && this.docKind === 'sch') {
+    const collect = (): { objects: RenderObject[]; keys: Set<string> } => {
+      const objects: RenderObject[] = [];
+      const keys = new Set<string>();
+      for (const o of this.objects) {
+        const key = matches(o.rec, this.currentOpened!);
+        if (key) { objects.push(o); keys.add(key); }
+      }
+      return { objects, keys };
+    };
+    let result = collect();
+    // schematic pages: the component list spans the owning schematic. Only
+    // search siblings when THIS page has no hit — switching pages would drop
+    // the selection the caller just asked for on the open sheet.
+    if (!result.objects.length && this.docKind === 'sch') {
+      let best: { page: TreeNode; keys: Set<string> } | null = null;
       for (const page of this.siblingSheets(this.curNode) ?? []) {
         if (page.id === this.curNode.id) continue;
-        let recId = '';
+        const keys = new Set<string>();
         try {
           const od = openDoc(this.model, page);
-          const rec = od.self.recs.find((r) => matches(r, od));
-          if (rec) recId = rec.id;
+          for (const rec of od.self.recs) {
+            const key = matches(rec, od);
+            if (key) keys.add(key);
+          }
         } catch { continue; }
-        if (!recId) continue;
-        await this.openNode(page);
-        obj = this.objects.find((o) => o.id === recId) ?? null;
-        break;
+        if (keys.size && (!best || keys.size > best.keys.size)) best = { page, keys };
+      }
+      if (best) {
+        await this.openNode(best.page);
+        result = collect();
       }
     }
-    if (!obj) return false;
-    this.select(obj);
-    if (obj.bbox) {
-      this.camera.centerOn((obj.bbox.minX + obj.bbox.maxX) / 2, (obj.bbox.minY + obj.bbox.maxY) / 2);
+    if (!result.objects.length) return 0;
+    this.selectMany(result.objects);
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const o of result.objects) {
+      if (!o.bbox) continue;
+      minX = Math.min(minX, o.bbox.minX); minY = Math.min(minY, o.bbox.minY);
+      maxX = Math.max(maxX, o.bbox.maxX); maxY = Math.max(maxY, o.bbox.maxY);
     }
-    return true;
+    if (isFinite(minX)) this.camera.centerOn((minX + maxX) / 2, (minY + maxY) / 2);
+    return result.keys.size;
   }
 
   /** clear the current canvas selection (highlight + property panel) */
   clearSelection(): void {
-    this.select(null);
+    this.selectMany([]);
   }
 
   // ---------- selection ----------
@@ -1103,51 +1129,60 @@ export class Shell {
   }
 
   private select(obj: RenderObject | null): void {
-    this.selected = obj;
+    this.selectMany(obj ? [obj] : []);
+  }
+
+  /** highlight one or more objects; the first is the primary selection */
+  private selectMany(objects: RenderObject[]): void {
+    const primary = objects[0] ?? null;
+    this.selected = primary;
     this.clearSelShapes();
-    this.props.show(obj);
-    this.objList.select(obj ? this.rowIdOf(obj.id) : null);
-    if (obj) {
-      const selStroke = (this.docKind === 'pcb' || this.docKind === 'footprint' || this.docKind === 'panel') ? '#c9ccd1' : '#2563eb';
-      const s = this.camera.scale;
-      // 恒定像素虚线(4 开 3 关),任意缩放下线宽与疏密不变
-      const common = {
-        stroke: selStroke, strokeWidth: 2 / s,
-        dashPattern: [4 / s, 3 / s], fill: null, hittable: false,
-      } as any;
-      // 线类图元(导线/走线/弧/折线)沿实际路径描亮(#select-box-path):
-      // 整体 bbox 最大矩形对斜线/折线会出现大角度失配的粗框,与 EDA 客户端
-      // 的沿线高亮习惯不符;其余图元(元件/焊盘/文本…)保持 bbox 控制框
-      const pts = obj.pathPts;
-      // 旋转非零的框类图元(元件/焊盘/文本)按渲染层标注的旋转外框四角
-      // 闭合绘制(首尾相接),贴合图元实际旋转姿态;0° 图元无 selPoly,四角
-      // 退化为轴对齐矩形,继续走下方 bbox 框,零回归(#select-box-rot)
-      const poly = obj.selPoly;
-      if (poly && poly.length >= 3) {
-        const flat: number[] = [];
-        for (const [x, y] of poly) flat.push(x, y);
-        const ln = new Line({ points: flat, closed: true, ...common });
-        this.selShapes.push(ln);
-        this.overlay.add(ln);
-      } else if (pts && pts.length >= 2) {
-        const flat: number[] = [];
-        for (const [x, y] of pts) flat.push(x, y);
-        const ln = new Line({ points: flat, ...common });
-        this.selShapes.push(ln);
-        this.overlay.add(ln);
-      } else if (obj.bbox) {
-        const b = obj.bbox;
-        const rect = new Rect({
-          x: b.minX, y: b.minY,
-          width: Math.max(2, b.maxX - b.minX), height: Math.max(2, b.maxY - b.minY),
-          ...common,
-        } as any);
-        this.selShapes.push(rect);
-        this.overlay.add(rect);
-      }
-    }
+    this.props.show(primary);
+    this.objList.select(primary ? this.rowIdOf(primary.id) : null);
+    for (const obj of objects) this.addSelShape(obj);
     this.applyChrome(); // properties panel appears on first pick (#1)
-    this.events.onSelect?.(obj);
+    this.events.onSelect?.(primary);
+  }
+
+  /** one selection outline: rotated corners / path / bbox depending on the object */
+  private addSelShape(obj: RenderObject): void {
+    const selStroke = (this.docKind === 'pcb' || this.docKind === 'footprint' || this.docKind === 'panel') ? '#c9ccd1' : '#2563eb';
+    const s = this.camera.scale;
+    // 恒定像素虚线(4 开 3 关),任意缩放下线宽与疏密不变
+    const common = {
+      stroke: selStroke, strokeWidth: 2 / s,
+      dashPattern: [4 / s, 3 / s], fill: null, hittable: false,
+    } as any;
+    // 线类图元(导线/走线/弧/折线)沿实际路径描亮(#select-box-path):
+    // 整体 bbox 最大矩形对斜线/折线会出现大角度失配的粗框,与 EDA 客户端
+    // 的沿线高亮习惯不符;其余图元(元件/焊盘/文本…)保持 bbox 控制框
+    const pts = obj.pathPts;
+    // 旋转非零的框类图元(元件/焊盘/文本)按渲染层标注的旋转外框四角
+    // 闭合绘制(首尾相接),贴合图元实际旋转姿态;0° 图元无 selPoly,四角
+    // 退化为轴对齐矩形,继续走下方 bbox 框,零回归(#select-box-rot)
+    const poly = obj.selPoly;
+    if (poly && poly.length >= 3) {
+      const flat: number[] = [];
+      for (const [x, y] of poly) flat.push(x, y);
+      const ln = new Line({ points: flat, closed: true, ...common });
+      this.selShapes.push(ln);
+      this.overlay.add(ln);
+    } else if (pts && pts.length >= 2) {
+      const flat: number[] = [];
+      for (const [x, y] of pts) flat.push(x, y);
+      const ln = new Line({ points: flat, ...common });
+      this.selShapes.push(ln);
+      this.overlay.add(ln);
+    } else if (obj.bbox) {
+      const b = obj.bbox;
+      const rect = new Rect({
+        x: b.minX, y: b.minY,
+        width: Math.max(2, b.maxX - b.minX), height: Math.max(2, b.maxY - b.minY),
+        ...common,
+      } as any);
+      this.selShapes.push(rect);
+      this.overlay.add(rect);
+    }
   }
 
   private clearSelShapes(): void {

@@ -138,8 +138,8 @@ viewer.setLang('en');
 viewer.setChrome({ right: false });
 viewer.setChrome({ annotations: false }); // preview mode: hide annotation UI
 
-// Select + highlight a component by designator (opens its sheet page if needed)
-await viewer.selectByDesignator('R12');
+// Batch-select + highlight components by designator (opens the best-matching sheet if needed)
+const matched = await viewer.selectByDesignators(['R12', 'C3']);
 viewer.clearSelection(); // deselect
 
 // Get current project model
@@ -176,7 +176,7 @@ viewer.destroy();
 </script>
 ```
 
-Supported `cmd` values: `load` | `open` | `fit` | `select` | `theme` | `chrome` | `lang`. `select` takes a `designator` to highlight that component (empty string deselects). The viewer emits `ready`, `load-ok`, `open-result`, `select-result`, and `error` events.
+Supported `cmd` values: `load` | `open` | `fit` | `select` | `theme` | `chrome` | `lang`. `select` takes a `designators` array to highlight matching components (empty array deselects). The viewer emits `ready`, `load-ok`, `open-result`, `select-result`, and `error` events.
 
 ### URL Parameters
 

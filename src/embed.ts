@@ -38,8 +38,9 @@ export interface EextViewer {
   loadMap(map: Map<string, Uint8Array>): void;
   /** open a document by tree-node id (see onLoaded model.openables) */
   open(nodeId: string): boolean;
-  /** select + highlight a component by designator (opens its sheet page if needed) */
-  selectByDesignator(designator: string): Promise<boolean>;
+  /** select + highlight components by designator (batch; opens a sheet page if needed).
+   *  Resolves with the number of distinct matched designators. */
+  selectByDesignators(designators: string[]): Promise<number>;
   /** clear the current canvas selection */
   clearSelection(): void;
   fit(): void;
@@ -68,7 +69,7 @@ export function createViewer(host: HTMLElement, opts: CreateViewerOptions = {}):
     loadFiles: (files) => shell.loadFiles(files),
     loadMap: (map) => shell.loadMap(map),
     open: (nodeId) => shell.openNodeId(nodeId),
-    selectByDesignator: (designator) => shell.selectByDesignator(designator),
+    selectByDesignators: (designators) => shell.selectByDesignators(designators),
     clearSelection: () => shell.clearSelection(),
     fit: () => shell.fitCurrent(),
     setTheme: (theme) => shell.setTheme(theme),

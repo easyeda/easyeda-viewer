@@ -11,7 +11,7 @@
 源码集成时，`createViewer(host)` 返回的 `viewer.annotations` 提供同一套批注 API。
 只有独立页面入口会将它公开为 `window.easyedaViewer`。
 调用 `viewer.destroy()` 时会清理批注监听和观察器。
-批注界面目前使用中文，原查看器的语言切换不会翻译批注文案。
+批注界面文案跟随查看器语言（中文 / English），由 `?lang`、工具栏语言按钮或 `setLang` 切换。
 
 ## 1. 先明确职责
 
@@ -179,7 +179,7 @@ async function createViewer(container, files, savedData) {
 | `deleteAnnotation(id)` | 批注 ID | `undefined` | 删除批注及其全部回复 |
 | `addReply(id, content)` | 批注 ID、回复字符串 | 新回复副本 | 添加回复 |
 | `focusAnnotation(id)` | 批注 ID | `Promise<void>` | 切到所属图纸并居中定位 |
-| `selectByDesignator(designator)` | 位号字符串 | `Promise<boolean>` | 按位号选中并高亮元件；跨图页时先打开所属图页；找不到为 `false` |
+| `selectByDesignators(designators)` | 位号数组 | `Promise<number>` | 批量选中并高亮元件，返回命中的不同位号数；当前页无命中时切到命中最多的兄弟图页 |
 | `clearSelection()` | 无 | `undefined` | 取消画布选中并收起属性面板 |
 | `open(nodeId)` | 当前文档的节点 ID | `Promise<Context>` | 打开指定图纸 |
 | `undo()` | 无 | 布尔值 | 撤销成功为 `true`，无记录为 `false` |
@@ -188,6 +188,7 @@ async function createViewer(container, files, savedData) {
 | `setAnnotationsVisible(value)` | 严格布尔值 | 设置后的布尔值 | 显示或隐藏全部批注标记 |
 | `getAnnotationsVisible()` | 无 | 布尔值 | 读取标记显示状态 |
 | `fit()` | 无 | `undefined` | 将当前图纸适配画布 |
+| `setLang(lang)` | `zh` 或 `en` | `undefined` | 切换界面语言（批注文案同步） |
 | `setTheme(theme)` | `light` 或 `dark` | `undefined` | 设置查看器主题 |
 | `setChrome(flags)` | 可选布尔字段 | `undefined` | 设置查看器区域可见性 |
 
@@ -220,7 +221,7 @@ api.fit();
 | `user` | `{id, name}` | 保留当前用户 | 每次加载都传当前登录用户 |
 | `annotations` | 对象或 JSON 字符串 | 不恢复，批注为空 | 有旧数据时才传 |
 
-首次用户默认是 `{id: 'local', name: '本地用户'}`。
+首次用户默认是 `{id: 'local', name: '本地用户'}`（英文界面为 `Local user`），仅当作者名未被修改时随界面语言切换。
 省略 `user` 不会自动清除上一个工程的用户。
 
 新工程加载会清空旧批注、选中态和撤销记录。
@@ -266,29 +267,30 @@ UI 中点击“编辑”后，可以拖动对应批注。
 不提供单独修改或删除回复的 API。
 删除批注会删除全部回复。
 
-### 5.3 按位号选中
+### 5.3 按位号批量选中
 
 ```js
-const ok = await api.selectByDesignator('R12');
-if (!ok) console.log('当前工程没有 R12');
+const matched = await api.selectByDesignators(['R12', 'C3', 'U1']);
+if (!matched) console.log('当前图纸没有这些位号');
 api.clearSelection();
 ```
 
-`selectByDesignator` 按元件的 `Designator` 属性精确匹配（不区分大小写，忽略首尾空格）。
-原理图按整张原理图查找：位号在其他图页时，会先打开该图页再选中。
-选中后画布显示高亮框，元件居中，属性面板同步更新。
-找不到时返回 `false`，不抛异常。
-`clearSelection()` 取消选中并收起属性面板。
+`selectByDesignators` 传入位号数组，按元件的 `Designator` 属性精确匹配（不区分大小写，忽略首尾空格）。
+同一图纸上的全部命中会**同时高亮**，第一个命中作为主选中项（属性面板与元件树）。
+批量高亮以当前图纸为单位：当前图纸有命中时不会切页；当前图纸没有任何命中时，原理图会切到命中数最多的兄弟图页再高亮。
+返回值是当前图纸上命中的**不同位号数量**，`0` 表示未找到，不抛异常。
+`clearSelection()` 取消全部高亮并收起属性面板。
 这两个方法不影响批注数据。
 
 iframe 场景也可以发送消息：
 
 ```js
-iframe.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'select', designator: 'R12' }, '*');
-iframe.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'select', designator: '' }, '*');
+iframe.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'select', designators: ['R12', 'C3'] }, '*');
+iframe.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'select', designators: [] }, '*');
 ```
 
-查看器回发 `select-result`（`{designator, ok}`）。
+查看器回发 `select-result`（`{designators, matched, ok}`）。
+传空数组或不传位号表示取消选中。
 
 ## 6. 数据结构
 

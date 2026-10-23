@@ -88,7 +88,9 @@ interface LangMsg {
 interface SelectMsg {
   source: 'easyeda-viewer';
   cmd: 'select';
-  /** component designator; empty/omitted clears the selection */
+  /** component designators to highlight; empty/omitted clears the selection */
+  designators?: string[] | null;
+  /** single-designator shorthand */
   designator?: string | null;
 }
 type HostMsg = LoadMsg | OpenMsg | FitMsg | ThemeMsg | ChromeMsg | LangMsg | SelectMsg;
@@ -112,12 +114,15 @@ window.addEventListener('message', (e: MessageEvent) => {
     } else if (msg.cmd === 'fit') {
       viewer.fit();
     } else if (msg.cmd === 'select') {
-      const designator = typeof msg.designator === 'string' ? msg.designator.trim() : '';
-      if (!designator) {
+      const raw = msg.designators ?? msg.designator;
+      const list = (Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [])
+        .filter((value): value is string => typeof value === 'string' && value.trim() !== '');
+      if (!list.length) {
         viewer.clearSelection();
-        post('select-result', { designator: '', ok: true });
+        post('select-result', { designators: [], matched: 0, ok: true });
       } else {
-        void viewer.selectByDesignator(designator).then((ok) => post('select-result', { designator, ok }));
+        void viewer.selectByDesignators(list).then((matched) =>
+          post('select-result', { designators: list, matched, ok: matched > 0 }));
       }
     } else if (msg.cmd === 'theme') {
       viewer.setTheme(msg.theme === 'dark' ? 'dark' : 'light');

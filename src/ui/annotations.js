@@ -1,4 +1,5 @@
 import { icon } from './icons';
+import { t } from './i18n';
 import { clearSegCache } from '../core/parse/records';
 import './annotations.css';
 
@@ -15,10 +16,11 @@ export function installAnnotations(shell) {
   const ns = 'http://www.w3.org/2000/svg';
   const state = {
     projectId: '', revision: '', documents: [], annotations: [],
-    user: { id: 'local', name: '本地用户' }, group: 'schematic', filter: 'all',
+    user: { id: 'local', name: t('annLocalUser') }, group: 'schematic', filter: 'all',
     selected: null, tool: 'select', editor: null, gesture: null, undo: [], redo: [],
     listeners: new Set(), loading: false, sequence: 0, visible: true
   };
+  const LOCAL_USER_NAMES = new Set(['本地用户', 'Local user']);
   let requestedContext = null;
   let busy = false;
   let opening = false;
@@ -52,6 +54,11 @@ export function installAnnotations(shell) {
     parent?.append(el);
     return el;
   }
+  // replace the label while keeping any leading icon (<svg>) in place
+  function setButtonText(btn, label) {
+    for (const node of [...btn.childNodes]) if (node.nodeType === 3) node.remove();
+    btn.append(document.createTextNode(label));
+  }
   function safely(fn) {
     try {
       const result = fn();
@@ -60,46 +67,46 @@ export function installAnnotations(shell) {
     } catch (error) { feedback(error.message, true); }
   }
   function requireReady() {
-    if (notifying) throw new Error('请勿在批注变更回调中再次修改数据');
-    if (busy || opening || state.loading || !state.projectId) throw new Error('请等待工程加载完成后操作批注');
+    if (notifying) throw new Error(t('annNoMutateInCallback'));
+    if (busy || opening || state.loading || !state.projectId) throw new Error(t('annWaitLoading'));
   }
   function requireNoDraft() {
     if (state.editor || state.gesture?.mode === 'create' || state.gesture?.mode === 'edit-move') {
-      throw new Error('请先保存或取消正在编辑的批注');
+      throw new Error(t('annNoDraft'));
     }
   }
   function checkCapacity() {
-    if (state.annotations.length > 10000) throw new Error('批注数量超过 10000 条');
+    if (state.annotations.length > 10000) throw new Error(t('annTooMany'));
     let length = 0;
     for (const item of state.annotations) {
       length += item.text.length;
       for (const reply of item.replies) length += reply.text.length;
     }
-    if (length > 10 * 1024 * 1024) throw new Error('批注文字总量超过 10 MB');
+    if (length > 10 * 1024 * 1024) throw new Error(t('annTextTooLong'));
   }
   function text(value, label, max = 10000, empty = false) {
     if (typeof value !== 'string' || value.length > max || (!empty && !value.trim())) {
-      throw new Error(`${label}无效（最多 ${max} 字符）`);
+      throw new Error(t('annInvalidField', { label, max }));
     }
     return value;
   }
   function author(value) {
-    if (!value || typeof value !== 'object') throw new Error('创建者无效');
-    return { id: text(value.id, '用户 ID', 200), name: text(value.name, '用户名', 200) };
+    if (!value || typeof value !== 'object') throw new Error(t('annInvalidCreator'));
+    return { id: text(value.id, t('annFieldUserId'), 200), name: text(value.name, t('annFieldUserName'), 200) };
   }
   function timestamp(value) {
-    if (typeof value !== 'string' || value.length > 40 || !Number.isFinite(Date.parse(value))) throw new Error('时间无效');
+    if (typeof value !== 'string' || value.length > 40 || !Number.isFinite(Date.parse(value))) throw new Error(t('annInvalidTime'));
     return new Date(value).toISOString();
   }
   function geometry(value, type) {
-    if (!value || typeof value !== 'object') throw new Error('批注坐标无效');
+    if (!value || typeof value !== 'object') throw new Error(t('annInvalidGeometry'));
     const result = {};
     for (const key of type === 'text' ? ['x', 'y'] : ['x', 'y', 'width', 'height']) {
-      if (typeof value[key] !== 'number' || !Number.isFinite(value[key]) || Math.abs(value[key]) > 1e9) throw new Error('批注坐标无效');
+      if (typeof value[key] !== 'number' || !Number.isFinite(value[key]) || Math.abs(value[key]) > 1e9) throw new Error(t('annInvalidGeometry'));
       result[key] = value[key];
     }
-    if (type !== 'text' && (result.width <= 0 || result.height <= 0)) throw new Error('框选尺寸必须大于零');
-    if (type === 'circle' && Math.abs(result.width - result.height) > 1e-6) throw new Error('圆形的宽高必须相等');
+    if (type !== 'text' && (result.width <= 0 || result.height <= 0)) throw new Error(t('annSizePositive'));
+    if (type === 'circle' && Math.abs(result.width - result.height) > 1e-6) throw new Error(t('annCircleSquare'));
     return result;
   }
   function currentDocument() {
@@ -108,7 +115,7 @@ export function installAnnotations(shell) {
   }
   function getAnnotation(id) {
     const item = state.annotations.find(a => a.id === id);
-    if (!item) throw new Error('批注不存在');
+    if (!item) throw new Error(t('annNotFound'));
     return item;
   }
   function snapshot() {
@@ -160,12 +167,12 @@ export function installAnnotations(shell) {
   }
   function createAnnotation(input) {
     requireReady();
-    if (!input || !['text', 'rectangle', 'circle'].includes(input.type)) throw new Error('不支持的批注类型');
+    if (!input || !['text', 'rectangle', 'circle'].includes(input.type)) throw new Error(t('annUnsupportedType'));
     const doc = state.documents.find(d => d.id === (input.documentId || currentDocument()?.id));
-    if (!doc) throw new Error('请选择原理图或 PCB');
+    if (!doc) throw new Error(t('annSelectDoc'));
     const time = now();
     const item = { id: uid(), documentId: doc.id, group: doc.group, type: input.type,
-      geometry: geometry(input.geometry, input.type), text: text(input.text, '批注内容'),
+      geometry: geometry(input.geometry, input.type), text: text(input.text, t('annFieldContent')),
       creator: clone(state.user), createdAt: time, updatedAt: time, status: 'pending', replies: [] };
     commit('create', () => { state.annotations.push(item); state.selected = item.id; state.group = doc.group; state.filter = 'all'; });
     return clone(item);
@@ -174,13 +181,13 @@ export function installAnnotations(shell) {
     requireReady();
     if (state.editor?.mode === 'edit' && state.editor.id === id) requireNoDraft();
     const item = getAnnotation(id);
-    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('更新数据无效');
-    if (Object.keys(patch).some(k => !['text', 'geometry', 'status'].includes(k))) throw new Error('仅支持修改文字和状态');
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error(t('annInvalidPatch'));
+    if (Object.keys(patch).some(k => !['text', 'geometry', 'status'].includes(k))) throw new Error(t('annOnlyTextStatus'));
     const next = {};
-    if ('text' in patch) next.text = text(patch.text, '批注内容');
-    if ('geometry' in patch) throw new Error('批注创建后坐标不可修改');
+    if ('text' in patch) next.text = text(patch.text, t('annFieldContent'));
+    if ('geometry' in patch) throw new Error(t('annNoGeometryEdit'));
     if ('status' in patch) {
-      if (!['pending', 'resolved'].includes(patch.status)) throw new Error('状态无效');
+      if (!['pending', 'resolved'].includes(patch.status)) throw new Error(t('annInvalidStatus'));
       next.status = patch.status;
     }
     commit('update', () => Object.assign(item, next, { updatedAt: now() }));
@@ -200,8 +207,8 @@ export function installAnnotations(shell) {
   function addReply(id, content) {
     requireReady();
     const item = getAnnotation(id);
-    const reply = { id: uid(), text: text(content, '回复内容'), creator: clone(state.user), createdAt: now() };
-    if (item.replies.length >= 1000) throw new Error('单条批注最多支持 1000 条回复');
+    const reply = { id: uid(), text: text(content, t('annFieldReplyContent')), creator: clone(state.user), createdAt: now() };
+    if (item.replies.length >= 1000) throw new Error(t('annReplyLimit'));
     commit('reply', () => { item.replies.push(reply); item.updatedAt = reply.createdAt; });
     return clone(reply);
   }
@@ -209,37 +216,37 @@ export function installAnnotations(shell) {
   // Validate a complete replacement before touching the live state (including on import failures).
   function validateImport(input) {
     if (typeof input === 'string') {
-      if (input.length > 20 * 1024 * 1024) throw new Error('批注数据超过 20 MB');
+      if (input.length > 20 * 1024 * 1024) throw new Error(t('annImportTooBig'));
       input = JSON.parse(input);
     }
-    if (!input || input.schemaVersion !== 1) throw new Error('不支持的批注数据版本');
-    if (input.projectId !== state.projectId || input.revision !== state.revision) throw new Error('工程 ID 或版本不匹配，未覆盖现有批注');
-    if (!Array.isArray(input.annotations) || input.annotations.length > 10000) throw new Error('批注列表无效或超过 10000 条');
+    if (!input || input.schemaVersion !== 1) throw new Error(t('annUnsupportedSchema'));
+    if (input.projectId !== state.projectId || input.revision !== state.revision) throw new Error(t('annProjectMismatch'));
+    if (!Array.isArray(input.annotations) || input.annotations.length > 10000) throw new Error(t('annInvalidList'));
     const ids = new Set();
     function uniqueId(value) {
-      value = text(value, '记录 ID', 200);
-      if (ids.has(value)) throw new Error('批注或回复 ID 重复');
+      value = text(value, t('annFieldRecordId'), 200);
+      if (ids.has(value)) throw new Error(t('annDuplicateId'));
       ids.add(value);
       return value;
     }
     let totalText = 0;
     function content(value) {
-      const result = text(value, '内容');
+      const result = text(value, t('annFieldContent'));
       totalText += result.length;
-      if (totalText > 10 * 1024 * 1024) throw new Error('批注文字总量超过 10 MB');
+      if (totalText > 10 * 1024 * 1024) throw new Error(t('annTextTooLong'));
       return result;
     }
     return input.annotations.map(item => {
-      if (!item || !['text', 'rectangle', 'circle'].includes(item.type)) throw new Error('批注类型无效');
+      if (!item || !['text', 'rectangle', 'circle'].includes(item.type)) throw new Error(t('annInvalidType'));
       const doc = state.documents.find(d => d.id === item.documentId);
-      if (!doc || item.group !== doc.group) throw new Error('批注所属图纸不存在或分组不匹配');
-      if (!['pending', 'resolved'].includes(item.status)) throw new Error('批注状态无效');
-      if (!Array.isArray(item.replies) || item.replies.length > 1000) throw new Error('回复列表无效');
+      if (!doc || item.group !== doc.group) throw new Error(t('annDocMissing'));
+      if (!['pending', 'resolved'].includes(item.status)) throw new Error(t('annInvalidState'));
+      if (!Array.isArray(item.replies) || item.replies.length > 1000) throw new Error(t('annInvalidReplies'));
       return { id: uniqueId(item.id), documentId: doc.id, group: doc.group, type: item.type,
         geometry: geometry(item.geometry, item.type), text: content(item.text), creator: author(item.creator),
         createdAt: timestamp(item.createdAt), updatedAt: timestamp(item.updatedAt), status: item.status,
         replies: item.replies.map(reply => {
-          if (!reply) throw new Error('回复无效');
+          if (!reply) throw new Error(t('annInvalidReply'));
           return { id: uniqueId(reply.id), text: content(reply.text), creator: author(reply.creator), createdAt: timestamp(reply.createdAt) };
         }) };
     });
@@ -252,7 +259,7 @@ export function installAnnotations(shell) {
     cancelGesture();
     setTool('select');
     commit('import', () => { state.annotations = items; state.selected = null; });
-    feedback(`已覆盖导入 ${items.length} 条批注`);
+    feedback(t('annImported', { n: items.length }));
     return items.length;
   }
 
@@ -265,7 +272,7 @@ export function installAnnotations(shell) {
     addButton.classList.remove('ev-on');
     addButton.setAttribute('aria-expanded', 'false');
   }
-  const addButton = iconButton('annAdd', '添加批注', () => {
+  const addButton = iconButton('annAdd', t('annAdd'), () => {
     const open = !addPopup.classList.contains('ann-open');
     addPopup.classList.toggle('ann-open', open);
     addButton.classList.toggle('ev-on', open);
@@ -276,8 +283,10 @@ export function installAnnotations(shell) {
   const addPopup = element('div', 'ann-add-menu-popup');
   addPopup.setAttribute('role', 'menu');
   const menuIcons = { text: 'annType', rectangle: 'annRectangle', circle: 'annCircle' };
-  for (const [type, label] of [['text', '文字'], ['rectangle', '矩形框'], ['circle', '圆形框']]) {
-    toolButtons[type] = button(label, () => { closeMenu(); showPanel(); setTool(type); }, addPopup);
+  const toolTextKeys = { text: 'annToolText', rectangle: 'annToolRectangle', circle: 'annToolCircle' };
+  const typeTextKeys = { text: 'annTypeText', rectangle: 'annTypeRectangle', circle: 'annTypeCircle' };
+  for (const type of ['text', 'rectangle', 'circle']) {
+    toolButtons[type] = button(t(toolTextKeys[type]), () => { closeMenu(); showPanel(); setTool(type); }, addPopup);
     toolButtons[type].insertAdjacentHTML('afterbegin', icon(menuIcons[type], 16));
     toolButtons[type].querySelector('svg').setAttribute('aria-hidden', 'true');
     toolButtons[type].dataset.annTool = type;
@@ -297,19 +306,19 @@ export function installAnnotations(shell) {
       buttons[(index + (event.key === 'ArrowDown' ? 1 : buttons.length - 1) + buttons.length) % buttons.length].focus();
     }
   });
-  const visibilityButton = iconButton('eye', '显示或隐藏全部批注', () => setAnnotationsVisible(!state.visible), toolbar);
+  const visibilityButton = iconButton('eye', t('annVisibility'), () => setAnnotationsVisible(!state.visible), toolbar);
   visibilityButton.className = 'ev-btn ev-btn-icon ann-visibility ev-on';
-  visibilityButton.title = '隐藏全部批注';
+  visibilityButton.title = t('annHideAll');
   visibilityButton.setAttribute('aria-pressed', 'true');
   toolbar.append(element('span', 'ev-sep'));
-  const undoButton = iconButton('undo', '撤销批注操作', () => history('undo'), toolbar);
-  const redoButton = iconButton('redo', '重做批注操作', () => history('redo'), toolbar);
-  undoButton.title = '撤销批注操作 Ctrl+Z';
-  redoButton.title = '重做批注操作 Ctrl+Shift+Z';
+  const undoButton = iconButton('undo', t('annUndo'), () => history('undo'), toolbar);
+  const redoButton = iconButton('redo', t('annRedo'), () => history('redo'), toolbar);
+  undoButton.title = t('annUndoShortcut');
+  redoButton.title = t('annRedoShortcut');
 
   const tabs = element('div', 'ann-tabs');
-  const notesTab = button('批注记录', () => showPanel(), tabs);
-  const propsTab = button('属性 / 图层', () => {
+  const notesTab = button(t('annTabNotes'), () => showPanel(), tabs);
+  const propsTab = button(t('annTabProps'), () => {
     shell.rightEl.classList.remove('ann-open');
     setTool('select');
     notesTab.classList.remove('ev-on');
@@ -322,31 +331,34 @@ export function installAnnotations(shell) {
   }
   shell.rightEl.prepend(tabs);
   const panel = element('section', 'ann-panel');
-  panel.setAttribute('aria-label', '批注及对话记录');
+  panel.setAttribute('aria-label', t('annPanelLabel'));
   shell.rightEl.append(panel);
   const head = element('div', 'ann-head');
   const groupTabs = element('div', 'ann-group-tabs');
   const groupButtons = {};
-  for (const [group, title] of [['schematic', '原理图'], ['pcb', 'PCB']]) {
-    groupButtons[group] = button(title, () => { state.group = group; renderList(); }, groupTabs);
+  const groupTextKeys = { schematic: 'annGroupSchematic', pcb: 'annGroupPcb' };
+  for (const group of ['schematic', 'pcb']) {
+    groupButtons[group] = button(t(groupTextKeys[group]), () => { state.group = group; renderList(); }, groupTabs);
   }
   const contextLabel = element('div', 'ann-meta');
   const filter = element('select');
-  filter.setAttribute('aria-label', '筛选批注状态');
-  for (const [value, title] of [['all', '全部状态'], ['pending', '待处理'], ['resolved', '已解决']]) {
-    const option = element('option', '', title); option.value = value; filter.append(option);
+  filter.setAttribute('aria-label', t('annFilterLabel'));
+  const filterTextKeys = { all: 'annFilterAll', pending: 'annFilterPending', resolved: 'annFilterResolved' };
+  for (const value of ['all', 'pending', 'resolved']) {
+    const option = element('option', '', t(filterTextKeys[value])); option.value = value; filter.append(option);
   }
   filter.addEventListener('change', () => { state.filter = filter.value; renderList(); });
-  const authorLabel = element('label', 'ann-author', '批注人');
+  const authorLabel = element('label', 'ann-author');
+  const authorText = element('span', '', t('annAuthor'));
   const authorInput = element('input');
   authorInput.value = state.user.name;
   authorInput.maxLength = 200;
-  authorInput.setAttribute('aria-label', '批注人');
+  authorInput.setAttribute('aria-label', t('annAuthor'));
   authorInput.addEventListener('change', () => {
     safely(() => { state.user = author({ ...state.user, name: authorInput.value }); });
     authorInput.value = state.user.name;
   });
-  authorLabel.append(authorInput);
+  authorLabel.append(authorText, authorInput);
   const headRow = element('div', 'ann-head-row');
   headRow.append(contextLabel, filter);
   head.append(groupTabs, headRow, authorLabel);
@@ -356,18 +368,18 @@ export function installAnnotations(shell) {
   const editorTitle = element('div', 'ann-editor-title');
   const editorText = element('textarea');
   editorText.maxLength = 10000;
-  editorText.placeholder = '输入批注内容…';
-  editorText.setAttribute('aria-label', '批注内容');
+  editorText.placeholder = t('annEditorPlaceholder');
+  editorText.setAttribute('aria-label', t('annEditorAria'));
   const editorActions = element('div', 'ann-actions ann-editor-actions');
-  button('取消', () => { cancelEditor(); draw(); }, editorActions);
-  const saveButton = button('保存', () => saveEditor(), editorActions);
+  const cancelButton = button(t('annCancel'), () => { cancelEditor(); draw(); }, editorActions);
+  const saveButton = button(t('annSave'), () => saveEditor(), editorActions);
   saveButton.classList.add('ev-btn-primary');
   editor.append(editorTitle, editorText, editorActions);
   editor.addEventListener('submit', event => { event.preventDefault(); safely(saveEditor); });
   panel.append(head, list, editor);
   const svg = document.createElementNS(ns, 'svg');
   svg.classList.add('ann-layer');
-  svg.setAttribute('aria-label', '图纸批注层');
+  svg.setAttribute('aria-label', t('annLayerLabel'));
   shell.canvasHost.append(svg);
 
   function feedback(message, error = false) {
@@ -383,31 +395,34 @@ export function installAnnotations(shell) {
   }
   function setTool(type) {
     if (type !== 'select') requireNoDraft();
-    if (type !== 'select' && !currentDocument()) throw new Error('请先打开原理图或 PCB');
-    if (type !== 'select' && !state.visible) throw new Error('请先显示批注');
+    if (type !== 'select' && !currentDocument()) throw new Error(t('annNeedDoc'));
+    if (type !== 'select' && !state.visible) throw new Error(t('annNeedVisible'));
     cancelGesture();
     state.tool = type;
     if (type !== 'select' && shell.measure.active) shell.measure.setActive(false);
     svg.classList.toggle('ann-drawing', type !== 'select');
     for (const [key, btn] of Object.entries(toolButtons)) btn.classList.toggle('ev-on', key === type);
-    feedback(type === 'select' ? '点击批注查看对话。已保存批注的位置和大小不可修改。' : type === 'text' ? '在图纸上点击放置文字，按 Esc 取消。' : '在图纸上拖动绘制框选，按 Esc 取消。');
+    feedback(type === 'select' ? t('annSelectHint') : type === 'text' ? t('annTextHint') : t('annShapeHint'));
   }
   function setAnnotationsVisible(value) {
-    if (typeof value !== 'boolean') throw new TypeError('显示状态必须是布尔值');
+    if (typeof value !== 'boolean') throw new TypeError(t('annVisibleMustBool'));
     if (!value) requireNoDraft();
     state.visible = value;
     visibilityButton.classList.toggle('ev-on', state.visible);
     visibilityButton.classList.toggle('ev-off', !state.visible);
     visibilityButton.innerHTML = icon(state.visible ? 'eye' : 'eyeOff', 16);
-    visibilityButton.title = state.visible ? '隐藏全部批注' : '显示全部批注';
+    visibilityButton.title = state.visible ? t('annHideAll') : t('annShowAll');
     visibilityButton.setAttribute('aria-pressed', String(state.visible));
     closeMenu();
     if (!state.visible) { cancelGesture(); cancelEditor(); setTool('select'); }
     render();
-    feedback(state.visible ? '批注已显示。' : '批注已隐藏，数据仍保留。');
+    feedback(state.visible ? t('annShown') : t('annHidden'));
     return state.visible;
   }
-  function beginEditor(value, title, initial = '') {
+  function editorTitleFor(mode) {
+    return t(mode === 'create' ? 'annNewAnnotation' : mode === 'reply' ? 'annReplyAnnotation' : 'annEditAnnotation');
+  }
+  function beginEditor(value, initial = '') {
     requireNoDraft();
     setTool('select');
     if (value.mode === 'edit') {
@@ -416,7 +431,7 @@ export function installAnnotations(shell) {
     }
     state.editor = value;
     showPanel();
-    editorTitle.textContent = title;
+    editorTitle.textContent = editorTitleFor(value.mode);
     editorText.value = initial;
     editor.hidden = false;
     editorText.focus();
@@ -430,8 +445,8 @@ export function installAnnotations(shell) {
   }
   function saveEditor() {
     if (!state.editor) return;
-    if (state.gesture) throw new Error('请先完成当前拖动');
-    const content = text(editorText.value.trim(), '内容');
+    if (state.gesture) throw new Error(t('annFinishDrag'));
+    const content = text(editorText.value.trim(), t('annFieldContent'));
     const editing = state.editor;
     if (editing.mode === 'create') createAnnotation({ ...editing.draft, text: content });
     else if (editing.mode === 'reply') addReply(editing.id, content);
@@ -442,7 +457,7 @@ export function installAnnotations(shell) {
     }
     cancelEditor();
     draw();
-    feedback('批注数据已更新，请由 PLM 保存。');
+    feedback(t('annSaved'));
   }
   async function focusAnnotation(id) {
     requireReady();
@@ -470,11 +485,11 @@ export function installAnnotations(shell) {
     const scrollTop = list.scrollTop;
     list.replaceChildren();
     const doc = currentDocument();
-    contextLabel.textContent = doc ? `当前图纸：${doc.title}` : '当前没有可批注的图纸';
+    contextLabel.textContent = doc ? t('annCurrentDoc', { title: doc.title }) : t('annNoDoc');
     filter.value = state.filter;
     for (const [key, btn] of Object.entries(groupButtons)) {
       const count = state.annotations.filter(a => a.group === key).length;
-      btn.textContent = `${key === 'pcb' ? 'PCB' : '原理图'} (${count})`;
+      btn.textContent = `${t(groupTextKeys[key])} (${count})`;
       btn.classList.toggle('ev-on', state.group === key);
     }
     const items = state.annotations.filter(a => a.group === state.group && (state.filter === 'all' || a.status === state.filter));
@@ -483,8 +498,8 @@ export function installAnnotations(shell) {
       const emptyIcon = element('div', 'ann-empty-ico');
       emptyIcon.innerHTML = icon('annAdd', 22);
       emptyIcon.querySelector('svg').setAttribute('aria-hidden', 'true');
-      empty.append(emptyIcon, element('div', 'ann-empty-title', '暂无批注记录'),
-        element('div', 'ann-empty-hint', '点击工具栏的「添加批注」，在图纸上标记问题或建议。'));
+      empty.append(emptyIcon, element('div', 'ann-empty-title', t('annNoNotes')),
+        element('div', 'ann-empty-hint', t('annEmptyHint')));
       list.append(empty);
     }
     for (const item of items) {
@@ -499,12 +514,12 @@ export function installAnnotations(shell) {
       card.classList.toggle('ann-resolved', item.status === 'resolved');
       const heading = element('div', 'ann-card-head');
       const docTitle = state.documents.find(d => d.id === item.documentId)?.title || '';
-      const typeButton = button({ text: '文字', rectangle: '矩形', circle: '圆形' }[item.type], () => focusAnnotation(item.id), heading);
+      const typeButton = button(t(typeTextKeys[item.type]), () => focusAnnotation(item.id), heading);
       typeButton.classList.add('ann-type');
       typeButton.insertAdjacentHTML('afterbegin', icon(menuIcons[item.type], 13));
       typeButton.querySelector('svg').setAttribute('aria-hidden', 'true');
       const statePill = element('span', `ann-state ${item.status === 'resolved' ? 'ann-state-resolved' : 'ann-state-pending'}`,
-        item.status === 'resolved' ? '已解决' : '待处理');
+        t(item.status === 'resolved' ? 'annStatusResolved' : 'annStatusPending'));
       heading.append(statePill);
       const meta = element('div', 'ann-card-meta');
       if (docTitle) {
@@ -528,22 +543,52 @@ export function installAnnotations(shell) {
         card.append(replies);
       }
       const actions = element('div', 'ann-actions');
-      const replyButton = button(`回复 (${item.replies.length})`, () => beginEditor({ mode: 'reply', id: item.id }, '回复批注'), actions);
+      const replyButton = button(t('annReplyCount', { n: item.replies.length }), () => beginEditor({ mode: 'reply', id: item.id }), actions);
       replyButton.classList.add('ann-action-reply');
-      const editButton = button('编辑', async () => {
+      const editButton = button(t('annEdit'), async () => {
         requireNoDraft();
         if (currentDocument()?.id !== item.documentId) await focusAnnotation(item.id);
-        beginEditor({ mode: 'edit', id: item.id }, '编辑批注', item.text);
+        beginEditor({ mode: 'edit', id: item.id }, item.text);
       }, actions);
       editButton.classList.add('ann-action');
-      const resolveButton = button(item.status === 'resolved' ? '重新打开' : '标记已解决', () => updateAnnotation(item.id, { status: item.status === 'resolved' ? 'pending' : 'resolved' }), actions);
+      const resolveButton = button(t(item.status === 'resolved' ? 'annReopen' : 'annResolve'), () => updateAnnotation(item.id, { status: item.status === 'resolved' ? 'pending' : 'resolved' }), actions);
       resolveButton.classList.add('ann-action');
-      const deleteButton = button('删除', () => { if (confirm('删除这条批注及其全部回复？（可撤销）')) deleteAnnotation(item.id); }, actions);
+      const deleteButton = button(t('annDelete'), () => { if (confirm(t('annDeleteConfirm'))) deleteAnnotation(item.id); }, actions);
       deleteButton.classList.add('ann-action', 'ann-danger');
       card.append(actions);
       list.append(card);
     }
     list.scrollTop = scrollTop;
+  }
+  // re-label every static control after the viewer language switches
+  function refreshAnnotationTexts() {
+    setButtonText(propsTab, t('annTabProps'));
+    setButtonText(notesTab, t('annTabNotes'));
+    addButton.title = t('annAdd');
+    addButton.setAttribute('aria-label', t('annAdd'));
+    visibilityButton.title = state.visible ? t('annHideAll') : t('annShowAll');
+    visibilityButton.setAttribute('aria-label', t('annVisibility'));
+    undoButton.title = t('annUndoShortcut');
+    undoButton.setAttribute('aria-label', t('annUndo'));
+    redoButton.title = t('annRedoShortcut');
+    redoButton.setAttribute('aria-label', t('annRedo'));
+    for (const type of ['text', 'rectangle', 'circle']) setButtonText(toolButtons[type], t(toolTextKeys[type]));
+    for (const value of ['all', 'pending', 'resolved']) {
+      const option = filter.querySelector(`option[value="${value}"]`);
+      if (option) option.textContent = t(filterTextKeys[value]);
+    }
+    filter.setAttribute('aria-label', t('annFilterLabel'));
+    authorText.textContent = t('annAuthor');
+    authorInput.setAttribute('aria-label', t('annAuthor'));
+    editorText.placeholder = t('annEditorPlaceholder');
+    editorText.setAttribute('aria-label', t('annEditorAria'));
+    setButtonText(cancelButton, t('annCancel'));
+    setButtonText(saveButton, t('annSave'));
+    panel.setAttribute('aria-label', t('annPanelLabel'));
+    svg.setAttribute('aria-label', t('annLayerLabel'));
+    if (state.editor) editorTitle.textContent = editorTitleFor(state.editor.mode);
+    renderList();
+    draw();
   }
   function render() {
     const available = Boolean(currentDocument()) && !state.loading && state.visible;
@@ -571,7 +616,7 @@ export function installAnnotations(shell) {
       const index = items.findIndex(item => item.id === state.editor.id);
       if (index >= 0) items.push(...items.splice(index, 1));
     }
-    if (state.editor?.mode === 'create') items.push({ ...state.editor.draft, id: '', text: '待保存', status: 'pending' });
+    if (state.editor?.mode === 'create') items.push({ ...state.editor.draft, id: '', text: t('annDraftLabel'), status: 'pending' });
     if (state.gesture?.mode === 'create' && state.gesture.draft) items.push({ ...state.gesture.draft, id: '', text: '', status: 'pending' });
     for (const item of items) {
       const editing = state.editor?.mode === 'edit' && state.editor.id === item.id;
@@ -588,7 +633,7 @@ export function installAnnotations(shell) {
       if (item.type === 'rectangle') svgNode('rect', { x, y, width: w, height: h, ...stroke }, group);
       if (item.type === 'circle') svgNode('ellipse', { cx: x + w / 2, cy: y + h / 2, rx: w / 2, ry: h / 2, ...stroke }, group);
       const characters = Array.from(item.text.replace(/\s+/g, ' '));
-      const label = characters.slice(0, 24).join('') + (characters.length > 24 ? '…' : '') || '批注';
+      const label = characters.slice(0, 24).join('') + (characters.length > 24 ? '…' : '') || t('annFallbackLabel');
       const labelY = item.type === 'text' ? y : y - 25 * paintedView.scale;
       const labelGroup = svgNode('g', {
         'data-ann-label': 'true',
@@ -644,7 +689,7 @@ export function installAnnotations(shell) {
       svg.setPointerCapture(event.pointerId);
       return;
     }
-    if (state.editor) { feedback('请先保存或取消正在编辑的内容。', true); return; }
+    if (state.editor) { feedback(t('annNoDraft'), true); return; }
     const p = point(event);
     if (state.tool !== 'select') {
       state.gesture = { mode: 'create', type: state.tool, pointerId: event.pointerId, start: p, end: p };
@@ -699,7 +744,7 @@ export function installAnnotations(shell) {
         const g = gesture.type === 'text' ? gesture.start : shape(gesture.start, point(event), gesture.type);
         if (gesture.type !== 'text' && (g.width * camera.scale < 6 || g.height * camera.scale < 6)) { draw(); return; }
         setTool('select');
-        beginEditor({ mode: 'create', draft: { type: gesture.type, geometry: g, documentId: currentDocument().id } }, '新增批注');
+        beginEditor({ mode: 'create', draft: { type: gesture.type, geometry: g, documentId: currentDocument().id } });
       } else draw();
     });
   }, true);
@@ -718,7 +763,7 @@ export function installAnnotations(shell) {
   });
   const originalMeasureActive = shell.measure.setActive.bind(shell.measure);
   shell.measure.setActive = active => {
-    if (active && state.editor) { feedback('请先保存或取消正在编辑的批注', true); return; }
+    if (active && state.editor) { feedback(t('annNoDraft'), true); return; }
     originalMeasureActive(active);
     svg.classList.toggle('ann-measuring', shell.measure.active);
   };
@@ -774,9 +819,19 @@ export function installAnnotations(shell) {
     originalApplyChrome();
     syncAnnotationChrome();
   };
+  const originalSetLang = shell.setLang.bind(shell);
+  shell.setLang = lang => {
+    originalSetLang(lang);
+    // only follow the language for the untouched default author name
+    if (state.user.id === 'local' && LOCAL_USER_NAMES.has(state.user.name)) {
+      state.user = { ...state.user, name: t('annLocalUser') };
+      authorInput.value = state.user.name;
+    }
+    refreshAnnotationTexts();
+  };
   const originalOpenNode = shell.openNode.bind(shell);
   shell.openNode = async node => {
-    if (opening) throw new Error('图纸正在打开，请稍后重试');
+    if (opening) throw new Error(t('annOpening'));
     requireNoDraft();
     opening = true;
     cancelGesture(); cancelEditor(); setTool('select');
@@ -791,7 +846,7 @@ export function installAnnotations(shell) {
   const originalOnTreeNode = shell.onTreeNode.bind(shell);
   shell.onTreeNode = node => {
     if (shell.model?.openables.has(node.id)) return safely(() => shell.openNode(node));
-    if (state.editor) { feedback('请先保存或取消正在编辑的批注', true); return; }
+    if (state.editor) { feedback(t('annNoDraft'), true); return; }
     const result = originalOnTreeNode(node);
     if (!shell.model?.openables.has(node.id)) { cancelGesture(); cancelEditor(); setTool('select'); render(); }
     return result;
@@ -815,25 +870,25 @@ export function installAnnotations(shell) {
     window.dispatchEvent(new CustomEvent('easyeda-annotations-context', { detail: snapshot() }));
   };
   async function loadProject(files, options = {}) {
-    if (notifying) throw new Error('请勿在批注变更回调中加载工程');
-    if (busy || opening) throw new Error('已有工程或图纸正在加载');
+    if (notifying) throw new Error(t('annNoLoadInCallback'));
+    if (busy || opening) throw new Error(t('annBusy'));
     requireNoDraft();
     const context = {
-      projectId: options.projectId === undefined ? '' : text(options.projectId, '工程 ID', 500),
-      revision: options.revision === undefined ? '' : text(options.revision, '工程版本', 200, true)
+      projectId: options.projectId === undefined ? '' : text(options.projectId, t('annFieldProjectId'), 500),
+      revision: options.revision === undefined ? '' : text(options.revision, t('annFieldRevision'), 200, true)
     };
     if (options.user) author(options.user);
     const entries = Array.from(files || []);
-    if (!entries.length) throw new Error('请提供工程文件');
+    if (!entries.length) throw new Error(t('annProvideFiles'));
     busy = true;
     requestedContext = context;
     const previous = shell.model;
     let loadError = null;
-    const onLoadError = event => { loadError = event.detail?.message || '工程加载失败'; };
+    const onLoadError = event => { loadError = event.detail?.message || t('annLoadFailed'); };
     loadEvents.addEventListener('error', onLoadError);
     try {
       await shell.loadFiles(entries);
-      if (loadError || shell.model === previous) throw new Error(loadError || '工程加载失败，请检查文件格式');
+      if (loadError || shell.model === previous) throw new Error(loadError || t('annLoadFailedCheck'));
       if (options.user) { state.user = author(options.user); authorInput.value = state.user.name; }
     } finally {
       loadEvents.removeEventListener('error', onLoadError);
@@ -853,7 +908,7 @@ export function installAnnotations(shell) {
   for (const method of ['loadFiles', 'loadMap']) {
     const original = shell[method].bind(shell);
     shell[method] = async (...args) => {
-      if (opening) { shell.fail(new Error('图纸正在打开，请稍后重试')); return; }
+      if (opening) { shell.fail(new Error(t('annOpening'))); return; }
       try { requireNoDraft(); }
       catch (error) { shell.fail(error); return; }
       clearSegCache();
@@ -868,22 +923,23 @@ export function installAnnotations(shell) {
     setUser: value => { state.user = author(value); authorInput.value = state.user.name; return clone(state.user); },
     exportAnnotations: () => snapshot(), importAnnotations,
     createAnnotation, updateAnnotation, deleteAnnotation, addReply, focusAnnotation,
-    selectByDesignator: designator => shell.selectByDesignator(designator),
+    selectByDesignators: designators => shell.selectByDesignators(designators),
     clearSelection: () => shell.clearSelection(),
     undo: () => history('undo'), redo: () => history('redo'),
     onChange: callback => {
-      if (typeof callback !== 'function') throw new TypeError('回调必须是函数');
+      if (typeof callback !== 'function') throw new TypeError(t('annCallbackMustBeFunction'));
       state.listeners.add(callback);
       return () => state.listeners.delete(callback);
     },
     open: async nodeId => {
       requireReady();
       const node = shell.model.openables.get(nodeId);
-      if (!node) throw new Error('图纸不存在');
+      if (!node) throw new Error(t('annOpenMissing'));
       await shell.openNode(node);
       return api.getContext();
     },
     fit: () => shell.fitCurrent(),
+    setLang: lang => shell.setLang(lang),
     setTheme: theme => shell.setTheme(theme),
     setChrome: flags => shell.setChrome(flags)
   });

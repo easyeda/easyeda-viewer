@@ -8,9 +8,10 @@
 
 ### Added
 - **批注界面可关闭**(#annotations-preview):新增 `chrome.annotations` 开关,`createViewer({ chrome: { annotations: false } })`、`viewer.setChrome({ annotations: false })` 或 URL `?annotations=0` 均可隐藏顶部工具栏的批注按钮组和右栏的批注页签;隐藏后画布不再响应批注交互(`?chrome=canvas` 一并关闭),适合只读预览。批注数据 API 不受影响。
-- **按位号选中高亮**(#select-by-designator):`viewer.selectByDesignator('R12')`(批注 API 同名方法)按元件 `Designator` 精确匹配(不区分大小写)选中并居中高亮;原理图位号在其他图页时先打开所属图页;找不到返回 `false`。`clearSelection()` 取消选中并收起属性面板。postMessage 新增 `select` 命令(空位号=取消)与 `select-result` 回报。接口版本 `1.1.0` → `1.2.0`。
+- **按位号批量选中高亮**(#select-by-designator):`viewer.selectByDesignators(['R12', 'C3'])`(批注 API 同名方法)接收位号数组,按元件 `Designator` 精确匹配(不区分大小写)同时高亮当前图纸上的全部命中,首个命中为主选中项并居中;当前图纸无命中时切到命中最多的兄弟图页;返回命中的不同位号数(0=未找到)。`clearSelection()` 取消全部选中并收起属性面板。postMessage 新增 `select` 命令(传 `designators` 数组,空数组=取消)与 `select-result` 回报。接口版本 `1.1.0` → `1.2.0`。
 
 ### Changed
+- **批注界面多语言**(#annotations-i18n):批注工具栏、右栏页签、分组/筛选、卡片状态与操作、编辑面板、空状态、错误提示与默认批注人全部接入中/英文资源,跟随 `?lang`、工具栏语言按钮与 `setLang` 实时切换(默认批注人仅在未被修改时跟随)。
 - **批注面板视觉重做**(#annotations-ui):「属性 / 图层」与「批注记录」改为等宽分段页签;原理图/PCB 分组、筛选与批注人合并为紧凑头部;批注卡片增加类型徽标、状态胶囊、文档行、作者/时间行与作者头像,操作区独立分隔;编辑区改为底部面板、按钮右对齐;空状态补充图标与提示。
 
 ## [0.5.0] - 2026-10-21
