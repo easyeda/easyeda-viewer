@@ -21,6 +21,9 @@ export function installAnnotations(shell) {
     listeners: new Set(), loading: false, sequence: 0, visible: true
   };
   const LOCAL_USER_NAMES = new Set(['本地用户', 'Local user']);
+  // a user supplied by the host (loadProject.user / setUser) is authoritative:
+  // the author field becomes read-only
+  let userLocked = false;
   let requestedContext = null;
   let busy = false;
   let opening = false;
@@ -351,14 +354,25 @@ export function installAnnotations(shell) {
   const authorLabel = element('label', 'ann-author');
   const authorText = element('span', '', t('annAuthor'));
   const authorInput = element('input');
+  const authorBadge = element('span', 'ann-author-lock ev-hidden', t('annLocked'));
   authorInput.value = state.user.name;
   authorInput.maxLength = 200;
   authorInput.setAttribute('aria-label', t('annAuthor'));
   authorInput.addEventListener('change', () => {
+    if (userLocked) { authorInput.value = state.user.name; return; }
     safely(() => { state.user = author({ ...state.user, name: authorInput.value }); });
     authorInput.value = state.user.name;
   });
-  authorLabel.append(authorText, authorInput);
+  authorLabel.append(authorText, authorInput, authorBadge);
+  function applyUser(next, locked) {
+    state.user = next;
+    if (locked) userLocked = true;
+    authorInput.value = state.user.name;
+    authorInput.disabled = userLocked;
+    authorInput.title = userLocked ? t('annAuthorLocked') : '';
+    authorBadge.classList.toggle('ev-hidden', !userLocked);
+    authorLabel.classList.toggle('ann-locked', userLocked);
+  }
   const headRow = element('div', 'ann-head-row');
   headRow.append(contextLabel, filter);
   head.append(groupTabs, headRow, authorLabel);
@@ -579,7 +593,9 @@ export function installAnnotations(shell) {
     }
     filter.setAttribute('aria-label', t('annFilterLabel'));
     authorText.textContent = t('annAuthor');
+    authorBadge.textContent = t('annLocked');
     authorInput.setAttribute('aria-label', t('annAuthor'));
+    authorInput.title = userLocked ? t('annAuthorLocked') : '';
     editorText.placeholder = t('annEditorPlaceholder');
     editorText.setAttribute('aria-label', t('annEditorAria'));
     setButtonText(cancelButton, t('annCancel'));
@@ -823,7 +839,7 @@ export function installAnnotations(shell) {
   shell.setLang = lang => {
     originalSetLang(lang);
     // only follow the language for the untouched default author name
-    if (state.user.id === 'local' && LOCAL_USER_NAMES.has(state.user.name)) {
+    if (!userLocked && state.user.id === 'local' && LOCAL_USER_NAMES.has(state.user.name)) {
       state.user = { ...state.user, name: t('annLocalUser') };
       authorInput.value = state.user.name;
     }
@@ -889,7 +905,7 @@ export function installAnnotations(shell) {
     try {
       await shell.loadFiles(entries);
       if (loadError || shell.model === previous) throw new Error(loadError || t('annLoadFailedCheck'));
-      if (options.user) { state.user = author(options.user); authorInput.value = state.user.name; }
+      if (options.user) applyUser(author(options.user), true);
     } finally {
       loadEvents.removeEventListener('error', onLoadError);
       busy = false; requestedContext = null;
@@ -920,7 +936,7 @@ export function installAnnotations(shell) {
     setAnnotationsVisible,
     getAnnotationsVisible: () => state.visible,
     getContext: () => clone({ projectId: state.projectId, revision: state.revision, documents: state.documents, currentDocument: currentDocument() }),
-    setUser: value => { state.user = author(value); authorInput.value = state.user.name; return clone(state.user); },
+    setUser: value => { applyUser(author(value), true); return clone(state.user); },
     exportAnnotations: () => snapshot(), importAnnotations,
     createAnnotation, updateAnnotation, deleteAnnotation, addReply, focusAnnotation,
     selectByDesignators: designators => shell.selectByDesignators(designators),

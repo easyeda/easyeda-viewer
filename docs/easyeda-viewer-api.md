@@ -50,7 +50,7 @@ const api = viewer.annotations;
 await api.loadProject(files, {
   projectId: 'PROJECT-001',
   revision: 'R1',
-  user: { id: 'user-123', name: '张三' },
+  user: { id: 'user-123', name: '张三' }, // 传入后批注人只读
 });
 
 const unsubscribe = api.onChange(({ data }) => {
@@ -92,6 +92,7 @@ api.onChange(({ data }) => saveAnnotations(data));
 | `user` | `{ id, name }` | 保留当前用户 | 每次加载传当前登录用户 |
 | `annotations` | `Snapshot` 或 JSON 字符串 | 不恢复 | 仅在宿主有已保存数据时传入 |
 
+- 通过 `user` 或 `setUser` 设置用户后，批注人输入框锁定为**只读**并显示“只读”标记；未提供用户时使用本地默认用户，可手动修改。
 - `projectId` 与 `revision` 用于绑定批注数据；导入时两者必须与加载时严格一致。
 - 新工程加载会清空旧批注、选中态和撤销记录，加载前请保存旧工程数据。
 - `loadProject` 返回 `Snapshot`；当前图纸信息用 `getContext()` 获取。
@@ -145,7 +146,7 @@ await api.open(documents[0].nodeId);
 | `loadProject(files, options)` | 加载工程，可恢复批注 |
 | `getContext()` | 读取工程、图纸列表和当前图纸 |
 | `open(nodeId)` | 打开指定图纸（异步） |
-| `setUser(user)` | 设置后续新增 / 回复的作者 |
+| `setUser(user)` | 设置后续新增 / 回复的作者，并锁定批注人输入框 |
 | `exportAnnotations()` | 导出完整 Snapshot 副本 |
 | `importAnnotations(data)` | 校验后全量覆盖，返回导入数量 |
 | `createAnnotation(input)` | 新建批注 |
@@ -363,6 +364,7 @@ api.setTheme('dark');
 
 - 批注界面、工具栏、面板、错误提示均支持中 / 英文，随 `setLang`、`?lang` 或工具栏语言按钮实时切换。
 - 默认批注人（`本地用户` / `Local user`）仅在用户未改名时跟随语言。
+- 由 `loadProject.user` 或 `setUser` 提供的批注人只读，不随语言切换改名。
 - 主题只影响界面外壳；画布图元颜色始终遵循源文件。
 
 ## 9. 错误与草稿
@@ -383,7 +385,7 @@ api.setTheme('dark');
 
 ## 10. 安全与部署
 
-- 查看器没有权限系统；右侧可修改的批注人名称**不能作为审计依据**。宿主应在服务端按登录身份鉴权并记录审计信息。
+- 查看器没有权限系统；批注人名称（即使界面锁定为只读）来自客户端输入，**不能作为审计依据**。宿主应在服务端按登录身份鉴权并记录审计信息。
 - `projectId` / `revision` 匹配不是认证；宿主必须校验用户对工程的读写权限。
 - 批注内容按纯文本渲染，不执行 HTML；宿主仍需做输入检查和存储限制。
 - 只允许可信同源页面访问 `window.easyedaViewer`；不要依赖 `window.__ev`。

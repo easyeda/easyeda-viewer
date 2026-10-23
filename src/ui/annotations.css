@@ -104,6 +104,12 @@
   flex: 1; min-width: 0; width: auto; padding: 4px 7px;
   border-color: transparent; background: var(--ev-panel);
 }
+.ann-author input:disabled { color: var(--ev-dim); background: var(--ev-panel-2); cursor: default; opacity: 1; }
+.ann-author-lock {
+  flex: none; padding: 1px 6px; border-radius: 999px;
+  font-size: 10px; line-height: 1.6; color: var(--ev-dim);
+  background: var(--ev-panel); border: 1px solid var(--ev-border);
+}
 
 .ann-panel input, .ann-panel select, .ann-panel textarea {
   font: inherit; color: var(--ev-text); background: var(--ev-panel-2);
