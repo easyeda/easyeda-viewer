@@ -4,7 +4,7 @@
 
 提交级细节见 git log 与 [docs/PRD.md](PRD.md) 的需求条目(`#tag` 可在 PRD 内全文检索)。
 
-## [Unreleased]
+## [0.6.0] - 2026-10-23
 
 ### Added
 - **批注界面可关闭**(#annotations-preview):新增 `chrome.annotations` 开关,`createViewer({ chrome: { annotations: false } })`、`viewer.setChrome({ annotations: false })` 或 URL `?annotations=0` 均可隐藏顶部工具栏的批注按钮组和右栏的批注页签;隐藏后画布不再响应批注交互(`?chrome=canvas` 一并关闭),适合只读预览。批注数据 API 不受影响。
