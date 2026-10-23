@@ -112,7 +112,7 @@ import { createViewer } from './src/embed'; // 构建后也可从产物引入
 const viewer = createViewer(document.getElementById('host'), {
   theme: 'light',          // 'light' | 'dark'
   lang: 'zh',              // 'zh' | 'en'
-  chrome: { left: true, right: true, toolbar: true, status: true },
+  chrome: { left: true, right: true, toolbar: true, status: true, annotations: true }, // annotations:false = 只读预览（隐藏批注 UI）
   onLoaded(model) { console.log('project loaded', model); },
   onSelect(obj) { console.log('selected', obj); },
   onError(err) { console.error(err); },
@@ -135,6 +135,11 @@ viewer.fit();
 viewer.setTheme('dark');
 viewer.setLang('en');
 viewer.setChrome({ right: false });
+viewer.setChrome({ annotations: false }); // 预览模式：隐藏批注工具栏与右栏页签
+
+// 按位号选中并高亮（原理图跨页时自动打开所属图页）
+await viewer.selectByDesignator('R12');
+viewer.clearSelection(); // 取消选中
 
 // 获取当前工程模型
 const model = viewer.getModel();
@@ -170,7 +175,7 @@ viewer.destroy();
 </script>
 ```
 
-支持的 `cmd`：`load` | `open` | `fit` | `theme` | `chrome` | `lang`。 viewer 会回发 `ready` / `load-ok` / `open-result` / `error` 事件。
+支持的 `cmd`：`load` | `open` | `fit` | `select` | `theme` | `chrome` | `lang`。`select` 传入 `designator` 按位号选中高亮（传空字符串取消选中）。viewer 会回发 `ready` / `load-ok` / `open-result` / `select-result` / `error` 事件。
 
 ### URL 参数
 
@@ -181,7 +186,8 @@ viewer.destroy();
 | `?theme=light\|dark` | 界面主题，默认 `light` |
 | `?lang=zh\|en` | 界面语言，默认 `zh` |
 | `?toolbar=0&left=0&right=0&status=0` | 单独隐藏工具栏 / 左侧面板 / 右侧面板 / 状态栏 |
-| `?chrome=canvas` | 隐藏所有面板，仅保留画布 |
+| `?annotations=0` | 隐藏批注工具栏与右栏批注页签（只读预览，批注 API 仍可用） |
+| `?chrome=canvas` | 隐藏所有面板与批注 UI，仅保留画布 |
 | `?file=<url>` | http(s) 环境下加载远程文件 |
 
 ---

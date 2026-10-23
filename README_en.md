@@ -113,7 +113,7 @@ import { createViewer } from './src/embed'; // or from the built artifact
 const viewer = createViewer(document.getElementById('host'), {
   theme: 'light',          // 'light' | 'dark'
   lang: 'zh',              // 'zh' | 'en'
-  chrome: { left: true, right: true, toolbar: true, status: true },
+  chrome: { left: true, right: true, toolbar: true, status: true, annotations: true }, // annotations:false = read-only preview
   onLoaded(model) { console.log('project loaded', model); },
   onSelect(obj) { console.log('selected', obj); },
   onError(err) { console.error(err); },
@@ -136,6 +136,11 @@ viewer.fit();
 viewer.setTheme('dark');
 viewer.setLang('en');
 viewer.setChrome({ right: false });
+viewer.setChrome({ annotations: false }); // preview mode: hide annotation UI
+
+// Select + highlight a component by designator (opens its sheet page if needed)
+await viewer.selectByDesignator('R12');
+viewer.clearSelection(); // deselect
 
 // Get current project model
 const model = viewer.getModel();
@@ -171,7 +176,7 @@ viewer.destroy();
 </script>
 ```
 
-Supported `cmd` values: `load` | `open` | `fit` | `theme` | `chrome` | `lang`. The viewer emits `ready`, `load-ok`, `open-result`, and `error` events.
+Supported `cmd` values: `load` | `open` | `fit` | `select` | `theme` | `chrome` | `lang`. `select` takes a `designator` to highlight that component (empty string deselects). The viewer emits `ready`, `load-ok`, `open-result`, `select-result`, and `error` events.
 
 ### URL Parameters
 
@@ -182,7 +187,8 @@ Append to `dist/index.html` or the iframe `src`:
 | `?theme=light\|dark` | UI theme, default `light` |
 | `?lang=zh\|en` | UI language, default `zh` |
 | `?toolbar=0&left=0&right=0&status=0` | Hide toolbar / left panel / right panel / status bar individually |
-| `?chrome=canvas` | Hide all panels, keep only the canvas |
+| `?annotations=0` | Hide the annotation toolbar group and right-panel tab (read-only preview; the API still works) |
+| `?chrome=canvas` | Hide all panels and annotation UI, keep only the canvas |
 | `?file=<url>` | Load a remote file in http(s) environments |
 
 ---

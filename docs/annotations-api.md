@@ -2,8 +2,8 @@
 
 适用文件：本项目执行 `npm run build` 后生成的 `dist/index.html`。
 该产物已内置批注功能，不需要额外注入脚本。
-原外发文件 `easyeda-viewer_0.4.2_annotations.html` 使用相同的批注数据格式和接口版本。
-接口版本：`easyedaViewer.version === '1.1.0'`。
+原外发文件 `easyeda-viewer_0.4.2_annotations.html` 使用相同的批注数据格式。
+接口版本：`easyedaViewer.version === '1.2.0'`（在 1.1.0 基础上新增位号选中接口）。
 数据版本：`schemaVersion === 1`。
 实现位于 `src/ui/annotations.js`，接口类型位于 `src/ui/annotations.d.ts`。
 文字采用短句和固定术语。
@@ -132,7 +132,7 @@ async function createViewer(container, files, savedData) {
   await loaded;
 
   const api = iframe.contentWindow.easyedaViewer;
-  if (!api || api.version !== '1.1.0') {
+  if (!api || api.version !== '1.2.0') {
     throw new Error('查看器 API 不可用或版本不匹配');
   }
   const options = {
@@ -168,7 +168,7 @@ async function createViewer(container, files, savedData) {
 
 | 接口 | 输入 | 返回值 | 作用 |
 | --- | --- | --- | --- |
-| `version` | 无 | 字符串 `1.1.0` | 读取接口版本 |
+| `version` | 无 | 字符串 `1.2.0` | 读取接口版本 |
 | `loadProject(files, options)` | 文件列表、加载选项 | `Promise<Snapshot>` | 加载工程，可恢复批注 |
 | `getContext()` | 无 | `Context` | 读取工程和当前图纸 |
 | `setUser(user)` | `{id, name}` | 用户对象副本 | 设置后续新增和回复的作者 |
@@ -179,6 +179,8 @@ async function createViewer(container, files, savedData) {
 | `deleteAnnotation(id)` | 批注 ID | `undefined` | 删除批注及其全部回复 |
 | `addReply(id, content)` | 批注 ID、回复字符串 | 新回复副本 | 添加回复 |
 | `focusAnnotation(id)` | 批注 ID | `Promise<void>` | 切到所属图纸并居中定位 |
+| `selectByDesignator(designator)` | 位号字符串 | `Promise<boolean>` | 按位号选中并高亮元件；跨图页时先打开所属图页；找不到为 `false` |
+| `clearSelection()` | 无 | `undefined` | 取消画布选中并收起属性面板 |
 | `open(nodeId)` | 当前文档的节点 ID | `Promise<Context>` | 打开指定图纸 |
 | `undo()` | 无 | 布尔值 | 撤销成功为 `true`，无记录为 `false` |
 | `redo()` | 无 | 布尔值 | 重做成功为 `true`，无记录为 `false` |
@@ -189,13 +191,17 @@ async function createViewer(container, files, savedData) {
 | `setTheme(theme)` | `light` 或 `dark` | `undefined` | 设置查看器主题 |
 | `setChrome(flags)` | 可选布尔字段 | `undefined` | 设置查看器区域可见性 |
 
-`setChrome` 的字段是 `toolbar`、`left`、`right`、`status`。
-这些字段控制工具栏、左栏、右栏和状态栏。
+`setChrome` 的字段是 `toolbar`、`left`、`right`、`status`、`annotations`。
+这些字段控制工具栏、左栏、右栏、状态栏和批注 UI。
+`annotations: false` 会隐藏顶部工具栏的批注按钮组和右栏的批注页签，画布也不再响应批注交互，适合只读预览。
+批注数据 API 不受影响。
+预览模式也可以在 URL 上使用 `?annotations=0`，或用 `?chrome=canvas` 连同其他区域一起关闭。
 部分 UI 操作会重新打开右栏。例如定位批注。
 `setChrome` 不是权限控制接口。
 
 ```js
 api.setChrome({ toolbar: true, left: true, right: true, status: true });
+api.setChrome({ annotations: false }); // 预览模式：隐藏批注 UI
 api.setTheme('dark');
 api.fit();
 ```
@@ -259,6 +265,30 @@ UI 中点击“编辑”后，可以拖动对应批注。
 
 不提供单独修改或删除回复的 API。
 删除批注会删除全部回复。
+
+### 5.3 按位号选中
+
+```js
+const ok = await api.selectByDesignator('R12');
+if (!ok) console.log('当前工程没有 R12');
+api.clearSelection();
+```
+
+`selectByDesignator` 按元件的 `Designator` 属性精确匹配（不区分大小写，忽略首尾空格）。
+原理图按整张原理图查找：位号在其他图页时，会先打开该图页再选中。
+选中后画布显示高亮框，元件居中，属性面板同步更新。
+找不到时返回 `false`，不抛异常。
+`clearSelection()` 取消选中并收起属性面板。
+这两个方法不影响批注数据。
+
+iframe 场景也可以发送消息：
+
+```js
+iframe.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'select', designator: 'R12' }, '*');
+iframe.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'select', designator: '' }, '*');
+```
+
+查看器回发 `select-result`（`{designator, ok}`）。
 
 ## 6. 数据结构
 

@@ -57,7 +57,7 @@ const config = require('./config.cjs');
         aborted: annotationSignals.length === 1 && annotationSignals[0].aborted,
         disconnected: annotationObservers.at(-1).disconnected === true };
     });
-    assert.deepEqual(result, { version: '1.1.0', count: 1, notifications: 1, shells: 0, aborted: true, disconnected: true });
+    assert.deepEqual(result, { version: '1.2.0', count: 1, notifications: 1, shells: 0, aborted: true, disconnected: true });
     assert.deepEqual(errors, []);
     console.log('PASS source embedding and annotation cleanup');
   } finally {

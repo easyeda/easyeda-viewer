@@ -306,10 +306,10 @@ iframe/postMessage 协议(`src/main.ts` 内置桥,**已实现**;消息均带 `so
 
 | ID | 需求 | 优先级 |
 | --- | --- | --- |
-| FR-10.1 | **批注覆盖层**(v0.5.0 #annotations):原理图 / PCB / 面板文档上叠加独立 SVG 批注层,支持**文字、矩形框、圆形框**三类批注;批注随图纸缩放与平移,锚点贴住图元位置;批注数据与工程文件分离,不写回源文件 | P1 |
+| FR-10.1 | **批注覆盖层**(v0.5.0 #annotations):原理图 / PCB / 面板文档上叠加独立 SVG 批注层,支持**文字、矩形框、圆形框**三类批注;批注随图纸缩放与平移,锚点贴住图元位置;批注数据与工程文件分离,不写回源文件;只读预览可置 `chrome.annotations:false`(或 URL `?annotations=0`)隐藏批注工具栏与右栏页签,批注 API 仍可用 | P1 |
 | FR-10.2 | **批注面板**(v0.5.0 #annotations-panel):右侧面板按文档列出批注,显示批注人、内容与待处理 / 已解决状态;支持回复、标记解决 / 重新打开、编辑内容与拖动调整;批注人姓名可在面板内修改 | P1 |
 | FR-10.3 | **显隐与撤销重做**(v0.5.0 #annotations-history):工具栏一键显示 / 隐藏全部批注,显隐图标随状态切换;批注操作支持撤销 / 重做(50 步),绑定 `Ctrl+Z` / `Ctrl+Shift+Z` | P1 |
-| FR-10.4 | **导入导出与 JS API**(v0.5.0 #annotations-api):批注可导出 / 导入 JSON;`viewer.annotations`(接口版本 1.1.0,数据 schemaVersion 1)提供加载、增删改查、`onChange` 订阅与显隐控制,并通过 `easyeda-annotations-change` 事件通知变更;接入文档见 `docs/annotations-api.md` | P1 |
+| FR-10.4 | **导入导出与 JS API**(v0.5.0 #annotations-api):批注可导出 / 导入 JSON;`viewer.annotations`(接口版本 1.1.0,数据 schemaVersion 1)提供加载、增删改查、`onChange` 订阅与显隐控制,并通过 `easyeda-annotations-change` 事件通知变更;**位号选中**(v0.5.0 #select-by-designator):`selectByDesignator(designator)` 按 `Designator` 精确匹配(不区分大小写)选中并高亮元件,原理图跨图页时先打开所属图页再居中定位,找不到返回 `false`;`clearSelection()` 取消选中;postMessage `select` 命令同步支持;接入文档见 `docs/annotations-api.md` | P1 |
 
 ## 5. 非功能需求(NFR)
 

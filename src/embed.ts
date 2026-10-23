@@ -19,7 +19,8 @@ export interface CreateViewerOptions {
   files?: File[];
   /** UI chrome theme, default 'light'. Canvas always keeps document colors. */
   theme?: Theme;
-  /** show/hide toolbar & side panels, e.g. {toolbar:false,left:false,right:false} for a pure canvas */
+  /** show/hide toolbar & side panels, e.g. {toolbar:false,left:false,right:false} for a pure canvas;
+   *  `annotations:false` hides the annotation toolbar group and right-panel tab (read-only previews) */
   chrome?: Partial<ChromeFlags>;
   /** UI language, default 'zh' */
   lang?: Lang;
@@ -37,6 +38,10 @@ export interface EextViewer {
   loadMap(map: Map<string, Uint8Array>): void;
   /** open a document by tree-node id (see onLoaded model.openables) */
   open(nodeId: string): boolean;
+  /** select + highlight a component by designator (opens its sheet page if needed) */
+  selectByDesignator(designator: string): Promise<boolean>;
+  /** clear the current canvas selection */
+  clearSelection(): void;
   fit(): void;
   /** switch chrome theme at runtime (canvas keeps document colors) */
   setTheme(theme: Theme): void;
@@ -63,6 +68,8 @@ export function createViewer(host: HTMLElement, opts: CreateViewerOptions = {}):
     loadFiles: (files) => shell.loadFiles(files),
     loadMap: (map) => shell.loadMap(map),
     open: (nodeId) => shell.openNodeId(nodeId),
+    selectByDesignator: (designator) => shell.selectByDesignator(designator),
+    clearSelection: () => shell.clearSelection(),
     fit: () => shell.fitCurrent(),
     setTheme: (theme) => shell.setTheme(theme),
     setLang: (lang) => shell.setLang(lang),

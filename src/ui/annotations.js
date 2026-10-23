@@ -23,6 +23,9 @@ export function installAnnotations(shell) {
   let busy = false;
   let opening = false;
   let notifying = false;
+  // preview hosts can switch the whole annotation UI off (`chrome.annotations`
+  // or `?annotations=0`); the data API keeps working
+  let enabled = shell.getChrome().annotations !== false;
 
   function element(tag, className, text) {
     const el = document.createElement(tag);
@@ -313,13 +316,16 @@ export function installAnnotations(shell) {
     propsTab.classList.add('ev-on');
   }, tabs);
   tabs.prepend(propsTab);
+  for (const [btn, name] of [[propsTab, 'layers'], [notesTab, 'list']]) {
+    btn.insertAdjacentHTML('afterbegin', icon(name, 15));
+    btn.querySelector('svg').setAttribute('aria-hidden', 'true');
+  }
   shell.rightEl.prepend(tabs);
   const panel = element('section', 'ann-panel');
   panel.setAttribute('aria-label', '批注及对话记录');
   shell.rightEl.append(panel);
   const head = element('div', 'ann-head');
   const groupTabs = element('div', 'ann-group-tabs');
-  head.append(groupTabs);
   const groupButtons = {};
   for (const [group, title] of [['schematic', '原理图'], ['pcb', 'PCB']]) {
     groupButtons[group] = button(title, () => { state.group = group; renderList(); }, groupTabs);
@@ -341,7 +347,9 @@ export function installAnnotations(shell) {
     authorInput.value = state.user.name;
   });
   authorLabel.append(authorInput);
-  head.append(contextLabel, filter, authorLabel);
+  const headRow = element('div', 'ann-head-row');
+  headRow.append(contextLabel, filter);
+  head.append(groupTabs, headRow, authorLabel);
   const list = element('div', 'ann-list');
   const editor = element('form', 'ann-editor');
   editor.hidden = true;
@@ -350,10 +358,10 @@ export function installAnnotations(shell) {
   editorText.maxLength = 10000;
   editorText.placeholder = '输入批注内容…';
   editorText.setAttribute('aria-label', '批注内容');
-  const editorActions = element('div', 'ann-actions');
+  const editorActions = element('div', 'ann-actions ann-editor-actions');
+  button('取消', () => { cancelEditor(); draw(); }, editorActions);
   const saveButton = button('保存', () => saveEditor(), editorActions);
   saveButton.classList.add('ev-btn-primary');
-  button('取消', () => { cancelEditor(); draw(); }, editorActions);
   editor.append(editorTitle, editorText, editorActions);
   editor.addEventListener('submit', event => { event.preventDefault(); safely(saveEditor); });
   panel.append(head, list, editor);
@@ -366,6 +374,7 @@ export function installAnnotations(shell) {
     if (error) shell.setStatus(message, true);
   }
   function showPanel() {
+    if (!enabled) return;
     shell.rightEl.classList.add('ann-open');
     notesTab.classList.add('ev-on');
     propsTab.classList.remove('ev-on');
@@ -456,6 +465,7 @@ export function installAnnotations(shell) {
     }
   }
   function dateLabel(value) { return new Date(value).toLocaleString('zh-CN', { hour12: false }); }
+  function initialOf(name) { return (Array.from(String(name || '').trim())[0] || '?').toUpperCase(); }
   function renderList() {
     const scrollTop = list.scrollTop;
     list.replaceChildren();
@@ -468,7 +478,15 @@ export function installAnnotations(shell) {
       btn.classList.toggle('ev-on', state.group === key);
     }
     const items = state.annotations.filter(a => a.group === state.group && (state.filter === 'all' || a.status === state.filter));
-    if (!items.length) list.append(element('div', 'ann-empty', '暂无批注记录'));
+    if (!items.length) {
+      const empty = element('div', 'ann-empty');
+      const emptyIcon = element('div', 'ann-empty-ico');
+      emptyIcon.innerHTML = icon('annAdd', 22);
+      emptyIcon.querySelector('svg').setAttribute('aria-hidden', 'true');
+      empty.append(emptyIcon, element('div', 'ann-empty-title', '暂无批注记录'),
+        element('div', 'ann-empty-hint', '点击工具栏的「添加批注」，在图纸上标记问题或建议。'));
+      list.append(empty);
+    }
     for (const item of items) {
       const card = element('article', 'ann-card');
       card.dataset.annCard = item.id;
@@ -481,27 +499,47 @@ export function installAnnotations(shell) {
       card.classList.toggle('ann-resolved', item.status === 'resolved');
       const heading = element('div', 'ann-card-head');
       const docTitle = state.documents.find(d => d.id === item.documentId)?.title || '';
-      button({ text: '文字', rectangle: '矩形', circle: '圆形' }[item.type], () => focusAnnotation(item.id), heading);
-      heading.append(element('span', 'ann-state', item.status === 'resolved' ? '已解决' : '待处理'));
-      card.append(heading, element('div', 'ann-meta', `${docTitle}\n${item.creator.name} · ${dateLabel(item.createdAt)}`), element('div', 'ann-content', item.text));
+      const typeButton = button({ text: '文字', rectangle: '矩形', circle: '圆形' }[item.type], () => focusAnnotation(item.id), heading);
+      typeButton.classList.add('ann-type');
+      typeButton.insertAdjacentHTML('afterbegin', icon(menuIcons[item.type], 13));
+      typeButton.querySelector('svg').setAttribute('aria-hidden', 'true');
+      const statePill = element('span', `ann-state ${item.status === 'resolved' ? 'ann-state-resolved' : 'ann-state-pending'}`,
+        item.status === 'resolved' ? '已解决' : '待处理');
+      heading.append(statePill);
+      const meta = element('div', 'ann-card-meta');
+      if (docTitle) {
+        const docLine = element('div', 'ann-card-doc', docTitle);
+        docLine.title = docTitle;
+        meta.append(docLine);
+      }
+      meta.append(element('div', 'ann-card-by', `${item.creator.name} · ${dateLabel(item.createdAt)}`));
+      card.append(heading, meta, element('div', 'ann-content', item.text));
       if (item.replies.length) {
         const replies = element('div', 'ann-replies');
         for (const reply of item.replies) {
           const row = element('div', 'ann-reply');
-          row.append(element('div', 'ann-meta', `${reply.creator.name} · ${dateLabel(reply.createdAt)}`), element('div', 'ann-content', reply.text));
+          const avatar = element('span', 'ann-avatar', initialOf(reply.creator.name));
+          const body = element('div', 'ann-reply-body');
+          body.append(element('div', 'ann-meta', `${reply.creator.name} · ${dateLabel(reply.createdAt)}`),
+            element('div', 'ann-content', reply.text));
+          row.append(avatar, body);
           replies.append(row);
         }
         card.append(replies);
       }
       const actions = element('div', 'ann-actions');
-      button(`回复 (${item.replies.length})`, () => beginEditor({ mode: 'reply', id: item.id }, '回复批注'), actions);
-      button('编辑', async () => {
+      const replyButton = button(`回复 (${item.replies.length})`, () => beginEditor({ mode: 'reply', id: item.id }, '回复批注'), actions);
+      replyButton.classList.add('ann-action-reply');
+      const editButton = button('编辑', async () => {
         requireNoDraft();
         if (currentDocument()?.id !== item.documentId) await focusAnnotation(item.id);
         beginEditor({ mode: 'edit', id: item.id }, '编辑批注', item.text);
       }, actions);
-      button(item.status === 'resolved' ? '重新打开' : '标记已解决', () => updateAnnotation(item.id, { status: item.status === 'resolved' ? 'pending' : 'resolved' }), actions);
-      button('删除', () => { if (confirm('删除这条批注及其全部回复？（可撤销）')) deleteAnnotation(item.id); }, actions);
+      editButton.classList.add('ann-action');
+      const resolveButton = button(item.status === 'resolved' ? '重新打开' : '标记已解决', () => updateAnnotation(item.id, { status: item.status === 'resolved' ? 'pending' : 'resolved' }), actions);
+      resolveButton.classList.add('ann-action');
+      const deleteButton = button('删除', () => { if (confirm('删除这条批注及其全部回复？（可撤销）')) deleteAnnotation(item.id); }, actions);
+      deleteButton.classList.add('ann-action', 'ann-danger');
       card.append(actions);
       list.append(card);
     }
@@ -592,6 +630,7 @@ export function installAnnotations(shell) {
   let blankPress = null;
   shell.canvasHost.addEventListener('pointerdown', event => {
     blankPress = null;
+    if (!enabled) return;
     if (event.button !== 0 || !state.visible || busy || opening || state.loading || shell.measure.active || !currentDocument()) return;
     const target = event.target.closest?.('[data-ann-id]');
     if (state.tool === 'select' && !target) {
@@ -706,7 +745,35 @@ export function installAnnotations(shell) {
     return `local:${(hash >>> 0).toString(16)}`;
   }
   const originalRightVisible = shell.rightVisible.bind(shell);
-  shell.rightVisible = () => shell.rightForced === null && currentDocument() ? true : originalRightVisible();
+  shell.rightVisible = () => enabled && shell.rightForced === null && currentDocument() ? true : originalRightVisible();
+  // `chrome.annotations=false` (preview mode) hides the toolbar group, the
+  // right-panel tab and the SVG overlay, and stops forcing the right panel open
+  let appliedEnabled = null;
+  function syncAnnotationChrome() {
+    const changed = appliedEnabled !== enabled;
+    appliedEnabled = enabled;
+    toolbar.classList.toggle('ev-hidden', !enabled);
+    tabs.classList.toggle('ev-hidden', !enabled);
+    panel.classList.toggle('ev-hidden', !enabled);
+    svg.classList.toggle('ev-hidden', !enabled);
+    if (!enabled) {
+      shell.rightEl.classList.remove('ann-open');
+      notesTab.classList.remove('ev-on');
+      closeMenu();
+      if (state.editor || state.gesture) { cancelGesture(); cancelEditor(); }
+      if (state.tool !== 'select') setTool('select');
+    } else if (!shell.rightEl.classList.contains('ann-open')) {
+      notesTab.classList.remove('ev-on');
+      propsTab.classList.add('ev-on');
+    }
+    if (changed) render();
+  }
+  const originalApplyChrome = shell.applyChrome.bind(shell);
+  shell.applyChrome = () => {
+    enabled = shell.getChrome().annotations !== false;
+    originalApplyChrome();
+    syncAnnotationChrome();
+  };
   const originalOpenNode = shell.openNode.bind(shell);
   shell.openNode = async node => {
     if (opening) throw new Error('图纸正在打开，请稍后重试');
@@ -794,13 +861,15 @@ export function installAnnotations(shell) {
     };
   }
   const api = Object.freeze({
-    version: '1.1.0', loadProject,
+    version: '1.2.0', loadProject,
     setAnnotationsVisible,
     getAnnotationsVisible: () => state.visible,
     getContext: () => clone({ projectId: state.projectId, revision: state.revision, documents: state.documents, currentDocument: currentDocument() }),
     setUser: value => { state.user = author(value); authorInput.value = state.user.name; return clone(state.user); },
     exportAnnotations: () => snapshot(), importAnnotations,
     createAnnotation, updateAnnotation, deleteAnnotation, addReply, focusAnnotation,
+    selectByDesignator: designator => shell.selectByDesignator(designator),
+    clearSelection: () => shell.clearSelection(),
     undo: () => history('undo'), redo: () => history('redo'),
     onChange: callback => {
       if (typeof callback !== 'function') throw new TypeError('回调必须是函数');
@@ -818,10 +887,12 @@ export function installAnnotations(shell) {
     setTheme: theme => shell.setTheme(theme),
     setChrome: flags => shell.setChrome(flags)
   });
-  shell.rightEl.classList.add('ann-open');
-  notesTab.classList.add('ev-on');
+  if (enabled) {
+    shell.rightEl.classList.add('ann-open');
+    notesTab.classList.add('ev-on');
+  }
   setTool('select');
-  render();
+  syncAnnotationChrome();
   return { api, destroy() {
     lifetime.abort();
     resizeObserver.disconnect();

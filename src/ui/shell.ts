@@ -8,7 +8,7 @@
  */
 import { Leafer, Group, Rect, Line } from 'leafer-ui';
 import '../styles.css';
-import type { ProjectModel, TreeNode, OpenedDoc } from '../core/types';
+import type { ProjectModel, TreeNode, OpenedDoc, Rec } from '../core/types';
 import { loadFromFiles, loadFromMap } from '../core/parse/container';
 import { openDoc, collectAttrs, resolveAttrRef, resolveLibGraphics } from '../core/model';
 import { renderDoc, pcbStackKey, type RenderObject, type RenderLayer } from '../core/render/layers';
@@ -38,6 +38,9 @@ export interface ChromeFlags {
   left: boolean;
   right: boolean;
   status: boolean;
+  /** annotation toolbar group + the annotation tab in the right panel.
+   *  Read-only previews set this to false (`annotations: false`). */
+  annotations: boolean;
 }
 
 export interface ShellOptions extends ShellEvents {
@@ -49,7 +52,7 @@ export interface ShellOptions extends ShellEvents {
   lang?: Lang;
 }
 
-const FULL_CHROME: ChromeFlags = { toolbar: true, left: true, right: true, status: true };
+const FULL_CHROME: ChromeFlags = { toolbar: true, left: true, right: true, status: true, annotations: true };
 
 export class Shell {
   readonly el: HTMLElement;
@@ -118,6 +121,8 @@ export class Shell {
   private docLoaded = false;
   private docKind: 'sch' | 'pcb' | 'panel' | 'footprint' | 'other' = 'other';
   private curNode: TreeNode | null = null;
+  /** opened document backing `objects` — needed for designator lookups */
+  private currentOpened: OpenedDoc | null = null;
   private lastTree: TreeNode[] | null = null;
   private lastOpenables: Set<string> | null = null;
   private lastObjRows: ObjectRow[] = [];
@@ -661,6 +666,7 @@ export class Shell {
       // above the document content (on PCBs the opaque board used to cover it)
       this.camera.world.add(this.overlay);
       this.currentRoot = result.root;
+      this.currentOpened = opened;
       this.objects = result.objects;
       this.layers = result.layers;
       this.constantTexts = result.constantTexts as { node: LeaferText; basePx: number }[];
@@ -882,6 +888,7 @@ export class Shell {
         // show the hint instead of leaving stale content around (#10)
         this.currentRoot?.remove();
         this.currentRoot = null;
+        this.currentOpened = null;
         this.objects = [];
         this.layers = [];
         this.constantTexts = [];
@@ -918,6 +925,50 @@ export class Shell {
     if (!node) return false;
     void this.openNode(node);
     return true;
+  }
+
+  /**
+   * Select and highlight a component by designator (位号). When the designator
+   * lives on another sheet of the same schematic, that page is opened first.
+   * Returns false when nothing matches.
+   */
+  async selectByDesignator(designator: string): Promise<boolean> {
+    const query = typeof designator === 'string' ? designator.trim().toUpperCase() : '';
+    if (!query || !this.currentOpened || !this.curNode || !this.model) return false;
+    const matches = (rec: Rec, od: OpenedDoc): boolean => {
+      if (rec.type !== 'COMPONENT') return false;
+      const value = collectAttrs(rec, od).find((e) => e.key === 'Designator')?.value;
+      return typeof value === 'string' && value.trim().toUpperCase() === query;
+    };
+    let obj = this.objects.find((o) => matches(o.rec, this.currentOpened!)) ?? null;
+    // schematic pages: the component list spans the owning schematic, so a
+    // designator from a sibling page must open that page before selection
+    if (!obj && this.docKind === 'sch') {
+      for (const page of this.siblingSheets(this.curNode) ?? []) {
+        if (page.id === this.curNode.id) continue;
+        let recId = '';
+        try {
+          const od = openDoc(this.model, page);
+          const rec = od.self.recs.find((r) => matches(r, od));
+          if (rec) recId = rec.id;
+        } catch { continue; }
+        if (!recId) continue;
+        await this.openNode(page);
+        obj = this.objects.find((o) => o.id === recId) ?? null;
+        break;
+      }
+    }
+    if (!obj) return false;
+    this.select(obj);
+    if (obj.bbox) {
+      this.camera.centerOn((obj.bbox.minX + obj.bbox.maxX) / 2, (obj.bbox.minY + obj.bbox.maxY) / 2);
+    }
+    return true;
+  }
+
+  /** clear the current canvas selection (highlight + property panel) */
+  clearSelection(): void {
+    this.select(null);
   }
 
   // ---------- selection ----------

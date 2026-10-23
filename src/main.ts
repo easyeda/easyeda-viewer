@@ -13,7 +13,8 @@ if (!host) throw new Error('missing #app root');
  *   ?theme=light|dark          chrome theme, default light (canvas keeps document colors)
  *   ?lang=zh|en                UI language, default zh
  *   ?toolbar=0|left=0|right=0|status=0   hide individual panes
- *   ?chrome=canvas             shortcut for toolbar/left/right/status all off
+ *   ?annotations=0             hide the annotation toolbar group + right-panel tab (preview mode)
+ *   ?chrome=canvas             shortcut for toolbar/left/right/status/annotations all off
  */
 function parseOptions(q: URLSearchParams): { theme: Theme; lang: Lang; chrome: Partial<ChromeFlags> } {
   const flag = (name: string): boolean | undefined => {
@@ -26,8 +27,9 @@ function parseOptions(q: URLSearchParams): { theme: Theme; lang: Lang; chrome: P
   const chrome: Partial<ChromeFlags> = {};
   if (q.get('chrome') === 'canvas') {
     chrome.toolbar = false; chrome.left = false; chrome.right = false; chrome.status = false;
+    chrome.annotations = false;
   }
-  for (const k of ['toolbar', 'left', 'right', 'status'] as const) {
+  for (const k of ['toolbar', 'left', 'right', 'status', 'annotations'] as const) {
     const v = flag(k);
     if (v !== undefined) chrome[k] = v;
   }
@@ -83,7 +85,13 @@ interface LangMsg {
   cmd: 'lang';
   lang: Lang;
 }
-type HostMsg = LoadMsg | OpenMsg | FitMsg | ThemeMsg | ChromeMsg | LangMsg;
+interface SelectMsg {
+  source: 'easyeda-viewer';
+  cmd: 'select';
+  /** component designator; empty/omitted clears the selection */
+  designator?: string | null;
+}
+type HostMsg = LoadMsg | OpenMsg | FitMsg | ThemeMsg | ChromeMsg | LangMsg | SelectMsg;
 
 function post(event: string, payload: Record<string, unknown> = {}): void {
   window.parent?.postMessage({ source: 'easyeda-viewer', event, ...payload }, '*');
@@ -103,6 +111,14 @@ window.addEventListener('message', (e: MessageEvent) => {
       post('open-result', { nodeId: msg.nodeId, ok });
     } else if (msg.cmd === 'fit') {
       viewer.fit();
+    } else if (msg.cmd === 'select') {
+      const designator = typeof msg.designator === 'string' ? msg.designator.trim() : '';
+      if (!designator) {
+        viewer.clearSelection();
+        post('select-result', { designator: '', ok: true });
+      } else {
+        void viewer.selectByDesignator(designator).then((ok) => post('select-result', { designator, ok }));
+      }
     } else if (msg.cmd === 'theme') {
       viewer.setTheme(msg.theme === 'dark' ? 'dark' : 'light');
       document.documentElement.dataset.theme = msg.theme === 'dark' ? 'dark' : 'light';
