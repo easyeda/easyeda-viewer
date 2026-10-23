@@ -12,6 +12,7 @@
 
 ### Changed
 - **批注界面多语言**(#annotations-i18n):批注工具栏、右栏页签、分组/筛选、卡片状态与操作、编辑面板、空状态、错误提示与默认批注人全部接入中/英文资源,跟随 `?lang`、工具栏语言按钮与 `setLang` 实时切换(默认批注人仅在未被修改时跟随)。
+- **集成文档重写**(#docs):`docs/annotations-api.md` 重命名为 `docs/easyeda-viewer-api.md`,改为按通用宿主系统(文档管理、评审、BOM、门户等)组织章节,新增「隐藏工具与面板」专章、postMessage 命令表与集成检查清单,并精简为 11 个章节。
 - **批注面板视觉重做**(#annotations-ui):「属性 / 图层」与「批注记录」改为等宽分段页签;原理图/PCB 分组、筛选与批注人合并为紧凑头部;批注卡片增加类型徽标、状态胶囊、文档行、作者/时间行与作者头像,操作区独立分隔;编辑区改为底部面板、按钮右对齐;空状态补充图标与提示。
 
 ## [0.5.0] - 2026-10-21
@@ -19,7 +20,7 @@
 ### Added
 - **工程批注**(#annotations):在原理图 / PCB / 面板图纸上叠加独立批注层,支持**文字、矩形框、圆形框**三类批注;批注随图纸缩放与平移,锚点始终贴住图元位置。右侧批注面板按文档列出批注,支持**回复**、标记已解决 / 重新打开、编辑内容与拖动调整;批注数据与工程文件分离,不写回源文件。
 - **批注显隐与撤销重做**(#annotations-history):工具栏可一键显示 / 隐藏全部批注;批注操作支持撤销 / 重做(最多 50 步),并绑定 `Ctrl+Z` / `Ctrl+Shift+Z` 快捷键。
-- **批注导入导出与 JS API**(#annotations-api):批注可导出为 JSON 并在后续会话导入恢复;`createViewer` 返回的 `viewer.annotations`(独立页面下即 `window.easyedaViewer`)提供加载、增删改查、`onChange` 订阅与显隐控制,事件为 `easyeda-annotations-change`,接入说明见 [docs/annotations-api.md](docs/annotations-api.md)。
+- **批注导入导出与 JS API**(#annotations-api):批注可导出为 JSON 并在后续会话导入恢复;`createViewer` 返回的 `viewer.annotations`(独立页面下即 `window.easyedaViewer`)提供加载、增删改查、`onChange` 订阅与显隐控制,事件为 `easyeda-annotations-change`,接入说明见 [docs/easyeda-viewer-api.md](docs/easyeda-viewer-api.md)。
 - **批注回归测试**(#annotations-qa):新增 `qa/annotations` 端到端用例与 `npm run test:annotations` 脚本,覆盖新建 / 回复 / 解决 / 撤销重做 / 显隐 / 导入导出等主流程。
 
 ### Changed

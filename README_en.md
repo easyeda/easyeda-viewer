@@ -20,6 +20,7 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro / 嘉立创EDA专业
 - **Two-way locate**: click an object-tree node to center it on canvas; click a canvas primitive to highlight the corresponding tree node.
 - **Modern UI**: dark/light themes, Chinese/English bilingual UI, resizable and hideable panels.
 - **Embeddable API**: `createViewer` JS API plus `postMessage` protocol for integration into third-party pages.
+- **Project annotations**: text, rectangle and circle annotations with replies, status, edit/drag and global visibility. Data is imported/exported through the JS API; see the [viewer integration API](docs/easyeda-viewer-api.md) and [annotation tests](qa/annotations/README.md).
 - **Optional desktop app**: install-free Windows executable (Go + WebView2, ~7 MB) with native dialogs and drag-and-drop. Support win10 and above, win7 please open `/dist/index.html` file at Chrome 109 / Firefox 115 ESR.
 
 > Note: this project is a **read-only viewer**. It does not support editing, saving, DRC/ERC, BOM, 3D view, Gerber export etc.
