@@ -4,7 +4,7 @@
 
 提交级细节见 git log 与 [docs/PRD.md](PRD.md) 的需求条目(`#tag` 可在 PRD 内全文检索)。
 
-## [Unreleased]
+## [0.6.1] - 2026-10-24
 
 ### Changed
 - **`.eprj3` 加载方式说明**(#eprj3-folder-only):文件选择器不再过滤 `.eprj3` 索引文件（该文件不能单独加载）；欢迎页与状态栏改为说明 `.eprj3` 需选择完整工程文件夹，或把整个工程打包为 `.zip` 后加载。
