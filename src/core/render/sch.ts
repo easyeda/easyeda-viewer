@@ -438,18 +438,18 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           break;
         }
         case 'OBJ': {
-          // embedded bitmap object: `content`/`path` is a `blob:<id>` URI into
-          // the file's BLOB records (base64 data URL). (startX, startY) is the
+          // embedded bitmap object: `content`/`path` may be a `blob:<id>` URI
+          // into the file's BLOB records, or an inline `data:image/...` URL
+          // (title-block logos are stored inline). (startX, startY) is the
           // TOP-LEFT corner (verified on the PCB doc's dialog against the
           // reference export), not the center.
-          const ref = typeof r.data.content === 'string' && r.data.content.startsWith('blob:') ? r.data.content
-            : typeof r.data.path === 'string' && r.data.path.startsWith('blob:') ? r.data.path : null;
-          const url = ref ? opened.blobs.get(ref.slice(5)) : undefined;
+          const url = objImageUrl(r.data);
           if (url) {
             const w = Number(r.data.width) || 0, h = Number(r.data.height) || 0;
             const pic = new LeaferImage({ url, width: w, height: h, x: -w / 2, y: -h / 2 });
             if (r.data.isMirror ?? r.data.mirror) pic.scaleX = -1;
             const pg = new Group({ x: X(Number(r.data.startX ?? 0), sxf) + w / 2, y: Y(Number(r.data.startY ?? 0), sxf) + h / 2 });
+            if (Number(r.data.rotation ?? 0)) pg.rotation = ang(Number(r.data.rotation), sxf);
             pg.add(pic);
             local.add(pg);
             made = true;
@@ -464,6 +464,13 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       }
       if (made) inner.add(local);
     }
+  }
+
+  /** OBJ image source: `blob:<id>` (resolved via BLOB records) or inline data URL */
+  function objImageUrl(d: any): string | undefined {
+    const ref = typeof d.content === 'string' ? d.content : typeof d.path === 'string' ? d.path : '';
+    if (ref.startsWith('blob:')) return opened.blobs.get(ref.slice(5));
+    return /^data:image\//i.test(ref) ? ref : undefined;
   }
 
   /** title-block table: grid lines from cumulative row/col sizes + cell values */
@@ -1228,13 +1235,11 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       }
       case 'OBJ': {
         // page-level bitmap object: `content`/`path` is a `blob:<id>` URI into
-        // the file's BLOB records (base64 data URL) — resolvable via opened.blobs.
+        // the file's BLOB records or an inline `data:image/...` URL.
         // (startX, startY) is the TOP-LEFT corner; the pic is centered on the
         // group so mirror flips stay centered (same pattern as the PCB renderer).
-        const ref = typeof d.content === 'string' && d.content.startsWith('blob:') ? d.content
-          : typeof d.path === 'string' && d.path.startsWith('blob:') ? d.path : null;
-        const url = ref ? opened.blobs.get(ref.slice(5)) : undefined;
-        if (!url) return; // blob missing — nothing to draw
+        const url = objImageUrl(d);
+        if (!url) return; // missing image — nothing to draw
         const w = Number(d.width) || 0, h = Number(d.height) || 0;
         const pic = new LeaferImage({ url, width: w, height: h, x: -w / 2, y: -h / 2 });
         if (d.isMirror ?? d.mirror) pic.scaleX = -1;

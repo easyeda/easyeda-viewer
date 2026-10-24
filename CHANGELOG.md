@@ -4,6 +4,11 @@
 
 提交级细节见 git log 与 [docs/PRD.md](PRD.md) 的需求条目(`#tag` 可在 PRD 内全文检索)。
 
+## [Unreleased]
+
+### Fixed
+- **图框内联 OBJ 图片**(#obj-inline-image,用户反馈 MT3608 图框 logo 未显示):OBJ 的 `content`/`path` 此前只识别 `blob:` 引用,内联 `data:image/...`(如 Drawing-Symbol_A4 标题栏的嘉立创EDA logo)被忽略;现在两种来源都支持,符号内与页面级 OBJ 共用解析,并按记录 rotation 旋转。标题栏左下角的 logo 恢复显示。
+
 ## [0.6.1] - 2026-10-24
 
 ### Changed
