@@ -53,6 +53,11 @@ export function buildEprj3(
 
   // --- associate every .esch2/.epcb2/.epan2 file by DOCHEAD uuid ---
   const docFiles = [...files.keys()].filter((p) => /\.(esch2|epcb2|epan2|elib2)$/i.test(p));
+  // the .eprj3 file is only the project index: loading it alone yields an empty
+  // tree, so fail with the actual requirement (folder or packaged .zip)
+  if (!docFiles.length) {
+    throw new Error('.eprj3 只是工程索引，请加载完整工程文件夹，或将工程打包为 .zip 后加载');
+  }
   const uuidToPath = new Map<string, string>();
   for (const p of docFiles) {
     for (const [u] of fileUuids(files, p)) uuidToPath.set(u, p);

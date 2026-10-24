@@ -11,7 +11,9 @@ import (
 // Bindings called from JS. Empty string = user cancelled (or dialog failed,
 // in which case the frontend falls back to nothing — status bar shows no file).
 
-const openFilter = "EasyEDA 工程 (*.epro2;*.eprj3;*.esch2;*.epcb2;*.epan2;*.elib2;*.esym2;*.epru;*.zip)|*.epro2;*.eprj3;*.esch2;*.epcb2;*.epan2;*.elib2;*.esym2;*.epru;*.zip|所有文件 (*.*)|*.*"
+// `.eprj3` 只是工程索引，不能单独加载：请在“打开文件夹”中选择完整工程目录，
+// 或把工程打包为 .zip 后用“打开文件”加载。
+const openFilter = "EasyEDA 工程 (*.epro2;*.esch2;*.epcb2;*.epan2;*.elib2;*.esym2;*.epru;*.zip)|*.epro2;*.esch2;*.epcb2;*.epan2;*.elib2;*.esym2;*.epru;*.zip|所有文件 (*.*)|*.*"
 
 func openFileDialog() string {
 	path, err := openNativeFileDialog()
