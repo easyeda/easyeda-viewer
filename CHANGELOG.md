@@ -4,6 +4,11 @@
 
 提交级细节见 git log 与 [docs/PRD.md](PRD.md) 的需求条目(`#tag` 可在 PRD 内全文检索)。
 
+## [Unreleased]
+
+### Fixed
+- **Y-up 原理图的表格行方向**(#titleblock-yup,用户反馈 MT3608 工程图框表格上移):表格行按 `rowSizes` 从 `startY` 向下累加,而 Y-up 文档(eprj3 / 新存档)的 doc Y 向上、屏幕下方对应 Y 递减,原实现把整张表以 `startY` 为轴向上翻并抬高一个表高,标题栏落到页面中部;改为按坐标翻转方向选择行方向(Y-up 取负、Y-down 保持原方向),TABLE 的包围盒同步修正。MT3608 工程标题栏回到右下角,epro2 Y-down 页面路径不变。
+
 ## [0.6.0] - 2026-10-23
 
 ### Added

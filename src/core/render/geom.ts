@@ -347,7 +347,8 @@ export function objBBox(r: { type: string; data: any }, xf: Xf, local = false): 
       const th = (d.rowSizes ?? []).map(Number).reduce((a: number, b: number) => a + b, 0);
       if (tw > 0 && th > 0) {
         const [x1, y1] = P(Number(d.startX ?? 0), Number(d.startY ?? 0), xf);
-        const [x2, y2] = P(Number(d.startX ?? 0) + tw, Number(d.startY ?? 0) + th, xf);
+        const yEnd = Number(d.startY ?? 0) + (xf.flip ? -th : th); // rows grow toward screen-down
+        const [x2, y2] = P(Number(d.startX ?? 0) + tw, yEnd, xf);
         return bboxFromPts([[x1, y1], [x2, y2]]);
       }
       return null;

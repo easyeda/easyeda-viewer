@@ -473,7 +473,12 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     if (!cols.length || !rows.length) return;
     const x0 = Number(d.startX ?? 0), y0 = Number(d.startY ?? 0);
     const xs: number[] = [x0]; for (const c of cols) xs.push(xs[xs.length - 1] + c);
-    const ys: number[] = [y0]; for (const r of rows) ys.push(ys[ys.length - 1] + r);
+    // 行从 startY 向屏幕下方累加。Y-up 文档(eprj3/新存档)的 doc Y 向上,
+    // 屏幕下方对应 doc Y 递减,因此行尺寸要取负;Y-down(epro2)保持原方向。
+    // 否则整张表格会以 startY 为轴向上翻,标题栏整体抬高一个表高
+    // (#titleblock-yup,用户反馈 MT3608 工程图框表格上移)。
+    const rowDir = xfc.flip ? -1 : 1;
+    const ys: number[] = [y0]; for (const r of rows) ys.push(ys[ys.length - 1] + rowDir * r);
     const p0x = X(x0, xfc), p0y = Y(y0, xfc);
     // local coords relative to the table top-left so rotation pivots correctly
     const lx = (v: number) => X(v, xfc) - p0x;
