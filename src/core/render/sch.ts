@@ -111,6 +111,10 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   // screen-anchored in both conventions.
   const up = seg.canvas?.yAxisDirection === 'up';
   const xf = xfOf(seg.canvas, up);
+  // standalone symbol preview (library / .esym2): pin labels use the library's
+  // compact 7-unit text; some exports carry 9.72 and crowd the 10-unit pitch.
+  // Embedded symbols on project pages keep their calibrated sizes.
+  const symbolPreview = seg.docType === 'SYMBOL';
   const page = new Group({ name: 'page' });
   const byParent = indexAttrs(seg.recs);
   // page-level attributes used by the title-block table (both free attrs and border-component attrs)
@@ -335,8 +339,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
             if (!v.trim() || ad.valueVisible !== true) continue;
             if (typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
             const [lx, ly] = P(Number(ad.x), Number(ad.y), sxf);
+            const fs = symbolPreview ? Math.min(Number(ad.fontSize) || 8, 7) : (Number(ad.fontSize) || 8);
             const t = new Text({
-              text: v, fontSize: Number(ad.fontSize) || 8, fill: gray ? '#999999' : '#000000',
+              text: v, fontSize: fs, fill: gray ? '#999999' : '#000000',
               fontFamily: DEFAULT_FONT,
               textAlign: alignX(ad.align), verticalAlign: alignY(ad.align), autoSizeAlign: true,
             });
@@ -1210,8 +1215,9 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           const v = String(ad.value ?? '');
           if (!v.trim() || typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
           const [lx, ly] = P(Number(ad.x), Number(ad.y), xf);
+          const fs = symbolPreview ? Math.min(Number(ad.fontSize) || 8, 7) : (Number(ad.fontSize) || 8);
           const t = new Text({
-            text: v, fontSize: Number(ad.fontSize) || 8, fill: '#000000',
+            text: v, fontSize: fs, fill: '#000000',
             textAlign: alignX(ad.align), verticalAlign: alignY(ad.align), autoSizeAlign: true,
           });
           t.x = lx; t.y = ly;
