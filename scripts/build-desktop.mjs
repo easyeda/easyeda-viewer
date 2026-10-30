@@ -35,7 +35,13 @@ const outDir = resolve(root, 'desktop/build');
 mkdirSync(outDir, { recursive: true });
 // artifact name carries the version so multiple builds stay side by side
 const outName = `easyeda-viewer_v${version}.exe`;
+// Go 1.21 dropped Windows 7 support — pin the last Win7-capable toolchain so
+// the desktop exe keeps running on Win7 SP1 (with WebView2 109) as well as 10+.
+const GO_FOR_WIN7 = 'go1.20.14';
 sh('go', ['build', '-ldflags', `-s -w -H windowsgui -X main.version=${version} -X main.platform=windows`,
-  '-o', resolve(outDir, outName), '.'], { cwd: resolve(root, 'desktop'), env: { ...process.env, CGO_ENABLED: '1' } });
+  '-o', resolve(outDir, outName), '.'], {
+  cwd: resolve(root, 'desktop'),
+  env: { ...process.env, CGO_ENABLED: '1', GOTOOLCHAIN: process.env.GOTOOLCHAIN || GO_FOR_WIN7 },
+});
 
 console.log('done ->', resolve(outDir, outName));

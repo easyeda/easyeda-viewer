@@ -48,12 +48,21 @@ var (
 	shell32              = syscall.NewLazyDLL("shell32.dll")
 	advapi32             = syscall.NewLazyDLL("advapi32.dll")
 	procCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
+	procGetDeviceCaps    = gdi32.NewProc("GetDeviceCaps")
+	procGetDC            = user32.NewProc("GetDC")
+	procReleaseDC        = user32.NewProc("ReleaseDC")
+	procGetVersion       = kernel32.NewProc("GetVersion")
 	procGetDpiForWindow  = user32.NewProc("GetDpiForWindow")
 	procShellExecuteW    = shell32.NewProc("ShellExecuteW")
 	procRegOpenKeyExW    = advapi32.NewProc("RegOpenKeyExW")
 	procRegQueryValueExW = advapi32.NewProc("RegQueryValueExW")
 	procRegCloseKey      = advapi32.NewProc("RegCloseKey")
 )
+
+// procFound reports whether the DLL exports the API — Windows 7 lacks a few
+// Windows 10 entry points (DPI awareness), and calling a missing lazy proc
+// panics instead of failing gracefully.
+func procFound(p *syscall.LazyProc) bool { return p.Find() == nil }
 
 // mainHwnd is the top-level window handed to WebView2. It starts hidden so the
 // page never flashes a default-size window before SetSize/centering.
@@ -131,7 +140,9 @@ const hostBgColor = 0x00F3F0EE
 
 func createHostWindow(width, height int) unsafe.Pointer {
 	procCoInitializeEx.Call(0, uintptr(coInitApartmentThreaded))
-	procSetThreadDpiAwarenessCtx.Call(^uintptr(3)) // PER_MONITOR_AWARE_V3
+	if procFound(procSetThreadDpiAwarenessCtx) {
+		procSetThreadDpiAwarenessCtx.Call(^uintptr(3)) // PER_MONITOR_AWARE_V3 (Win10 1607+)
+	}
 
 	hInstance, _, _ := procGetModuleHandleW.Call(0)
 	className, _ := syscall.UTF16PtrFromString("eextViewerParent")
@@ -173,15 +184,32 @@ func createHostWindow(width, height int) unsafe.Pointer {
 // window before webview.NewWindow runs. w.SetSize in main.go re-applies the
 // same scale afterwards, so on matching DPI the visible frame never moves.
 func sizeAndShowHost(hwnd uintptr, width, height int) {
-	dpi, _, _ := procGetDpiForWindow.Call(hwnd)
-	if dpi == 0 {
-		dpi = 96
-	}
+	dpi := windowDPI(hwnd)
 	w := uintptr(int64(width) * int64(dpi) / 96)
 	h := uintptr(int64(height) * int64(dpi) / 96)
 	procSetWindowPos.Call(hwnd, 0, 0, 0, w, h, swpNoZOrder|swpNoActivate)
 	centerWindow(hwnd)
 	procShowWindow.Call(hwnd, uintptr(swShow))
+}
+
+// windowDPI uses the per-window DPI on Windows 10+ and falls back to the
+// system DPI from the display DC on Windows 7 (GetDpiForWindow is 1607+).
+func windowDPI(hwnd uintptr) uintptr {
+	if procFound(procGetDpiForWindow) {
+		if dpi, _, _ := procGetDpiForWindow.Call(hwnd); dpi != 0 {
+			return dpi
+		}
+	}
+	hdc, _, _ := procGetDC.Call(0)
+	if hdc == 0 {
+		return 96
+	}
+	dpi, _, _ := procGetDeviceCaps.Call(hdc, 88) // LOGPIXELSX
+	procReleaseDC.Call(0, hdc)
+	if dpi == 0 {
+		return 96
+	}
+	return dpi
 }
 
 // prepareWebView2Env pins the WebView2 profile to %LOCALAPPDATA% and trims
@@ -347,10 +375,18 @@ func regPvPresent(root uintptr, path string) bool {
 	return typ == rrtRegSz
 }
 
+// isWindows7 reports the legacy OS via GetVersion (6.1). Windows 8+ without an
+// app manifest also reports 6.2, which is fine: only the Win7 branch matters.
+func isWindows7() bool {
+	v, _, _ := procGetVersion.Call()
+	major, minor := v&0xff, (v>>8)&0xff
+	return major == 6 && minor == 1
+}
+
 // promptWebView2Download shows the native "runtime missing" dialog. The OK
-// button (labelled 确定 in the message: 点击下载) opens Microsoft's official
-// Evergreen WebView2 download link in the default browser; Cancel just closes
-// the dialog. Returns true when the download page was opened.
+// button (labelled 确定 in the message: 点击下载) opens the download page; Cancel
+// just closes the dialog. Win7 gets the version-109 guidance, because newer
+// Evergreen runtimes no longer support it. Returns true when a page was opened.
 func promptWebView2Download() bool {
 	const (
 		mbOKCANCEL = 0x1
@@ -358,21 +394,28 @@ func promptWebView2Download() bool {
 		idOK       = 1
 		swShownorm = 1
 	)
-	text, _ := syscall.UTF16PtrFromString(
-		"未检测到 Microsoft WebView2 运行时,无法显示界面。\n\n" +
-			"点击「确定(下载)」在浏览器中打开微软官方 WebView2 下载地址,\n" +
-			"安装完成后重新运行本程序;点击「取消」关闭此弹窗。")
+	msg := "未检测到 Microsoft WebView2 运行时,无法显示界面。\n\n" +
+		"点击「确定(下载)」在浏览器中打开微软官方 WebView2 下载地址,\n" +
+		"安装完成后重新运行本程序;点击「取消」关闭此弹窗。"
+	url := "https://go.microsoft.com/fwlink/p/?LinkId=2124703" // Evergreen bootstrapper
+	if isWindows7() {
+		msg = "未检测到 Microsoft WebView2 运行时,无法显示界面。\n\n" +
+			"Windows 7 仅支持 WebView2 运行时 109(109 是最后一个支持 Win7 的版本),\n" +
+			"请先安装 WebView2 109 x64 运行时,再重新运行本程序。\n\n" +
+			"点击「确定(下载)」打开微软 WebView2 下载页;点击「取消」关闭此弹窗。"
+		url = "https://developer.microsoft.com/microsoft-edge/webview2/"
+	}
+	text, _ := syscall.UTF16PtrFromString(msg)
 	caption, _ := syscall.UTF16PtrFromString("EasyEDA 查看器")
 	ret, _, _ := procMessageBoxW.Call(0,
 		uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(caption)), mbOKCANCEL|mbIconWarn)
 	if int(ret) != idOK {
 		return false // 取消 — close the dialog (the caller exits, webview cannot run)
 	}
-	// official Evergreen Bootstrapper fwlink from the WebView2 download page
-	url, _ := syscall.UTF16PtrFromString("https://go.microsoft.com/fwlink/p/?LinkId=2124703")
+	u, _ := syscall.UTF16PtrFromString(url)
 	verb, _ := syscall.UTF16PtrFromString("open")
 	procShellExecuteW.Call(0, uintptr(unsafe.Pointer(verb)),
-		uintptr(unsafe.Pointer(url)), 0, 0, swShownorm)
+		uintptr(unsafe.Pointer(u)), 0, 0, swShownorm)
 	return true
 }
 

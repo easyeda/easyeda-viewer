@@ -4,6 +4,11 @@
 
 提交级细节见 git log 与 [docs/PRD.md](PRD.md) 的需求条目(`#tag` 可在 PRD 内全文检索)。
 
+## [Unreleased]
+
+### Changed
+- **Windows 7 桌面版兼容**(#win7):桌面壳改用 Go 1.20.14 工具链构建(Go 1.21 起不再支持 Win7),Win7 SP1 x64 需安装 WebView2 109(最后一个支持 Win7 的运行时),缺失时弹窗按 Win7 文案提示并跳转下载页;Win10/11 仍用 Evergreen 运行时。`SetThreadDpiAwarenessContext` / `GetDpiForWindow` 等 Win10 专属 API 改为运行时探测,Win7 回退 `GetDeviceCaps(LOGPIXELSX)` 取 DPI,避免启动崩溃。
+
 ## [0.7.0] - 2026-10-30
 
 ### Added

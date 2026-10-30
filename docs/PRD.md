@@ -292,14 +292,15 @@ iframe/postMessage 协议(`src/main.ts` 内置桥,**已实现**;消息均带 `so
 
 | ID | 需求 | 优先级 |
 | --- | --- | --- |
-| FR-9.1 | 单个自包含 `.exe`(Windows amd64,约 7 MB):`//go:embed` 内嵌单文件查看器,本机 127.0.0.1 随机端口 HTTP 服务加载,免安装、免联网 | P0 |
+| FR-9.1 | 单个自包含 `.exe`(Windows 7 SP1 / 10 / 11 amd64,约 6 MB):`//go:embed` 内嵌单文件查看器,本机 127.0.0.1 随机端口 HTTP 服务加载,免安装、免联网 | P0 |
 | FR-9.2 | 原生能力桥接(webview Bind):`openFileDialog` / `openFolderDialog`(Win32 通用对话框,STA 线程)、`readProjectFiles`(文件/整个 .eprj3 目录 → base64 JSON);无桥接环境自动回退 `<input type=file>` | P0 |
 | FR-9.3 | 拖放本地工程文件进窗口可直接打开(WebView2 原生 File 支持) | P0 |
 | FR-9.4 | 构建:`node scripts/build-desktop.mjs`(vite 打包 → 复制到 `desktop/dist` → windres 编译资源 → `go build -H windowsgui`),产物 **`desktop/build/easyeda-viewer_v{version}.exe`**(版本号取自 package.json,与 `-ldflags main.version` 同源,v0.2.3 起带版本后缀);`desktop/` 跨平台骨架(Win32 完整,macOS/Linux 用 osascript/zenity 对话框) | P1 |
 | FR-9.5 | exe 资源:`versioninfo.rc` 提供文件属性(版本号、作者、版权、中文描述,UTF-8 资源编译;版本号与 package.json 同步)与 EasyEDA 云朵 ICON(256/32px ICO);资源提交 `rsrc_windows_amd64.syso` 兜底(无 windres 环境可直接构建) | P0 |
 | FR-9.6 | **窗口标题栏**:`EasyEDA 查看器 - v{version}`(Win32 宿主窗口与 webview SetTitle 双处一致) | P0 |
-| FR-9.7 | **WebView2 运行时缺失提示**(v0.2.3):启动时按官方检测方式查 EdgeUpdate\Clients\{F3017226-…} 注册表键(HKLM×2 视图 / HKCU)的 `pv` 值;缺失时弹原生对话框——「确定(下载)」经 ShellExecute 用系统浏览器打开微软官方 Evergreen Bootstrapper 地址(fwlink 2124703),「取消」关闭弹窗;两条路径均退出程序(装好后重跑) | P0 |
+| FR-9.7 | **WebView2 运行时缺失提示**(v0.2.3):启动时按官方检测方式查 EdgeUpdate\Clients\{F3017226-…} 注册表键(HKLM×2 视图 / HKCU)的 `pv` 值;缺失时弹原生对话框——「确定(下载)」经 ShellExecute 用系统浏览器打开微软官方 Evergreen Bootstrapper 地址(fwlink 2124703);**Win7**(GetVersion 6.1)改为提示安装 WebView2 109(最后一个支持 Win7 的版本)并打开 WebView2 下载页,「取消」关闭弹窗;两条路径均退出程序(装好后重跑) | P0 |
 | FR-9.8 | **启动提速**(v0.2.4):宿主窗口在 webview.NewWindow(阻塞的 WebView2 环境/控制器创建,冷启动 ~4s)之前即按 DPI 换算的最终尺寸居中显示,背景刷与界面 `--ev-bg` 同色(空窗口可见,渲染就绪后由 webview_widget 覆盖);WebView2 用户数据目录固定到 `%LOCALAPPDATA%\EasyEDAViewer\WebView2`(WEBVIEW2_USER_DATA_FOLDER,避免加载器默认 exe 旁目录被杀软逐次重扫,profile 跨启动复用);注入 `--no-first-run --no-default-browser-check --disable-background-networking`(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS);NewWindow 关闭 debug(不启用 DevTools);启动链各阶段打 `[t+…]` 计时日志 | P0 |
+| FR-9.9 | **Windows 7 兼容**(Unreleased #win7):桌面壳用 Go 1.20.14 构建(Go 1.21 起不再支持 Win7);Win10 专属 API(`SetThreadDpiAwarenessContext` / `GetDpiForWindow`)运行时探测,缺失时回退 `GetDeviceCaps(LOGPIXELSX)`;目标机 Win7 SP1 x64 + KB2999226(UCRT)+ WebView2 109 | P0 |
 
 ---
 
