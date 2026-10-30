@@ -22,7 +22,7 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro / 嘉立创EDA专业
 - **Modern UI**: dark/light themes, Chinese/English bilingual UI, resizable and hideable panels.
 - **Embeddable API**: `createViewer` JS API plus `postMessage` protocol for integration into third-party pages.
 - **Project annotations**: text, rectangle and circle annotations with replies, status, edit/drag and global visibility. Data is imported/exported through the JS API; see the [viewer integration API](docs/easyeda-viewer-api.md) and [annotation tests](qa/annotations/README.md).
-- **Optional desktop app**: install-free Windows executable (Go + WebView2, ~6 MB) with native dialogs and drag-and-drop. Supports Windows 10/11; Windows 7 SP1 x64 needs WebView2 109 (the last runtime supporting Win7).
+- **Optional desktop app**: install-free Windows executable (Go + WebView2, ~6–7 MB) with native dialogs and drag-and-drop. Supports Windows 10/11; Windows 7 SP1 x64 needs WebView2 109 (the last runtime supporting Win7).
 
 > Note: this project is a **read-only viewer**. It does not support editing, saving, DRC/ERC, BOM, 3D view, Gerber export etc.
 
@@ -200,9 +200,12 @@ Append to `dist/index.html` or the iframe `src`:
 
 The `desktop/` directory contains an install-free Windows executable built with Go + [webview_go](https://github.com/webview/webview_go). It embeds `dist/index.html` and serves it over a local HTTP endpoint.
 
-Build output: `desktop/build/easyeda-viewer.exe` (~6 MB, requires the host WebView2 runtime).
+Build outputs (two variants, both require the host WebView2 runtime):
 
-**Windows 7 support**: the exe is built with Go 1.20.14 (Go 1.21 dropped Win7). The target must run Windows 7 SP1 x64 with the Universal C Runtime (KB2999226) and **WebView2 109** (the last runtime supporting Win7; newer Evergreen runtimes do not run there). When missing, the app shows a Win7-specific prompt and opens the download page. Windows 10/11 keeps using the regular Evergreen runtime.
+- `desktop/build/easyeda-viewer_v{version}.exe` — standard build (current Go toolchain) for Windows 10/11, ~7 MB
+- `desktop/build/easyeda-viewer_win7_v{version}.exe` — Windows 7 build, ~6 MB
+
+**Windows 7 support**: the `_win7_` build uses Go 1.20.14 (Go 1.21 dropped Win7). The target must run Windows 7 SP1 x64 with the Universal C Runtime (KB2999226) and **WebView2 109** (the last runtime supporting Win7; newer Evergreen runtimes do not run there). When missing, the app shows a Win7-specific prompt and opens the download page. Windows 10/11 keeps using the regular Evergreen runtime.
 
 ### Build the desktop app
 

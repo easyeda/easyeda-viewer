@@ -22,7 +22,7 @@
 - **现代 UI**：深色 / 浅色双主题、中 / 英双语界面、可拖拽调整 / 隐藏各面板。
 - **可嵌入 API**：`createViewer` JS API + `postMessage` 协议，方便集成到第三方页面。
 - **工程批注**：文字、矩形框、圆形框、回复、处理状态、编辑拖动和全局显隐。批注随图纸缩放，数据通过 JS API 导入导出。集成方式见 [查看器集成 API](docs/easyeda-viewer-api.md)，测试见 [批注回归测试](qa/annotations/README.md)。
-- **可选桌面版**：Windows 免安装可执行文件（Go + WebView2，约 6 MB），支持原生对话框与拖放打开。支持 Windows 10/11；Windows 7 SP1 x64 需安装 WebView2 109（最后一个支持 Win7 的运行时）。
+- **可选桌面版**：Windows 免安装可执行文件（Go + WebView2，约 6–7 MB），支持原生对话框与拖放打开。支持 Windows 10/11；Windows 7 SP1 x64 需安装 WebView2 109（最后一个支持 Win7 的运行时）。
 
 > 注意：工程本身保持只读，不支持电路编辑、工程保存、DRC/ERC、BOM、3D 视图、Gerber 导出。批注是独立数据，由 DM 保存，不写回工程文件。
 
@@ -198,9 +198,12 @@ viewer.destroy();
 
 `desktop/` 目录下是一个基于 Go + [webview_go](https://github.com/webview/webview_go) 的免安装 Windows 可执行文件，内嵌 `dist/index.html`，通过本地 HTTP 服务加载。
 
-构建产物：`desktop/build/easyeda-viewer.exe`（约 6 MB，依赖本机 WebView2 运行时）。
+构建产物（两个版本，均依赖本机 WebView2 运行时）：
 
-**Windows 7 支持**：exe 使用 Go 1.20.14 构建（Go 1.21 起不再支持 Win7）。目标机需为 Windows 7 SP1 x64，已安装通用 C 运行时（KB2999226）与 **WebView2 109**（109 是微软最后一个支持 Win7 的版本，之后的 Evergreen 运行时在 Win7 上不可用）；缺失时会弹窗提示并跳转下载页。Windows 10/11 使用常规 Evergreen 运行时。
+- `desktop/build/easyeda-viewer_v{version}.exe` — 标准版（当前 Go 工具链），用于 Windows 10/11，约 7 MB
+- `desktop/build/easyeda-viewer_win7_v{version}.exe` — Windows 7 版，约 6 MB
+
+**Windows 7 支持**：`_win7_` 版本使用 Go 1.20.14 构建（Go 1.21 起不再支持 Win7）。目标机需为 Windows 7 SP1 x64，已安装通用 C 运行时（KB2999226）与 **WebView2 109**（109 是微软最后一个支持 Win7 的版本，之后的 Evergreen 运行时在 Win7 上不可用）；缺失时会弹窗提示并跳转下载页。Windows 10/11 使用常规 Evergreen 运行时。
 
 ### 构建桌面版
 
