@@ -338,7 +338,7 @@ export function objBBox(r: { type: string; data: any }, xf: Xf, local = false): 
     case 'TEARDROP': if (Array.isArray(d.path)) for (const it of Array.isArray(d.path[0]) ? d.path : [d.path]) collectPathPts(it, raw); break;
     case 'COMPONENT': raw.push(pt(d.x, d.y)); break;
     case 'CIRCLE': case 'ELLIPSE': {
-      const c = P(Number(d.centerX ?? 0), Number(d.centerY ?? 0), xf);
+      const c = P(Number(d.centerX ?? d.x ?? 0), Number(d.centerY ?? d.y ?? 0), xf);
       const rad = Math.max(Math.abs(Number(d.radius ?? d.radiusX ?? 0)), Math.abs(Number(d.radius ?? d.radiusY ?? 0))) || 2;
       return expand(bboxFromPts([c])!, rad + 1);
     }

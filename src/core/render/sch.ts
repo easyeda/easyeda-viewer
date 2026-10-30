@@ -1186,9 +1186,16 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         break;
       }
       case 'ELLIPSE': case 'OVAL': {
-        const cx = X(d.x ?? 0, xf), cy = Y(d.y ?? 0, xf);
+        // standalone symbol docs render through this page-level switch, where
+        // ELLIPSE records carry centerX/centerY (radiusY may be signed); the
+        // previous x/y-only lookup dropped them onto the symbol origin (#ellipse-origin)
+        const cx = X(Number(d.centerX ?? d.x ?? 0), xf), cy = Y(Number(d.centerY ?? d.y ?? 0), xf);
+        const rx = Math.abs(Number(d.radiusX ?? d.radius ?? 5)) || 5;
+        const ry = Math.abs(Number(d.radiusY ?? d.radius ?? 5)) || 5;
         node = new Group();
-        node.add(new Ellipse({ x: cx - (d.radiusX ?? 5), y: cy - (d.radiusY ?? 5), width: (d.radiusX ?? 5) * 2, height: (d.radiusY ?? 5) * 2, stroke: strokeOf(d, '#000000'), strokeWidth: widthOf(d, 1), fill: fillOf(d, null) }));
+        const e = new Ellipse({ x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2, stroke: strokeOf(d, '#000000'), strokeWidth: widthOf(d, 1), fill: fillOf(d, null) });
+        if (d.rotation) e.rotation = ang(Number(d.rotation), xf);
+        node.add(e);
         break;
       }
       case 'PIN': {
