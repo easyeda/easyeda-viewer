@@ -512,6 +512,15 @@ export class Shell {
     return this.leftForced !== null ? this.leftForced && this.docLoaded : this.docLoaded;
   }
 
+  /** library-only preview: the project-level component tree has nothing to list,
+   *  so the left column shows just the library document tree (#elibz2-tree) */
+  private libraryPreview(): boolean {
+    if (!this.model) return false;
+    if (this.model.format === 'elibz2') return true;
+    return this.model.format === 'single-doc'
+      && [...this.model.files.keys()].some((p) => /\.(elib2|elibu)$/i.test(p));
+  }
+
   private rightVisible(): boolean {
     const useful = !!this.selected || this.layers.length > 0;
     return this.rightForced !== null ? this.rightForced && this.docLoaded : this.docLoaded && useful;
@@ -526,6 +535,10 @@ export class Shell {
     this.toolbarEl.classList.toggle('ev-hidden', !this.flags.toolbar);
     this.leftEl.classList.toggle('ev-hidden', !this.leftVisible());
     (this.el.querySelector('.ev-resize[data-side="left"]') as HTMLElement).classList.toggle('ev-hidden', !this.leftVisible());
+    // library previews hide the empty component tree and its divider (#elibz2-tree)
+    const libOnly = this.libraryPreview();
+    (this.el.querySelector('.ev-pane-objects') as HTMLElement).classList.toggle('ev-hidden', libOnly);
+    (this.el.querySelector('.ev-split[data-sp="left"]') as HTMLElement).classList.toggle('ev-hidden', libOnly);
     this.rightEl.classList.toggle('ev-hidden', !this.rightVisible());
     (this.el.querySelector('.ev-resize[data-side="right"]') as HTMLElement).classList.toggle('ev-hidden', !this.rightVisible());
     this.statusEl.classList.toggle('ev-hidden', !this.flags.status);
