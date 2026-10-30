@@ -6,6 +6,9 @@
 
 ## [Unreleased]
 
+### Added
+- **`.elibz2` 库文件预览**(#elibz2):支持嘉立创EDA专业版库包（ZIP，内含 `.elibu` 记录流）:自动解包并建立 Library → 符号 / 封装 文档树,符号与封装可直接打开预览;文件选择器与桌面版对话框补充 `.elibz2` 过滤,欢迎页与状态栏同步说明。
+
 ### Fixed
 - **图框内联 OBJ 图片**(#obj-inline-image,用户反馈 MT3608 图框 logo 未显示):OBJ 的 `content`/`path` 此前只识别 `blob:` 引用,内联 `data:image/...`(如 Drawing-Symbol_A4 标题栏的嘉立创EDA logo)被忽略;现在两种来源都支持,符号内与页面级 OBJ 共用解析,并按记录 rotation 旋转。标题栏左下角的 logo 恢复显示。
 

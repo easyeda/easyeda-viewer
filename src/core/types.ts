@@ -92,7 +92,7 @@ export interface TreeNode {
 
 export interface ProjectModel {
   name: string;
-  format: 'eprj3' | 'epro2' | 'single-doc';
+  format: 'eprj3' | 'epro2' | 'single-doc' | 'elibz2';
   /** path -> raw bytes of each source file (parsed lazily per file) */
   files: Map<string, Uint8Array>;
   tree: TreeNode[];

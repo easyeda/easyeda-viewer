@@ -115,7 +115,7 @@ MyProject/
 ### 3.4 输入通道(全部 P0,除非注明)
 
 1. **拖放**:拖文件进画布;拖**文件夹**(eprj3 目录,经 `webkitGetAsEntry` 递归读取)——`file://` 双击打开场景的核心通道。
-2. **文件选择器**:按钮/点击空画布,`<input type=file>`(过滤器只列受支持后缀:`.eprj3/.epro2/.esch2/.epcb2/.epan2/.elib2/.epru/.esym2/.zip`,不含 `.efp2`);支持选择整个文件夹(`<input webkitdirectory>`)。
+2. **文件选择器**:按钮/点击空画布,`<input type=file>`(过滤器只列受支持后缀:`.epro2/.elibz2/.esch2/.epcb2/.epan2/.elib2/.epru/.esym2/.zip`,不含 `.efp2`);支持选择整个文件夹(`<input webkitdirectory>`)。
 3. **ZIP 工程包**:拖入打包成 zip 的工程目录(fflate 解压,`file://` 可用)。
 4. **嵌入 API**:宿主页面通过 JS API 传 `File`/`Blob`/`ArrayBuffer`/文件名(iframe 场域用 postMessage 传 `Blob` 副本或分块 ArrayBuffer)。
 5. URL 参数 `?file=<url>` 拉取同源/CORS 允许的文档(**已实现**,仅 http(s) 环境;桌面壳与 QA 均使用)。
@@ -150,6 +150,7 @@ MyProject/
 | FR-1.4 | 多页原理图:图页作为原理图节点的子项在文档树中展开切换;**画布顶部图页 Tab 条为 P1 计划**(RA6E2 样本每原理图仅 1 页,暂以树切换覆盖) | P0(树)/P1(Tab) |
 | FR-1.5 | 文档树与对象树均带搜索过滤框(按名称/id 即时过滤) | P0 |
 | FR-1.6 | 加载失败给出明确诊断面板:文件类型判定结果、缺失文件、损坏行号;**`.eprj3` 索引文件单独加载**(v0.6.1 #eprj3-folder-only):`.eprj3` 只是工程索引,文件选择器不再过滤该后缀,拖入单个索引文件时明确报错,要求选择完整工程文件夹或将工程打包为 `.zip` | P0 |
+| FR-1.7 | **库文件预览**(Unreleased #elibz2):支持嘉立创EDA专业版库包 `.elibz2`(ZIP,内含 `.elibu` 记录流与 `device2.json`/`footprint2.json`):自动解包并从 `.elibu` 建立文档树,按 Library → 符号 / 封装 分组(按标题自然排序),符号与封装可直接打开渲染;文件选择器与桌面版对话框补充 `.elibz2` 过滤,欢迎页/状态栏同步说明 | P1 |
 
 ### 4.2 FR-2 对象树与定位联动
 

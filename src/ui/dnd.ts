@@ -167,7 +167,7 @@ async function bridgeLoad(dialog: 'openFileDialog' | 'openFolderDialog'): Promis
 /** open native file picker (multiple, filtered extensions).
  *  `.eprj3` is intentionally absent: that file is only the project index —
  *  load the whole folder (pickFolder) or a packaged .zip instead. */
-export function pickFiles(accept = '.epro2,.esch2,.epcb2,.epan2,.elib2,.epru,.esym2,.zip'): Promise<File[]> {
+export function pickFiles(accept = '.epro2,.elibz2,.esch2,.epcb2,.epan2,.elib2,.epru,.esym2,.zip'): Promise<File[]> {
   if (desktopBridge()) return bridgeLoad('openFileDialog');
   return new Promise((resolve) => {
     const input = document.createElement('input');

@@ -7,7 +7,7 @@ import { collectOpenables } from '../model';
 import { isZip, zipToFileMap } from './zip';
 import { isEprj3, buildEprj3 } from './eprj3';
 import { isEpro2, buildEpro2 } from './epro2';
-import { isSingleDoc, buildSingle, RECORD_FILE_RE } from './single';
+import { isSingleDoc, buildSingle, buildElibz2, LIBRARY_ARCHIVE_RE, RECORD_FILE_RE } from './single';
 
 export interface LoadInput {
   /** browser File objects with optional webkitRelativePath */
@@ -30,7 +30,7 @@ export async function filesToMap(files: File[]): Promise<Map<string, Uint8Array>
 export function expandZips(map: Map<string, Uint8Array>): Map<string, Uint8Array> {
   const out = new Map(map);
   // each round expands one nesting level; depth cap guards against zip bombs
-  let frontier = [...out.entries()].filter(([, b]) => isZip(b));
+  let frontier = [...out.entries()].filter(([name, b]) => isZip(b) && !LIBRARY_ARCHIVE_RE.test(name));
   for (let depth = 0; frontier.length && depth < 5; depth++) {
     const next: [string, Uint8Array][] = [];
     for (const [name, bytes] of frontier) {
@@ -47,7 +47,7 @@ export function expandZips(map: Map<string, Uint8Array>): Map<string, Uint8Array
         // avoid clobbering when zip root equals an existing path
         const key = out.has(p) ? `${base}/${p}` : p;
         out.set(key, b);
-        if (isZip(b)) next.push([key, b]);
+        if (isZip(b) && !LIBRARY_ARCHIVE_RE.test(key)) next.push([key, b]);
       }
     }
     frontier = next;
@@ -55,10 +55,14 @@ export function expandZips(map: Map<string, Uint8Array>): Map<string, Uint8Array
   return out;
 }
 
-const ARCHIVE_RE = /\.(zip|epro2)$/i;
+const ARCHIVE_RE = /\.(zip|epro2|elibz2)$/i;
 
 export function loadFromMap(input: Map<string, Uint8Array>): ProjectModel {
   const files = expandZips(input);
+  // packaged library archives stay intact through expandZips (their inner
+  // .elibu name is not meaningful to the user) — build the model from the zip
+  const library = [...files.entries()].find(([name, bytes]) => LIBRARY_ARCHIVE_RE.test(name) && isZip(bytes));
+  if (library) return finish(buildElibz2(library[0], library[1]));
   // keep blobs (webp/images) out of doc detection but retain for renderers
   if (isEprj3(files)) return finish(buildEprj3(files));
   if (isEpro2(files)) return finish(buildEpro2(files));
@@ -67,7 +71,7 @@ export function loadFromMap(input: Map<string, Uint8Array>): ProjectModel {
   // truncated download, unsupported layout) — report IT instead of a generic format error
   const stuck = [...files.keys()].find((p) => ARCHIVE_RE.test(p));
   if (stuck) throw new Error(`压缩包读取失败:${stuck}（文件可能未完整下载或已损坏,请重新导出后重试）`);
-  throw new Error('无法识别的工程格式（支持 .eprj3 目录/.zip、.epro2、单个 .esch2/.epcb2/.epan2/.epru）');
+  throw new Error('无法识别的工程格式（支持 .eprj3 目录/.zip、.epro2、.elibz2、单个 .esch2/.epcb2/.epan2/.elibu/.epru）');
 }
 
 /** convenience for File[] inputs */

@@ -16,7 +16,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const EPRJ3_DIR = path.join(root, 'samples/RA6E2-eprj3'); // folder-form project (index + doc files)
 const EPRO2 = path.join(root, 'samples/RA6E2-epro2/RA6E2.epro2');
+const ELIBZ2 = path.join(root, 'samples/library/device-10pcs.elibz2');
 const hasSamples = existsSync(EPRJ3_DIR) && existsSync(EPRO2);
+const hasLibrary = existsSync(ELIBZ2);
 
 function zipToMap(file: string): Map<string, Uint8Array> {
   return new Map([[path.basename(file), new Uint8Array(readFileSync(file))]]);
@@ -166,5 +168,29 @@ describe.skipIf(!hasSamples)('single .esch2 fallback', () => {
     const m2 = loadFromMap(alone);
     expect(m2.format).toBe('single-doc');
     expect(m2.openables.size).toBeGreaterThan(0);
+  });
+});
+
+describe.skipIf(!hasLibrary)('elibz2 library archive', () => {
+  const model = loadFromMap(zipToMap(ELIBZ2)) as ProjectModel;
+
+  it('unpacks the archive and builds a library tree', () => {
+    expect(model.format).toBe('elibz2');
+    expect(model.name).toBe('device-10pcs');
+    expect(model.openables.size).toBeGreaterThanOrEqual(10);
+    const kinds = new Set<string>();
+    const walk = (ns: typeof model.tree) => ns.forEach((n) => { kinds.add(n.kind); if (n.children) walk(n.children); });
+    walk(model.tree);
+    expect(kinds.has('libGroup')).toBe(true);
+    expect(kinds.has('lib')).toBe(true);
+  });
+
+  it('opens symbols and footprints from the embedded .elibu stream', () => {
+    const types = new Set([...model.openables.values()].map((n) => n.docType));
+    expect(types.has('SYMBOL')).toBe(true);
+    expect(types.has('FOOTPRINT')).toBe(true);
+    for (const n of [...model.openables.values()].slice(0, 5)) {
+      expect(() => openDoc(model, n)).not.toThrow();
+    }
   });
 });

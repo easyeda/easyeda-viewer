@@ -79,7 +79,7 @@ api.onChange(({ data }) => saveAnnotations(data));
 `loadProject(files, options)` 接收 `FileList` 或 `File[]`，返回 `Snapshot`。
 
 - `.eprj3` 文件夹工程必须包含工程描述和全部图纸文件，保留相对路径。
-- 也支持 `.epro2`、ZIP 工程包和单个 `.esch2` / `.epcb2` / `.epan2` / `.esym2` 文档。
+- 也支持 `.epro2`、ZIP 工程包、`.elibz2` 库文件（预览其中的符号 / 封装）和单个 `.esch2` / `.epcb2` / `.epan2` / `.esym2` 文档。
 - 同一时间只加载一个工程；加载、切图、批注修改不要并发调用。
 - 源码集成也可用 `viewer.loadMap(path → Uint8Array)` 加载已读取的文件；批注场景建议用 `loadProject`，以便绑定工程 ID 和用户。
 

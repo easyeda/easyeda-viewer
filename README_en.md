@@ -15,6 +15,7 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro / 嘉立创EDA专业
   - `.eprj3` folder projects (also accepts the folder packaged as `.zip`)
   - `.epro2` single-file projects (standard ZIP container), including **reuse-block / CBB projects** (`cbb_project`)
   - Single documents: `.esch2`, `.epcb2`, `.epan2`, `.esym2`, `.epru`
+  - Library archives: `.elibz2` (EasyEDA Pro library package; preview symbols and footprints)
 - **Complete preview**: project tree, object tree, properties panel, and LeaferJS canvas rendering for schematics, PCBs, and panels.
 - **Visual fidelity**: pixel-level regression against official client PNG exports (sheet frames/title blocks, power-symbol orientation, net-label placement, PCB round-cap strokes, pour/drill layering — all aligned with the client).
 - **Two-way locate**: click an object-tree node to center it on canvas; click a canvas primitive to highlight the corresponding tree node.
@@ -48,6 +49,7 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro / 嘉立创EDA专业
 | `.epcb2` | Single PCB document |
 | `.epan2` | Single panel document |
 | `.esym2` | Single symbol document |
+| `.elibz2` | EasyEDA Pro library archive (ZIP with an `.elibu` record stream): preview symbols and footprints |
 | `.epru` | Project record stream (commonly found inside `.epro2`) |
 
 
@@ -75,7 +77,7 @@ npm run build
 
 Open `dist/index.html`:
 
-- **Double-click**: drag an `.eprj3` folder, `.epro2`, `.zip`, or single document onto the canvas.
+- **Double-click**: drag an `.eprj3` folder, `.epro2`, `.zip`, `.elibz2`, or single document onto the canvas.
 - **HTTP serve**: append `?file=<url>` to load a same-origin or CORS-allowed file (only works in http(s) environments).
 
 ### 2. Development server
