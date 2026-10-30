@@ -45,6 +45,14 @@ export function buildElibz2(archivePath: string, bytes: Uint8Array): ProjectMode
   const files = new Map(entries.map((e) => [e.name, e.data]));
   const segs = getSegments(lib.name, lib.data);
   const tree = buildTreeFromSegments(lib.name, segs);
+  // library-only preview: open Library and its 符号 / 封装 groups up front
+  const expandLibrary = (nodes: TreeNode[]): void => {
+    for (const n of nodes) {
+      if (n.kind === 'libGroup') n.expanded = true;
+      if (n.children) expandLibrary(n.children);
+    }
+  };
+  expandLibrary(tree);
   return {
     name: displayName(archivePath),
     format: 'elibz2',

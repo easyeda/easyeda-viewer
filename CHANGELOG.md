@@ -9,6 +9,9 @@
 ### Added
 - **`.elibz2` 库文件预览**(#elibz2):支持嘉立创EDA专业版库包（ZIP，内含 `.elibu` 记录流）:自动解包并建立 Library → 符号 / 封装 文档树,符号与封装可直接打开预览;文件选择器与桌面版对话框补充 `.elibz2` 过滤,欢迎页与状态栏同步说明。
 
+### Changed
+- **库包预览自动展开文档树**(#elibz2-tree-expand):仅预览 `.elibz2` 库包时,Library 与 符号 / 封装 分组默认展开,打开后即可直接看到全部条目;工程（`.eprj3` / `.epro2`）的默认展开规则不变。
+
 ### Fixed
 - **库符号预览的引脚标签字号**(#symbol-pin-font,用户反馈 elibz2 符号预览字号偏大):独立符号预览（`.elibz2` 库 / `.esym2`）把 `Pin Name` / `Pin Number` 字号上限设为 7（库符号常用字号）;部分库记录写 9.72,在 10 单位引脚间距下会贴近引脚线并与相邻标签粘连。工程图纸内嵌符号的已校准字号不变。
 - **图框内联 OBJ 图片**(#obj-inline-image,用户反馈 MT3608 图框 logo 未显示):OBJ 的 `content`/`path` 此前只识别 `blob:` 引用,内联 `data:image/...`(如 Drawing-Symbol_A4 标题栏的嘉立创EDA logo)被忽略;现在两种来源都支持,符号内与页面级 OBJ 共用解析,并按记录 rotation 旋转。标题栏左下角的 logo 恢复显示。

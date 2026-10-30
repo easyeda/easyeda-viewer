@@ -87,6 +87,8 @@ export interface TreeNode {
   uuid?: string;
   /** key into ProjectModel.files */
   fileKey?: string;
+  /** open this tree branch by default (library-preview groups) */
+  expanded?: boolean;
   children?: TreeNode[];
 }
 

@@ -150,7 +150,8 @@ export class DocTreeView {
       };
       // searching auto-expands; by default only the board and its schematic
       // containers start open — PCB / panel / library / simulation stay collapsed
-      let open = !!this.query || node.kind === 'schematic' || (forceOpen && node.kind === 'board');
+      // unless the node is flagged (`expanded`, used by library-only previews)
+      let open = node.expanded === true || !!this.query || node.kind === 'schematic' || (forceOpen && node.kind === 'board');
       setOpen(open);
       tw!.onclick = (e) => {
         e.stopPropagation();

@@ -185,6 +185,17 @@ describe.skipIf(!hasLibrary)('elibz2 library archive', () => {
     expect(kinds.has('lib')).toBe(true);
   });
 
+  it('flags library groups to open by default in the tree', () => {
+    const flags: boolean[] = [];
+    const walk = (ns: typeof model.tree) => ns.forEach((n) => {
+      if (n.kind === 'libGroup') flags.push(n.expanded === true);
+      if (n.children) walk(n.children);
+    });
+    walk(model.tree);
+    expect(flags.length).toBeGreaterThan(0);
+    expect(flags.every(Boolean)).toBe(true);
+  });
+
   it('opens symbols and footprints from the embedded .elibu stream', () => {
     const types = new Set([...model.openables.values()].map((n) => n.docType));
     expect(types.has('SYMBOL')).toBe(true);
