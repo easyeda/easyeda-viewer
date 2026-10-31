@@ -1,317 +1,145 @@
 # easyeda-viewer
 
-**简体中文** | [English](README_en.md)
-
-一个轻量、离线、可嵌入的 **嘉立创EDA专业版 / EasyEDA Pro** 工程查看器。纯本地解析与渲染，文件无需上传，无需安装服务端，单个 HTML 文件双击即可使用。
-
+[English](#english) · **简体中文**
 
 ---
 
-## 核心特性
+## English
 
-- **纯本地解析**：基于 `fflate` 与自定义行记录解码器，解析与渲染全程在浏览器内存完成，不联网、不上传。
-- **单文件产物**：`npm run build` 生成 `dist/index.html`（全部 JS/CSS 内联），双击打开或 iframe 嵌入均可。
-- **多格式支持**：
-  - `.eprj3` 文件夹工程（也接受打包成 `.zip` 的工程目录）
-  - `.epro2` 单文件工程（标准 ZIP 容器），含**复用块 / CBB 工程**（`cbb_project`）
-  - 单个文档：`.esch2`、`.epcb2`、`.epan2`、`.esym2`、`.epru`
-  - 库文件：`.elibz2`（专业版库包，可预览其中的符号与封装）
-- **完整预览**：工程文档树、对象树、属性面板、LeaferJS 画布渲染（原理图 / PCB / 面板）。
-- **视觉保真**：以官方客户端导出截图为基准做像素级对照回归（原理图边框/标题栏、电源符号方向、网络标签位置、PCB 圆头描边、铺铜/钻孔层级等均与客户端对齐）。
-- **双向定位**：点击对象树节点定位到画布，点击画布图元同步高亮对象树。
-- **现代 UI**：深色 / 浅色双主题、中 / 英双语界面、可拖拽调整 / 隐藏各面板。
-- **可嵌入 API**：`createViewer` JS API + `postMessage` 协议，方便集成到第三方页面。
-- **工程批注**：文字、矩形框、圆形框、回复、处理状态、编辑拖动和全局显隐。批注随图纸缩放，数据通过 JS API 导入导出。集成方式见 [查看器集成 API](docs/easyeda-viewer-api.md)，测试见 [批注回归测试](qa/annotations/README.md)。
-- **可选桌面版**：Windows 免安装可执行文件（Go + WebView2，约 6–7 MB），支持原生对话框与拖放打开。支持 Windows 10/11；Windows 7 SP1 x64 需安装 WebView2 109（最后一个支持 Win7 的运行时）。
+**English** | [简体中文](#简体中文)
 
-> 注意：工程本身保持只读，不支持电路编辑、工程保存、DRC/ERC、BOM、3D 视图、Gerber 导出。批注是独立数据，由 DM 保存，不写回工程文件。
+A lightweight, offline, embeddable viewer for **EasyEDA Pro** (嘉立创EDA专业版) projects. Parsing and rendering run entirely in the browser — nothing is uploaded and no server is required. The whole viewer is a single HTML file: open it and drop a project in.
 
----
+> Read-only viewer: no schematic/PCB editing, saving, DRC/ERC, BOM, 3D view or Gerber export. Annotations are kept as separate data and never written back to the project files.
 
-## 界面预览
+**Download:** [Latest release](https://github.com/easyeda/easyeda-viewer/releases/latest) · **Docs:** [Integration API](docs/easyeda-viewer-api.md) · [Development guide](docs/development.md) · [Architecture](docs/ARCHITECTURE.md) · [Changelog](CHANGELOG.md)
 
-| 起始页 | 原理图 |
+### Highlights
+
+- **Fully local** — projects are parsed and rendered in memory; no network, no upload.
+- **Single-file build** — one `dist/index.html` with all JS/CSS inlined; open it directly or embed it in an iframe.
+- **Schematics, PCBs, panels, symbols and footprints** — project tree, object tree, properties panel and layer panel, with two-way selection between tree and canvas.
+- **Visual fidelity** — pixel-level regression against official client exports (sheet frames, title blocks, power symbols, net labels, PCB strokes, pour/drill stacking).
+- **Annotations** — text, rectangle and circle annotations with replies, status, editing and visibility; imported/exported through the JS API.
+- **Windows desktop app** — install-free exe (Go + WebView2) with native file dialogs and drag-and-drop; a separate build keeps Windows 7 support.
+- **Bilingual UI** — Chinese / English interface, light / dark themes.
+
+### Screenshots
+
+| Welcome | Schematic |
 | --- | --- |
-| <img src="images/start.jpg" alt="起始页" width="440"> | <img src="images/sch.jpg" alt="原理图查看" width="440"> |
-| **PCB** | **元件库 / 封装** |
-| <img src="images/pcb.jpg" alt="PCB 查看" width="440"> | <img src="images/lib.jpg" alt="元件库查看" width="440"> |
+| <img src="images/start.jpg" alt="Welcome" width="440"> | <img src="images/sch.jpg" alt="Schematic view" width="440"> |
+| **PCB** | **Library / Footprint** |
+| <img src="images/pcb.jpg" alt="PCB view" width="440"> | <img src="images/lib.jpg" alt="Library view" width="440"> |
+
+### Supported formats
+
+| Format | Description |
+| --- | --- |
+| `.eprj3` (folder) | EasyEDA Pro folder project: `*.eprj3` index + `sch/`, `pcb/`, `panel/` |
+| `.zip` | An `.eprj3` project folder packed as a ZIP (unzipped automatically) |
+| `.epro2` | Single-file project (ZIP container), including reuse-block / CBB projects |
+| `.esch2` / `.epcb2` / `.epan2` / `.esym2` | Single schematic page / PCB / panel / symbol document |
+| `.elibz2` | EasyEDA Pro library archive — preview its symbols and footprints |
+| `.epru` | Project record stream (usually inside `.epro2`) |
+
+### How to use
+
+**Windows desktop app** — download the exe and open a project with the native dialog or by dragging it in:
+
+| Build | System | Notes |
+| --- | --- | --- |
+| `easyeda-viewer_v*.exe` | Windows 10 / 11 | Requires the Evergreen WebView2 runtime |
+| `easyeda-viewer_win7_v*.exe` | Windows 7 SP1 x64 / 10 / 11 | Requires the Universal C Runtime (KB2999226) and **WebView2 109** (the last version supporting Win7) |
+
+**Browser** — open `dist/index.html` in Chrome / Edge / Firefox and drag an `.eprj3` folder, `.epro2`, `.zip`, `.elibz2` or a single document onto the canvas. On Windows 7 without WebView2, use Chrome 109 or Firefox 115 ESR.
+
+**Viewer basics**
+
+- **Project tree** (upper-left): project → board → schematics / PCB / panel / simulation; searchable, arrow keys open documents.
+- **Object tree** (lower-left): primitives grouped by type, searchable, with visibility toggles.
+- **Properties & layers** (right): attributes of the selected primitive; layer list with eye toggles for PCB, panel and footprint documents.
+- **Canvas**: wheel zoom at the pointer, pan with right/middle drag or space + left drag, click to select.
+- **Customize**: switch theme and language from the toolbar; panels can be resized or hidden.
+
+### Known issues
+
+- Default text may differ slightly from the EDA client: the client draws its default font as vector paths that are not stored in the project file, so a substitute font is used.
+
+### Roadmap
+
+- [ ] Hierarchical schematics
+- [ ] Net tree
+- [ ] PCB rendering engine replacement and performance work
+
+### License
+
+[Apache License 2.0](LICENSE)
 
 ---
 
-## 支持格式
+## 简体中文
+
+[English](#english) | **简体中文**
+
+一款轻量、离线、可嵌入的 **嘉立创EDA专业版 / EasyEDA Pro** 工程查看器。解析与渲染全部在浏览器本地完成，无需上传文件、无需安装服务端；整个查看器就是一个 HTML 文件，双击即可使用。
+
+> 只读查看器：不支持原理图 / PCB 编辑、保存、DRC/ERC、BOM、3D 视图与 Gerber 导出。批注是独立数据，不会写回工程文件。
+
+**下载：**[最新版本](https://github.com/easyeda/easyeda-viewer/releases/latest) · **文档：**[集成 API](docs/easyeda-viewer-api.md) · [开发指南](docs/development.md) · [技术架构](docs/ARCHITECTURE.md) · [更新日志](CHANGELOG.md)
+
+### 核心特性
+
+- **纯本地** —— 工程在内存中解析和渲染，不联网、不上传。
+- **单文件产物** —— `dist/index.html` 内联全部 JS/CSS，可双击打开或 iframe 嵌入。
+- **原理图 / PCB / 面板 / 符号 / 封装预览** —— 文档树、对象树、属性面板与图层面板，树与画布双向定位。
+- **视觉保真** —— 以官方客户端导出截图为基准做像素级对照（图框、标题栏、电源符号、网络标签、PCB 描边、铺铜与钻孔层序）。
+- **工程批注** —— 文字、矩形框、圆形框批注，支持回复、状态、编辑与显隐，通过 JS API 导入导出。
+- **Windows 桌面版** —— 免安装 exe（Go + WebView2），支持原生文件对话框与拖放打开；另提供保留 Windows 7 支持的版本。
+- **中英双语界面** —— 中文 / English 切换，深色 / 浅色主题。
+
+> 界面截图见上方 [Screenshots](#screenshots)。
+
+### 支持格式
 
 | 格式 | 说明 |
 | --- | --- |
-| `.eprj3`（文件夹） | 嘉立创EDA专业版文件夹化工程：`*.eprj3` 索引 JSON + `sch/`、`pcb/`、`panel/` 子目录 |
-| `.zip`（工程包） | 将 `.eprj3` 文件夹整体打包后的 ZIP，查看器会自动解压并识别 |
-| `.epro2` | 专业版传统单文件工程，内部为标准 ZIP，含 `project2.json`、`.epru` 记录流与 `IMAGE/*.webp` |
-| `.esch2` | 单张原理图页（含仿真页） |
-| `.epcb2` | 单个 PCB 文档 |
-| `.epan2` | 单个面板文档 |
-| `.esym2` | 单个符号文档 |
-| `.elibz2` | 嘉立创EDA专业版库包（ZIP，内含 `.elibu` 记录流）：预览其中的符号与封装 |
-| `.epru` | 工程记录流（常见于 `.epro2` 解包后） |
+| `.eprj3`（文件夹） | 专业版文件夹工程：`*.eprj3` 索引 + `sch/`、`pcb/`、`panel/` |
+| `.zip` | 将 `.eprj3` 工程文件夹打包后的 ZIP，自动解压识别 |
+| `.epro2` | 单文件工程（ZIP 容器），含复用块 / CBB 工程 |
+| `.esch2` / `.epcb2` / `.epan2` / `.esym2` | 单个原理图页 / PCB / 面板 / 符号文档 |
+| `.elibz2` | 专业版库包，可预览其中的符号与封装 |
+| `.epru` | 工程记录流（常见于 `.epro2` 内部） |
 
----
+### 使用方式
 
-## TODO
+**Windows 桌面版** —— 下载 exe 后，用原生对话框选择工程或直接把文件 / 文件夹拖进窗口：
 
-- [ ] 1.支持层次图  
-- [ ] 2.支持网络树  
-- [ ] 3.PCB替换显示引擎，性能优化  
+| 版本 | 适用系统 | 说明 |
+| --- | --- | --- |
+| `easyeda-viewer_v*.exe` | Windows 10 / 11 | 需要 Evergreen WebView2 运行时 |
+| `easyeda-viewer_win7_v*.exe` | Windows 7 SP1 x64 / 10 / 11 | 需要通用 C 运行时（KB2999226）与 **WebView2 109**（最后一个支持 Win7 的版本） |
 
-## 已知问题
+**浏览器** —— 用 Chrome / Edge / Firefox 打开 `dist/index.html`，把 `.eprj3` 文件夹、`.epro2`、`.zip`、`.elibz2` 或单个文档拖入画布即可。Windows 7 无 WebView2 时，请使用 Chrome 109 或 Firefox 115 ESR。
 
-- 默认字体和EDA中不一致：这个是因为EDA中的默认字体是自绘路径，路径没有存入文件中，查看器使用默认字体不同导致
+**界面操作**
 
-## 快速开始
+- **文档树**（左上）：工程 → Board → 原理图 / PCB / 面板 / 仿真，可搜索，方向键上下切换并打开文档。
+- **对象树**（左下）：按图元类型分组，可搜索，带显隐开关。
+- **属性与图层**（右侧）：显示选中图元的属性；PCB / 面板 / 封装文档底部列出图层，带眼睛开关。
+- **画布**：滚轮以指针为中心缩放；右键 / 中键 / 空格 + 左键拖拽平移；左键点选。
+- **个性化**：工具栏切换主题与语言；面板可拖拽调整或隐藏。
 
-### 1. 直接使用单文件产物
+### 已知问题
 
-```bash
-npm install
-npm run build
-```
+- 默认字体与 EDA 客户端略有差异：客户端的默认字体是自绘路径，未存入工程文件，查看器只能使用替代字体。
 
-打开 `dist/index.html`：
+### 路线图
 
-- **双击打开**：将 `.eprj3` 文件夹、`.epro2`、`.zip`、`.elibz2` 或单个文档拖入画布即可查看。
-- **HTTP 访问**：通过 `?file=<url>` 参数加载同源或 CORS 允许的文件（仅 http(s) 环境有效）。
+- [ ] 层次图
+- [ ] 网络树
+- [ ] PCB 渲染引擎替换与性能优化
 
-### 2. 开发服务器
-
-```bash
-npm install
-npm run dev
-```
-
-Vite 开发服务器启动后，在浏览器中拖入工程文件即可实时预览。
-
----
-
-## 界面与交互
-
-- **文档树**：左侧上层，展示工程 → Board → 原理图（含多页图页）/ PCB / 面板 / 仿真，节点可搜索过滤，支持 **方向键上下选中并打开** 文档。
-- **对象树**：左侧下层，按图元类型分组（元件、焊盘、走线、文本等），支持显隐开关与搜索。
-- **属性面板**：右侧，点击画布图元后展开，展示关键属性（类型、位号、值、网络、图层、坐标等），属性名带中英翻译。
-- **图层面板**：PCB / 封装 / 面板文档的属性面板底部，列出文件内实际有图元的图层，带眼睛开关与图元计数；图层叠放顺序遵循铜层堆叠（Top Paste 在 Top 铜层之下、钻孔/槽孔置顶）。
-- **画布**：
-  - 滚轮缩放（以鼠标指针为中心）
-  - 右键 / 中键 / 空格+左键拖拽平移
-  - 左键点选图元，命中容差随缩放自适应
-  - 工具栏：适应窗口、1:1、放大/缩小、可编辑缩放百分比
-- **主题与语言**：工具栏可切换深色/浅色主题与中/英文界面；画布图元颜色始终遵循源文件原始配色。
-
----
-
-## 嵌入使用
-
-### JS API
-
-```ts
-import { createViewer } from './src/embed'; // 构建后也可从产物引入
-
-const viewer = createViewer(document.getElementById('host'), {
-  theme: 'light',          // 'light' | 'dark'
-  lang: 'zh',              // 'zh' | 'en'
-  chrome: { left: true, right: true, toolbar: true, status: true, annotations: true }, // annotations:false = 只读预览（隐藏批注 UI）
-  onLoaded(model) { console.log('project loaded', model); },
-  onSelect(obj) { console.log('selected', obj); },
-  onError(err) { console.error(err); },
-});
-
-// 加载用户选择的文件
-const input = document.getElementById('file');
-input.addEventListener('change', () => {
-  viewer.loadFiles(Array.from(input.files));
-});
-
-// 或通过路径→字节 map 加载（iframe / 服务端场景）
-viewer.loadMap(new Map([['PCB1.epcb2', uint8Array]]));
-
-// 按树节点 id 打开文档
-viewer.open('node-id');
-
-// 视图操作
-viewer.fit();
-viewer.setTheme('dark');
-viewer.setLang('en');
-viewer.setChrome({ right: false });
-viewer.setChrome({ annotations: false }); // 预览模式：隐藏批注工具栏与右栏页签
-
-// 按位号批量选中并高亮（原理图当前页无命中时自动切到命中最多的图页）
-const matched = await viewer.selectByDesignators(['R12', 'C3']);
-viewer.clearSelection(); // 取消选中
-
-// 获取当前工程模型
-const model = viewer.getModel();
-
-// 销毁
-viewer.destroy();
-```
-
-### iframe + postMessage
-
-```html
-<iframe id="viewer" src="dist/index.html?theme=light&lang=zh" width="100%" height="600"></iframe>
-<script>
-  const iframe = document.getElementById('viewer');
-
-  // 加载文件（base64 编码，避免跨域 File 传递问题）
-  function loadFile(name, base64) {
-    iframe.contentWindow.postMessage({
-      source: 'easyeda-viewer',
-      cmd: 'load',
-      files: [{ name, dataBase64: base64 }],
-    }, '*');
-  }
-
-  // 监听查看器事件
-  window.addEventListener('message', (e) => {
-    const msg = e.data;
-    if (!msg || msg.source !== 'easyeda-viewer') return;
-    if (msg.event === 'ready') console.log('viewer ready', msg.version);
-    if (msg.event === 'load-ok') console.log('loaded files:', msg.count);
-    if (msg.event === 'error') console.error(msg.message);
-  });
-</script>
-```
-
-支持的 `cmd`：`load` | `open` | `fit` | `select` | `theme` | `chrome` | `lang`。`select` 传入 `designators` 位号数组批量选中高亮（传空数组取消选中）。viewer 会回发 `ready` / `load-ok` / `open-result` / `select-result` / `error` 事件。
-
-### URL 参数
-
-在 `dist/index.html` 或 iframe `src` 后追加：
-
-| 参数 | 说明 |
-| --- | --- |
-| `?theme=light\|dark` | 界面主题，默认 `light` |
-| `?lang=zh\|en` | 界面语言，默认 `zh` |
-| `?toolbar=0&left=0&right=0&status=0` | 单独隐藏工具栏 / 左侧面板 / 右侧面板 / 状态栏 |
-| `?annotations=0` | 隐藏批注工具栏与右栏批注页签（只读预览，批注 API 仍可用） |
-| `?chrome=canvas` | 隐藏所有面板与批注 UI，仅保留画布 |
-| `?file=<url>` | http(s) 环境下加载远程文件 |
-
----
-
-## Windows 桌面版
-
-`desktop/` 目录下是一个基于 Go + [webview_go](https://github.com/webview/webview_go) 的免安装 Windows 可执行文件，内嵌 `dist/index.html`，通过本地 HTTP 服务加载。
-
-构建产物（两个版本，均依赖本机 WebView2 运行时）：
-
-- `desktop/build/easyeda-viewer_v{version}.exe` — 标准版（当前 Go 工具链），用于 Windows 10/11，约 7 MB
-- `desktop/build/easyeda-viewer_win7_v{version}.exe` — Windows 7 版，约 6 MB
-
-**Windows 7 支持**：`_win7_` 版本使用 Go 1.20.14 构建（Go 1.21 起不再支持 Win7）。目标机需为 Windows 7 SP1 x64，已安装通用 C 运行时（KB2999226）与 **WebView2 109**（109 是微软最后一个支持 Win7 的版本，之后的 Evergreen 运行时在 Win7 上不可用）；缺失时会弹窗提示并跳转下载页。Windows 10/11 使用常规 Evergreen 运行时。
-
-### 构建桌面版
-
-前置要求：
-
-- [Go](https://go.dev/) 1.22+（构建脚本自动切换 go1.20.14 工具链，以保留 Windows 7 支持）
-- Windows 环境
-- 可选：`windres`（MinGW 资源编译器，用于更新图标与版本信息；无则使用仓库内置的 `rsrc_windows_amd64.syso` 兜底）
-
-```bash
-npm run build              # 先构建单文件 viewer
-node scripts/build-desktop.mjs
-```
-
-构建完成后打开 `desktop/build/easyeda-viewer.exe`，即可通过原生对话框或拖放打开工程。
-
----
-
-## 开发
-
-```bash
-# 安装依赖
-npm install
-
-# 启动开发服务器
-npm run dev
-
-# 类型检查
-npm run check
-
-# 运行单元测试
-npm test
-
-# 运行冒烟测试（headless 全量渲染回归）
-npm run smoke
-
-# 视觉对照回归（渲染样例页并与官方客户端 PNG 做像素 diff）
-npx vite-node -c vite.smoke.config.ts scripts/ref-diff.mjs
-
-# 构建产物（dist/index.html）
-npm run build
-
-# 仅构建不检查类型
-npm run build:only
-```
-
-### 常用脚本说明
-
-| 脚本 | 说明 |
-| --- | --- |
-| `npm run dev` | Vite 开发服务器 |
-| `npm run build` | `tsc --noEmit && vite build`，生成 `dist/index.html` |
-| `npm test` | Vitest 单元测试 |
-| `npm run smoke` | `vite-node -c vite.smoke.config.ts scripts/smoke.mjs` |
-| `npm run check` | TypeScript 类型检查 |
-
----
-
-## 项目结构
-
-```
-easyeda-viewer/
-├── dist/                  # 构建产物（单文件 dist/index.html）
-├── docs/                  # PRD 与格式文档
-│   └── PRD.md             # v0.2 产品需求文档（功能权威说明）
-├── desktop/               # Go + WebView2 桌面版源码
-│   ├── main.go            # 桌面入口
-│   ├── files.go           # 文件/目录读取桥接
-│   ├── dialogs.go         # 原生文件对话框
-│   ├── versioninfo.rc     # Windows 版本与图标资源
-│   └── build/             # 构建出的 .exe
-├── samples/               # 本地测试工程（不入库发布）
-│   ├── RA6E2-eprj3/       # 文件夹工程样例
-│   ├── RA6E2-epro2/       # 单文件工程样例（含 GBK 条目名）
-│   ├── ReuseBlock_A3967-epro2/  # 复用块 / CBB 工程样例
-│   ├── ESP32S31-epro2/    # 中大型真实工程（ref-diff 视觉回归主样本）
-│   ├── png/               # 参考渲染截图（官方客户端导出）
-│   └── ...
-├── qa/                    # 冒烟测试与截图
-│   ├── shots/             # 界面截图
-│   ├── diff/              # ref-diff 输出（ours/ref/diff PNG + report.json 基线）
-│   └── viewer.html        # QA 测试页
-├── scripts/               # 构建与测试脚本
-│   ├── build-desktop.mjs  # 桌面版构建
-│   ├── smoke.mjs          # 冒烟测试（headless 全量渲染）
-│   ├── ref-diff.mjs       # 视觉对照回归（渲染 vs 官方 PNG 像素 diff）
-│   └── gen-icons.mjs      # 图标生成
-├── src/
-│   ├── main.ts            # 单文件应用入口（含 postMessage 桥接）
-│   ├── embed.ts           # JS 库入口（createViewer）
-│   ├── core/
-│   │   ├── parse/         # 工程容器探测、行记录解析、Worker
-│   │   ├── render/        # LeaferJS 场景渲染（SCH/PCB/PANEL）
-│   │   └── ...
-│   └── ui/                # 文档树、对象树、属性面板、工具栏、i18n
-├── package.json
-├── vite.config.ts
-└── LICENSE
-```
-
----
-
-## 免责声明与商标
-
-- 本项目仅用于本地预览已导出的工程文件，不会修改或回写任何源文件。
-
----
-
-## 许可证
+### 许可证
 
 [Apache License 2.0](LICENSE)
