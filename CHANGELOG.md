@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-02
+
+### Fixed
+- **Y-up 原理图旋转方向**(#sch-yup-rotation):修正元件与属性文字的屏幕旋转角转换,Y-up 迁移只翻转存储坐标,不应再次反转放置角度;解决 555 无稳态多谐振荡电路中 D1 引脚偏离导线、N_OUT / N_CTRL 竖向端口朝向错误的问题。旋转文本选中框同步修正,新增 6 项旋转回归测试。
+
 ### Changed
 - **README 合并与精简**(#readme):`README.md` 与 `README_en.md` 合并为单文件,英文在前、中文在后并支持跳转;开发、构建、测试与项目结构内容移到 [docs/development.md](docs/development.md),README 只保留使用者关心的功能、格式、用法与桌面版说明。
 - **Windows 7 桌面版兼容**(#win7):构建脚本产出两个 exe:`easyeda-viewer_v{version}.exe`(标准版,Windows 10/11)与 `easyeda-viewer_win7_v{version}.exe`(Win7 版,Go 1.20.14 构建;Go 1.21 起不再支持 Win7),Win7 SP1 x64 需安装 WebView2 109(最后一个支持 Win7 的运行时),缺失时弹窗按 Win7 文案提示并跳转下载页;Win10/11 仍用 Evergreen 运行时。`SetThreadDpiAwarenessContext` / `GetDpiForWindow` 等 Win10 专属 API 改为运行时探测,Win7 回退 `GetDeviceCaps(LOGPIXELSX)` 取 DPI,避免启动崩溃。

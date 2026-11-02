@@ -17,11 +17,11 @@ export function X(x: number, xf: Xf): number { return x - xf.ox; }
 export function Y(y: number, xf: Xf): number { return xf.flip ? -(y - xf.oy) : y - xf.oy; }
 export function P(x: number, y: number, xf: Xf): [number, number] { return [x - xf.ox, Y(y, xf)]; }
 
-/** EasyEDA doc angles are clockwise; Leafer/screen angles are clockwise too,
- *  but Math.cos/sin are CCW, so we negate when converting a doc angle to a
- *  screen angle for trig and for Leafer's rotation property. The Y-flip itself
- *  reverses the sense of rotation, so flipped (Y-up) docs keep the raw angle. */
-export function ang(a: number, xf?: Xf): number { return xf?.flip ? a : -a; }
+/** EasyEDA's positive placement/text angle becomes a negative screen angle.
+ *  The Y-up migration negates stored Y coordinates, not these angles; flipping
+ *  the coordinates back must not also reverse the placement/text rotation.
+ *  Keep the optional xf parameter for callers using either coordinate convention. */
+export function ang(a: number, _xf?: Xf): number { return -a; }
 
 /** scale numeric coords of a flat path item (keeps tokens, ARC angle degrees, R rotation) */
 export function scalePathItem(item: any[], k: number): any[] {
@@ -375,7 +375,7 @@ export function collectPathPts(item: any[], raw: [number, number][]): void {
 }
 
 /** 文本/字符串的旋转外框四角(世界屏幕坐标):按测量文本宽高与对齐比例绕锚点
- *  展开,再随屏面角旋转(ang() 共轭——Y-down 文档取负,Y-flip 保持原角)。
+ *  展开,再随屏面角旋转(与渲染端 ang() 同源,不随坐标轴标记改变)。
  *  objBBox 的 TEXT 分支与渲染层 selPoly 标注共用同一份数学,保证拾取 bbox 与
  *  选中框永远同源(#text-bbox / #select-box-rot);空文本返回 null。 */
 export function textFramePoly(r: { type: string; data: any }, xf: Xf): [number, number][] | null {
@@ -390,8 +390,7 @@ export function textFramePoly(r: { type: string; data: any }, xf: Xf): [number, 
   const ha = s.includes('CENTER') ? 0.5 : s.includes('RIGHT') ? 1 : 0;
   const va = s.includes('TOP') ? 0 : s.includes('BOTTOM') ? 1 : 0.5;
   // corners around the anchor per alignment, rotated by the screen angle
-  // (screen rotation follows ang(): negated for Y-down docs, raw for Y-flip)
-  const rr = ((xf.flip ? 1 : -1) * Number(d.rotation ?? d.angle ?? 0) * Math.PI) / 180;
+  const rr = (ang(Number(d.rotation ?? d.angle ?? 0), xf) * Math.PI) / 180;
   const cs = Math.cos(rr), sn = Math.sin(rr);
   return [[-ha, -va], [1 - ha, -va], [1 - ha, 1 - va], [-ha, 1 - va]]
     .map(([fx, fy]) => [fx * w, fy * h])

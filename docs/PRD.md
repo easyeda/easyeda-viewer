@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | easyeda-viewer(嘉立创EDA专业版工程轻量查看器) |
-| 文档版本 | v0.7.0(与代码同步) |
+| 文档版本 | v0.7.1(与代码同步) |
 | 日期 | 2026-09-20 |
 | 状态 | 核心 P0 已实现,渲染保真持续打磨 |
 | 格式参考 | [easyeda/easyeda-eprj3-skill](https://github.com/easyeda/easyeda-eprj3-skill)(本地 `easyeda-pro-eprj3-format/`)、[easyeda/easyeda-pro-format-skill](https://github.com/easyeda/easyeda-pro-format-skill)(本地 `easyeda-pro-format-skill/`) |

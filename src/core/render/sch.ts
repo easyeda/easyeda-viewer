@@ -107,8 +107,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   // Y-down (epro2 exports), while the ≥3.2.91 client migration rewrites every
   // record Y and the CANVAS originY negated and stamps CANVAS.yAxisDirection
   // "up". The flip xf mirrors the Y-up data back onto the same screen layout —
-  // ang() keeps the raw rotation for flipped docs, align strings stay
-  // screen-anchored in both conventions.
+  // placement/text angles keep the same screen direction in both conventions;
+  // only stored coordinates flip. Align strings stay screen-anchored too.
   const up = seg.canvas?.yAxisDirection === 'up';
   const xf = xfOf(seg.canvas, up);
   // standalone symbol preview (library / .esym2): pin labels use the library's
@@ -886,13 +886,10 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         }
       }
     }
-    // EasyEDA mirrors about the component's own vertical axis, then rotates —
-    // R·M in doc space. On Y-up pages ang() keeps the raw angle and one group
-    // with rotation+scaleX realizes it (leafer composes T·R·M, mirror
-    // innermost). On Y-down pages the negated screen angle conjugates the
-    // composite into M·R — the mirror must wrap the rotation group, otherwise
-    // mirrored+rotated parts land 2·θ off their wires (#mirror-rot-order;
-    // verified against wire endpoints: 735/737 mirrored pins hit vs 623 before)
+    // Keep the format-specific mirror composition (#mirror-rot-order): R·M on
+    // Y-up pages, M·R on legacy Y-down pages (mirror wraps the rotation group).
+    // Placement angles convert via ang() in either convention: the Y-up
+    // migration negates coordinates, not component rotation.
     let target = g;
     const rot = ang(d.rotation ?? 0, xf);
     if (xf.flip) {
