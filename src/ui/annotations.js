@@ -959,10 +959,8 @@ export function installAnnotations(shell) {
     setTheme: theme => shell.setTheme(theme),
     setChrome: flags => shell.setChrome(flags)
   });
-  if (enabled) {
-    shell.rightEl.classList.add('ann-open');
-    notesTab.classList.add('ev-on');
-  }
+  // 默认停在「属性」页签(#ann-default-props):打开工程/文档不自动切到批注,
+  // 只有用户点击批注页签或使用批注工具时才由 showPanel() 打开批注面板
   setTool('select');
   syncAnnotationChrome();
   return { api, destroy() {
