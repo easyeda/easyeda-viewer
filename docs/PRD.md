@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | easyeda-viewer(嘉立创EDA专业版工程轻量查看器) |
-| 文档版本 | v0.7.1(与代码同步) |
+| 文档版本 | v0.7.2(与代码同步) |
 | 日期 | 2026-09-20 |
 | 状态 | 核心 P0 已实现,渲染保真持续打磨 |
 | 格式参考 | [easyeda/easyeda-eprj3-skill](https://github.com/easyeda/easyeda-eprj3-skill)(本地 `easyeda-pro-eprj3-format/`)、[easyeda/easyeda-pro-format-skill](https://github.com/easyeda/easyeda-pro-format-skill)(本地 `easyeda-pro-format-skill/`) |
@@ -300,7 +300,7 @@ iframe/postMessage 协议(`src/main.ts` 内置桥,**已实现**;消息均带 `so
 | FR-9.6 | **窗口标题栏**:`EasyEDA 查看器 - v{version}`(Win32 宿主窗口与 webview SetTitle 双处一致) | P0 |
 | FR-9.7 | **WebView2 运行时缺失提示**(v0.2.3):启动时按官方检测方式查 EdgeUpdate\Clients\{F3017226-…} 注册表键(HKLM×2 视图 / HKCU)的 `pv` 值;缺失时弹原生对话框——「确定(下载)」经 ShellExecute 用系统浏览器打开微软官方 Evergreen Bootstrapper 地址(fwlink 2124703);**Win7**(GetVersion 6.1)改为提示安装 WebView2 109(最后一个支持 Win7 的版本)并打开 WebView2 下载页,「取消」关闭弹窗;两条路径均退出程序(装好后重跑) | P0 |
 | FR-9.8 | **启动提速**(v0.2.4):宿主窗口在 webview.NewWindow(阻塞的 WebView2 环境/控制器创建,冷启动 ~4s)之前即按 DPI 换算的最终尺寸居中显示,背景刷与界面 `--ev-bg` 同色(空窗口可见,渲染就绪后由 webview_widget 覆盖);WebView2 用户数据目录固定到 `%LOCALAPPDATA%\EasyEDAViewer\WebView2`(WEBVIEW2_USER_DATA_FOLDER,避免加载器默认 exe 旁目录被杀软逐次重扫,profile 跨启动复用);注入 `--no-first-run --no-default-browser-check --disable-background-networking`(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS);NewWindow 关闭 debug(不启用 DevTools);启动链各阶段打 `[t+…]` 计时日志 | P0 |
-| FR-9.9 | **Windows 7 兼容**(Unreleased #win7):Win7 版 `easyeda-viewer_win7_v{version}.exe` 用 Go 1.20.14 构建(Go 1.21 起不再支持 Win7);Win10 专属 API(`SetThreadDpiAwarenessContext` / `GetDpiForWindow`)运行时探测,缺失时回退 `GetDeviceCaps(LOGPIXELSX)`;目标机 Win7 SP1 x64 + KB2999226(UCRT)+ WebView2 109 | P0 |
+| FR-9.9 | **Windows 7 兼容**(v0.7.1 #win7):Win7 版 `easyeda-viewer_win7_v{version}.exe` 用 Go 1.20.14 构建(Go 1.21 起不再支持 Win7);Win10 专属 API(`SetThreadDpiAwarenessContext` / `GetDpiForWindow`)运行时探测,缺失时回退 `GetDeviceCaps(LOGPIXELSX)`;目标机 Win7 SP1 x64 + KB2999226(UCRT)+ WebView2 109 | P0 |
 
 ---
 
@@ -466,7 +466,7 @@ desktop/build/
 - [ ] 每种已支持记录类型 ≥1 条真实 fixture 单测(现覆盖主要类型,长尾类型进行中);CI 化。
 - [x] 运行期 Network 面板零请求(样例加载全程;`?file=` 为宿主显式发起,不算查看器请求)。
 - [x] 中英双语 UI + 明暗主题 + chrome 参数裁剪全部可用(截图矩阵 `qa/shots/`)。
-- [x] Windows 免安装 exe:图标/文件属性(FileVersion 与 package.json 同步,0.7.0)正确、拖放与原生对话框可用;产物名带版本号、标题栏 `EasyEDA 查看器 - v{version}`、WebView2 缺失弹官方下载提示(FR-9.4/9.6/9.7)。
+- [x] Windows 免安装 exe:图标/文件属性(FileVersion 与 package.json 同步,0.7.2)正确、拖放与原生对话框可用;产物名带版本号、标题栏 `EasyEDA 查看器 - v{version}`、WebView2 缺失弹官方下载提示(FR-9.4/9.6/9.7)。
 - [x] v0.2.3 细节批次:文档切换无背景闪现(场景内 bgRect 原子重绘);网络名字号 5;阻焊外扩与官方客户端一致(规则 mil 直取);favicon=exe 同款 ico;缩放输入框位于适屏按钮右侧、无背景填充。
 - [x] v0.2.4 启动提速:宿主窗口先行显示(DPI 定尺居中、同色背景刷);WebView2 profile 固定 %LOCALAPPDATA% 并注入免首启参数;计时日志定位瓶颈(可见窗口 ~1s,WebView2 环境冷启 ~4-5s 为运行时固有开销)。
 - [x] v0.2.5 加载中过渡:忙碌遮罩覆盖工程加载与文档切换(SCH→PCB),阻塞前双帧让渡保证先渲染;铺铜填充亮度按官方导出实测 0.6→0.7 校正(FR-3.17)。
