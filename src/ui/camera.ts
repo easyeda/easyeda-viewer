@@ -63,6 +63,19 @@ export class Camera {
     this.apply();
   }
 
+  /** current scale + the world point at the viewport center (#doc-view-memory);
+   *  storing the center (not tx/ty) keeps the restored view sane after resize */
+  getView(): { scale: number; cx: number; cy: number } {
+    const w = this.el.clientWidth || 800, h = this.el.clientHeight || 600;
+    return { scale: this.scale, cx: (w / 2 - this.tx) / this.scale, cy: (h / 2 - this.ty) / this.scale };
+  }
+
+  /** restore a saved view: same scale, same world point at the viewport center */
+  setView(view: { scale: number; cx: number; cy: number }) {
+    this.scale = Math.min(this.maxS, Math.max(this.minS, view.scale));
+    this.centerOn(view.cx, view.cy);
+  }
+
   get didPan(): boolean {
     return this.panMoved;
   }

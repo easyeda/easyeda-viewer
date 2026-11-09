@@ -116,6 +116,9 @@ export class Shell {
   /** 图层显隐按文档缓存(node id → 层 id → 是否可见,#layer-state):
    *  切到原理图再切回来时恢复用户之前的开关,而不是回到默认全显(用户反馈) */
   private layerStateCache = new Map<string, Map<string, boolean>>();
+  /** 每个文档上次的缩放比例与视图中心(#doc-view-memory):切回该文档时恢复,
+   *  只有首次打开才自动适配内容 */
+  private viewCache = new Map<string, { scale: number; cx: number; cy: number }>();
   private destroyed = false;
 
   private docLoaded = false;
@@ -627,6 +630,7 @@ export class Shell {
     this.model = model;
     this.docLoaded = true;
     this.compRowsCache.clear();
+    this.viewCache.clear();
     this.lastRowSig = '';
     this.welcomeEl.classList.add('ev-hidden');
     this.titleEl.innerHTML = `<b>${escapeHtml(model.name)}</b> · ${model.format}`;
@@ -644,8 +648,16 @@ export class Shell {
 
   // ---------- doc rendering ----------
 
+  /** store the open document's current zoom + viewport-center point */
+  private rememberCurrentView(): void {
+    if (this.curNode && this.currentOpened) this.viewCache.set(this.curNode.id, this.camera.getView());
+  }
+
   private async openNode(node: TreeNode): Promise<void> {
     if (!this.model || !node.fileKey || !node.uuid) return;
+    // remember the current document's zoom / view center before switching away,
+    // so coming back restores it instead of re-fitting (#doc-view-memory)
+    this.rememberCurrentView();
     // rulers belong to the document they were drawn on — a doc switch leaves
     // the measure mode and drops them (#measure)
     this.measure.reset();
@@ -691,8 +703,13 @@ export class Shell {
       this.curNode = node;
       this.docKind = kind;
       this.syncDocBg(kind);
-      // prefer what actually rendered (panel outline etc. are not data records)
-      this.camera.fit(this.objBBoxUnion() ?? opened.bbox);
+      // prefer what actually rendered (panel outline etc. are not data records);
+      // a document viewed before restores its own zoom/center (#doc-view-memory)
+      const savedView = this.viewCache.get(node.id);
+      if (savedView) {
+        this.camera.setView(savedView);
+        this.userView = true; // a restored view is intentional — keep it across resizes
+      } else this.camera.fit(this.objBBoxUnion() ?? opened.bbox);
       this.select(null);
       this.docTree.highlight(node.id);
 
