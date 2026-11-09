@@ -24,6 +24,7 @@
 - **库包预览的文档树与面板**(#elibz2-tree-expand):仅预览 `.elibz2` 库包时,Library 与 符号 / 封装 分组默认展开,打开后即可直接看到全部条目;同时隐藏左侧没有内容的「元件树」面板,文档树占满整个左栏。工程（`.eprj3` / `.epro2`）的树与面板布局不变。
 
 ### Fixed
+- **Y-up 判定回退到记录级标记**(#y-up-fallback):部分文件只在记录级写 `yAxisDirection`,CANVAS 缺省,此前统一按 Y-down 渲染导致坐标/旋转错误。新增 `isUpSegment()`:CANVAS 显式标记优先,缺失时回退任一条记录携带的 `yAxisDirection === 'up'`;页面渲染、符号绘制、元件包围盒、库属性坐标回退、NO_CONNECT 锚点五处统一使用。
 - **符号预览原点多余的圆圈**(#ellipse-origin):独立符号文档走页面级图元绘制,`ELLIPSE` 只读页面字段 `x`/`y`,而符号记录用 `centerX`/`centerY`(半径也可能为负);坐标缺失时回落到 (0,0) 与默认半径,符号原点因此多出一个小圆。现优先读 `centerX/centerY`(兼容 `x/y`),半径取绝对值并支持旋转,包围盒同步修正。
 - **库符号预览的引脚标签字号**(#symbol-pin-font,用户反馈 elibz2 符号预览字号偏大):独立符号预览（`.elibz2` 库 / `.esym2`）把 `Pin Name` / `Pin Number` 字号上限设为 7（库符号常用字号）;部分库记录写 9.72,在 10 单位引脚间距下会贴近引脚线并与相邻标签粘连。工程图纸内嵌符号的已校准字号不变。
 - **图框内联 OBJ 图片**(#obj-inline-image,用户反馈 MT3608 图框 logo 未显示):OBJ 的 `content`/`path` 此前只识别 `blob:` 引用,内联 `data:image/...`(如 Drawing-Symbol_A4 标题栏的嘉立创EDA logo)被忽略;现在两种来源都支持,符号内与页面级 OBJ 共用解析,并按记录 rotation 旋转。标题栏左下角的 logo 恢复显示。

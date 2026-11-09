@@ -137,4 +137,26 @@ describe('schematic placement rotations', () => {
     const line = walk(page).find(n => n.points);
     expectPoint([line.points[2], line.points[3]], [0, -10]);
   });
+
+  it('falls back to record-level yAxisDirection when CANVAS has no flag', () => {
+    const self: DocSegment = {
+      uuid: 'sheet', docType: 'SCH_PAGE', startLine: 1, meta: {},
+      canvas: { originX: 0, originY: 0 },
+      recs: [rec('TEXT', 't', { value: 'UPFLAG', x: 0, y: 100, fontSize: 10, yAxisDirection: 'up' })],
+    };
+    const { page } = render(self, []);
+    const upLabel = walk(page).find(n => (n.children ?? []).some((c: any) => c.text === 'UPFLAG'));
+    expect(upLabel.y).toBeCloseTo(-100.5);
+  });
+
+  it('lets an explicit CANVAS flag win over record-level yAxisDirection', () => {
+    const self: DocSegment = {
+      uuid: 'sheet', docType: 'SCH_PAGE', startLine: 1, meta: {},
+      canvas: { originX: 0, originY: 0, yAxisDirection: 'down' },
+      recs: [rec('TEXT', 't', { value: 'DOWNFLAG', x: 0, y: 100, fontSize: 10, yAxisDirection: 'up' })],
+    };
+    const { page } = render(self, []);
+    const downLabel = walk(page).find(n => (n.children ?? []).some((c: any) => c.text === 'DOWNFLAG'));
+    expect(downLabel.y).toBeCloseTo(99.5);
+  });
 });

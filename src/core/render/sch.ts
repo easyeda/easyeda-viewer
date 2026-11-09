@@ -11,6 +11,16 @@ import { resolveLibGraphics, resolveAttrRef } from '../model';
  *  了字体名**的(如标题栏文字标注宋体)仍优先用它,不受此默认影响。 */
 const DEFAULT_FONT = 'Arial, sans-serif';
 
+/** 统一的坐标系判定(#y-up-fallback):CANVAS 的 `yAxisDirection` 是权威标记,
+ *  但部分迁移/导出文件只在记录级写 `yAxisDirection`,CANVAS 缺省。显式标记
+ *  优先;缺失时回退到任一条记录携带的 `yAxisDirection === 'up'`。页面、符号
+ *  绘制、元件包围盒、库属性坐标回退、NO_CONNECT 锚点共用这一判定。 */
+function isUpSegment(seg: DocSegment | null | undefined): boolean {
+  const flag = seg?.canvas?.yAxisDirection;
+  if (flag) return flag === 'up';
+  return !!seg?.recs.some((r) => r.data?.yAxisDirection === 'up');
+}
+
 /** 文本笔画粗细补偿(#text-stroke,与 PCB 侧同一套):客户端默认字体是自绘
  *  路径,笔画宽 = 记录里的 `strokeWidth`;浏览器字体的自然笔画约 0.093em,
  *  差值用 text stroke 补齐。canvas 的 stroke 沿字形轮廓两侧各加线宽一半,
@@ -109,7 +119,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   // "up". The flip xf mirrors the Y-up data back onto the same screen layout —
   // placement/text angles keep the same screen direction in both conventions;
   // only stored coordinates flip. Align strings stay screen-anchored too.
-  const up = seg.canvas?.yAxisDirection === 'up';
+  const up = isUpSegment(seg);
   const xf = xfOf(seg.canvas, up);
   // standalone symbol preview (library / .esym2): pin labels use the library's
   // compact 7-unit text; some exports carry 9.72 and crowd the 10-unit pitch.
@@ -236,7 +246,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   /** @param titleValues old-style border frames only: attribute name → resolved
    *  value painted at the symbol's positioned ATTR slots (see the ATTR case) */
   function drawSymbolPart(target: Group, sym: DocSegment, partId: string, sx: number, sy: number, rotation: number, mirror: boolean, antiRot = 0, skipTitleBlock = false, gray = false, titleValues?: Record<string, string>, compMirror = false): void {
-    const sxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
+    const sxf = xfOf(sym.canvas, isUpSegment(sym));
     // title-block hiding (#2): the A4 frame symbol groups the region frame under
     // a GROUP titled "border"; graphics outside that group are title-block
     // artwork the page flag "Title Block" turns off. Symbols without a border
@@ -608,7 +618,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   function componentWorldFrame(g: Group, sym: DocSegment | undefined, partId: string, d: any): { bbox: BBox | null; poly?: [number, number][] } {
     const local: [number, number][] = [];
     if (sym) {
-      const sxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
+      const sxf = xfOf(sym.canvas, isUpSegment(sym));
       for (const r of sym.recs) {
         if (!DRAWABLE_TYPES.includes(r.type)) continue;
         const rp = r.data.partId;
@@ -909,7 +919,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       // 符号库里的属性坐标是**符号局部坐标**(相对元件原点),作实例缺失定位的
       // 回退时必须走与符号图元同一条变换链落到页面坐标(#netflag-lib-attr):
       // 与 ncAnchor 的 pin 端点映射同一套 R·M / M·R 共轭 + 平移
-      const libSxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
+      const libSxf = xfOf(sym.canvas, isUpSegment(sym));
       const libToWorld = (lx: number, ly: number): [number, number] => {
         const lx0 = X(lx, libSxf), ly0 = Y(ly, libSxf);
         const ra = (ang(Number(d.rotation ?? 0), xf) * Math.PI) / 180;
@@ -1313,7 +1323,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         // same transform chain as drawComponent: symbol-canvas offset, then the
         // mirror/rotation composite — R·M on Y-up pages, M·R on Y-down ones
         // (#mirror-rot-order) — and finally the component translation
-        const sxf = xfOf(sym.canvas, sym.canvas?.yAxisDirection === 'up');
+        const sxf = xfOf(sym.canvas, isUpSegment(sym));
         const d = comp.data;
         const lx0 = X(Number(pin.data.x ?? 0), sxf);
         const ly = Y(Number(pin.data.y ?? 0), sxf);
