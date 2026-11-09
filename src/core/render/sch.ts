@@ -242,7 +242,8 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   };
 
   // ---- embedded symbol renderer ----
-  /** @param antiRot screen-deg to cancel out (component group rotation) so pin text stays upright */
+  /** @param antiRot the component's screen rotation, combined with each pin
+   *  label's own rotation to detect an upside-down (180°) result (#pin-label-rotation) */
   /** @param titleValues old-style border frames only: attribute name → resolved
    *  value painted at the symbol's positioned ATTR slots (see the ATTR case) */
   function drawSymbolPart(target: Group, sym: DocSegment, partId: string, sx: number, sy: number, rotation: number, mirror: boolean, antiRot = 0, skipTitleBlock = false, gray = false, titleValues?: Record<string, string>, compMirror = false): void {
@@ -350,13 +351,27 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
             if (typeof ad.x !== 'number' || typeof ad.y !== 'number') continue;
             const [lx, ly] = P(Number(ad.x), Number(ad.y), sxf);
             const fs = symbolPreview ? Math.min(Number(ad.fontSize) || 8, 7) : (Number(ad.fontSize) || 8);
+            // 引脚名/编号随符号一起旋转(客户端行为:90°/270° 的元件里标签
+            // 也是竖排的)。只有合成后恰好 180°(上下颠倒)时才翻回正立,
+            // 同时把水平/垂直对齐一并镜像,文字仍从引脚向符号内侧展开
+            // (#pin-label-rotation)。此前的做法是始终抵消元件旋转,把 90°/
+            // 270° 的标签也画成水平,位置与客户端不符
+            const labelRot = typeof ad.rotation === 'number' ? ang(Number(ad.rotation), sxf) : 0;
+            const netRot = (((labelRot + antiRot) % 360) + 360) % 360;
+            const upsideDown = netRot === 180;
+            let ha = alignX(ad.align);
+            let va = alignY(ad.align);
+            if (upsideDown) {
+              ha = ha === 'left' ? 'right' : ha === 'right' ? 'left' : ha;
+              va = va === 'top' ? 'bottom' : va === 'bottom' ? 'top' : va;
+            }
             const t = new Text({
               text: v, fontSize: fs, fill: gray ? '#999999' : '#000000',
               fontFamily: DEFAULT_FONT,
-              textAlign: alignX(ad.align), verticalAlign: alignY(ad.align), autoSizeAlign: true,
+              textAlign: ha, verticalAlign: va, autoSizeAlign: true,
             });
             t.x = lx; t.y = ly;
-            t.rotation = (typeof ad.rotation === 'number' ? ang(Number(ad.rotation), sxf) : 0) - antiRot;
+            t.rotation = upsideDown ? labelRot + 180 : labelRot;
             if (compMirror) unmirrorText(t);
             pinG.add(t);
           }
@@ -1078,7 +1093,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       }
       if (typeof ad.rotation === 'number' && ad.rotation) t.rotation = ang(ad.rotation, xf);
       if (it.key === 'Designator') desPos = [t.x, t.y];
-      if (it.key === 'Name' || it.key === 'Value' || it.key === 'NET' || it.key === 'Global Net Name') sawNetText = true;
+      if (it.key === 'Name' || it.key === 'Value' || it.key === 'Design Value' || it.key === 'NET' || it.key === 'Global Net Name') sawNetText = true;
       page.add(t);
     }
     // legacy fallback for libraries without positioned attributes: derive a

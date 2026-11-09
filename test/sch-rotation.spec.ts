@@ -159,4 +159,56 @@ describe('schematic placement rotations', () => {
     const downLabel = walk(page).find(n => (n.children ?? []).some((c: any) => c.text === 'DOWNFLAG'));
     expect(downLabel.y).toBeCloseTo(99.5);
   });
+
+  function pinLabelScene(rotation: number) {
+    const sym = segment('pin-sym', 'SYMBOL', [
+      rec('PIN', 'p', { partId: 'p', x: -20, y: 0, length: 10, rotation: 0 }),
+      rec('ATTR', 'pn', { parentId: 'p', key: 'Pin Name', value: 'OUT', x: -6, y: 1,
+        rotation: 0, align: 'LEFT_BOTTOM', valueVisible: true }),
+    ], true);
+    const self = segment('sheet', 'SCH_PAGE', [
+      rec('COMPONENT', 'c1', { partId: 'p', x: 0, y: 0, rotation }),
+      rec('ATTR', 's', { parentId: 'c1', key: 'Symbol', value: 'pin-sym' }),
+    ], true);
+    const { page } = render(self, [sym]);
+    const label = walk(page).find(n => n.text === 'OUT')!;
+    return { page, label };
+  }
+
+  it('rotates pin labels with the symbol at 90° (client behavior)', () => {
+    const { page, label } = pinLabelScene(90);
+    // no counter-rotation: the label turns together with the component group
+    expect(label.rotation).toBeCloseTo(0);
+    expect(walk(page).some(n => n.rotation === -90)).toBe(true);
+  });
+
+  it('keeps 180° pin labels upright and mirrors their alignment', () => {
+    const { page, label } = pinLabelScene(180);
+    // label and group rotations cancel out; both alignments are swapped so
+    // the text still extends inward from the pin
+    expect(label.rotation).toBe(180);
+    expect(walk(page).some(n => n.rotation === -180)).toBe(true);
+    expect(label.textAlign).toBe('right');
+    expect(label.verticalAlign).toBe('top');
+  });
+
+  it('does not synthesize a description value when Design Value is painted', () => {
+    const sym = segment('cap-sym', 'SYMBOL', [
+      rec('PIN', 'p', { partId: 'p', x: -20, y: 0, length: 10, rotation: 0 }),
+    ], true);
+    const dev = segment('cap-dev', 'DEVICE', [], true, { description: '10uF ±10% 25V' } as any);
+    const self = segment('sheet', 'SCH_PAGE', [
+      rec('COMPONENT', 'c1', { partId: 'p', x: 100, y: 100, rotation: 0 }),
+      rec('ATTR', 's', { parentId: 'c1', key: 'Symbol', value: 'cap-sym' }),
+      rec('ATTR', 'd', { parentId: 'c1', key: 'Device', value: 'cap-dev' }),
+      rec('ATTR', 'des', { parentId: 'c1', key: 'Designator', value: 'C62',
+        x: 100, y: 108, rotation: 0, align: 'LEFT_MIDDLE', valueVisible: true }),
+      rec('ATTR', 'dv', { parentId: 'c1', key: 'Design Value', value: '100nF',
+        x: 100, y: 104, rotation: 0, align: 'LEFT_MIDDLE', valueVisible: true }),
+    ], true);
+    const { page } = render(self, [sym, dev]);
+    const texts = walk(page).map(n => n.text).filter(Boolean);
+    expect(texts).toContain('100nF');
+    expect(texts).not.toContain('10uF');
+  });
 });
