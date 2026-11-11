@@ -212,6 +212,18 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 
 /* ---------- canvas ---------- */
 .ev-canvas { flex: 1; min-width: 0; background: #f5f6f7; position: relative; touch-action: none; }
+
+/* 面板 / 工具栏开关悬浮在画布上(#float-panel-toggles):顶部工具栏或左右面板
+   隐藏后,这些按钮仍留在画布顶部两角,保证随时可以恢复显示 */
+.ev-float-toggles { position: absolute; top: 8px; z-index: 8; display: flex; gap: 4px; }
+.ev-float-left { left: 8px; }
+.ev-float-right { right: 8px; }
+.ev-canvas .ev-float-btn {
+  background: var(--ev-panel); border: 1px solid var(--ev-border);
+  box-shadow: 0 1px 4px rgba(16, 24, 40, 0.14);
+}
+.ev-canvas .ev-float-btn:hover { background: var(--ev-panel-2); }
+.ev-canvas .ev-float-btn.ev-on { background: var(--ev-accent-weak); color: var(--ev-accent); }
 /* document backgrounds (sch white / pcb dark) are painted by the leafer scene
    itself (leafer.fill, set on doc open) — see shell.ts openNode (#bg-flash) */
 

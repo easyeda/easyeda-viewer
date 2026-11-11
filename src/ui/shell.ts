@@ -166,6 +166,7 @@ export class Shell {
         <button class="ev-btn ev-btn-unit" data-act="unit" data-tip="tipUnit"><span class="ev-unit-code"></span></button>
         <button class="ev-btn ev-btn-icon ev-btn-lang" data-act="lang" data-tip="tipLang">${icon('globe')}<span class="ev-lang-code"></span></button>
         <button class="ev-btn ev-btn-icon" data-act="theme" data-tip="tipTheme">${icon('moon')}</button>
+        <button class="ev-btn ev-btn-icon" data-act="panelT" data-tip="tipPanelT">${icon('panelTop')}</button>
         <button class="ev-btn ev-btn-icon" data-act="panelL" data-tip="tipPanelL">${icon('panelLeft')}</button>
         <button class="ev-btn ev-btn-icon" data-act="panelR" data-tip="tipPanelR">${icon('panelRight')}</button>
       </div>
@@ -177,6 +178,14 @@ export class Shell {
         </aside>
         <div class="ev-resize" data-side="left"></div>
         <div class="ev-canvas">
+          <!-- 面板开关悬浮在画布上(#float-panel-toggles):顶部工具栏隐藏后仍有入口 -->
+          <div class="ev-float-toggles ev-float-left">
+            <button class="ev-btn ev-btn-icon ev-float-btn" data-act="panelL" data-tip="tipPanelL">${icon('panelLeft')}</button>
+          </div>
+          <div class="ev-float-toggles ev-float-right">
+            <button class="ev-btn ev-btn-icon ev-float-btn" data-act="panelT" data-tip="tipPanelT">${icon('panelTop')}</button>
+            <button class="ev-btn ev-btn-icon ev-float-btn" data-act="panelR" data-tip="tipPanelR">${icon('panelRight')}</button>
+          </div>
           <div class="ev-welcome">
             <div class="ev-wz">
               <div class="ev-wz-ico">${easyedaMark(108, 80)}</div>
@@ -380,8 +389,18 @@ export class Shell {
     // 单位切换(#unit-toggle):mm/mil 跟随 units 广播刷新各显示面
     this.el.querySelector('[data-act="unit"]')!.addEventListener('click', () => toggleUnit());
     this.themeBtn.addEventListener('click', () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark'));
-    this.el.querySelector('[data-act="panelL"]')!.addEventListener('click', () => { this.leftForced = !this.leftVisible(); this.applyChrome(); });
-    this.el.querySelector('[data-act="panelR"]')!.addEventListener('click', () => { this.rightForced = !this.rightVisible(); this.applyChrome(); });
+    // 面板开关在工具栏与画布悬浮按钮上各有一份,统一绑定(#float-panel-toggles)
+    this.el.querySelectorAll('[data-act="panelL"], [data-act="panelR"], [data-act="panelT"]').forEach((btn) => {
+      // 悬浮按钮位于画布内,阻止指针事件触发相机拖拽
+      btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+      btn.addEventListener('click', () => {
+        const act = (btn as HTMLElement).dataset.act;
+        if (act === 'panelL') this.leftForced = !this.leftVisible();
+        else if (act === 'panelR') this.rightForced = !this.rightVisible();
+        else this.flags.toolbar = !this.flags.toolbar;
+        this.applyChrome();
+      });
+    });
 
     // typed zoom percentage (#33)
     const commit = (): void => {
@@ -551,8 +570,13 @@ export class Shell {
     // !important .ev-hidden class so stale layer rows really disappear (#lib-layers)
     this.layerPane.classList.toggle('ev-hidden', !hasLayers);
     this.layerSplit.classList.toggle('ev-hidden', !hasLayers);
-    (this.el.querySelector('[data-act="panelL"]') as HTMLElement).classList.toggle('ev-on', this.leftVisible());
-    (this.el.querySelector('[data-act="panelR"]') as HTMLElement).classList.toggle('ev-on', this.rightVisible());
+    this.el.querySelectorAll('[data-act="panelL"]').forEach((b) => b.classList.toggle('ev-on', this.leftVisible()));
+    this.el.querySelectorAll('[data-act="panelR"]').forEach((b) => b.classList.toggle('ev-on', this.rightVisible()));
+    this.el.querySelectorAll('[data-act="panelT"]').forEach((b) => b.classList.toggle('ev-on', this.flags.toolbar));
+    // 悬浮开关始终留在画布上(#float-panel-toggles):左右面板只在有文档时才有意义,
+    // 顶部工具栏开关则任何状态都保留,保证工具栏隐藏后仍能恢复
+    (this.el.querySelector('.ev-float-left') as HTMLElement).classList.toggle('ev-hidden', !this.docLoaded);
+    (this.el.querySelector('.ev-float-right [data-act="panelR"]') as HTMLElement).classList.toggle('ev-hidden', !this.docLoaded);
   }
 
   /** resize the scene bg rect to the viewport and paint the doc background
