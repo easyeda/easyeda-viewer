@@ -22,6 +22,7 @@ import { MeasureController } from './measure';
 import { icon, easyedaMark } from './icons';
 import { t, setLang as setI18nLang, getLang, layerLabel, type Lang } from './i18n';
 import { fmtCoord, getUnit, toggleUnit, unitSuffix, setDocScale, docScaleFor, onUnitChange } from './units';
+import { VIEWER_VERSION } from '../version';
 
 export interface ShellEvents {
   onReady?(): void;
@@ -199,7 +200,7 @@ export class Shell {
           <div class="ev-pane ev-pane-layers ev-hidden"><div class="ev-pane-cap" data-i18n="paneLayers"></div><div class="ev-pane-inner"></div></div>
         </aside>
       </div>
-      <div class="ev-status"><span class="ev-status-pos"></span><span class="ev-status-msg"></span></div>
+      <div class="ev-status"><span class="ev-status-pos"></span><span class="ev-status-msg"></span><span class="ev-status-ver" title="easyeda-viewer">v${VIEWER_VERSION}</span></div>
       <div class="ev-loading ev-hidden"><div class="ev-loading-box"><div class="ev-loading-spin"></div><span class="ev-loading-msg"></span></div></div>`;
 
     this.canvasHost = this.el.querySelector('.ev-canvas') as HTMLElement;

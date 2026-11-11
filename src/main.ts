@@ -1,9 +1,8 @@
 /** Standalone page entry: create the viewer + postMessage bridge for embedding. */
 import { createViewer, type EextViewer } from './embed';
+import { VIEWER_VERSION } from './version';
 import type { ChromeFlags, Theme } from './ui/shell';
 import type { Lang } from './ui/i18n';
-
-const VIEWER_VERSION: string = (import.meta as any).env?.VITE_APP_VERSION ?? '0.0.0';
 
 const host = document.getElementById('app');
 if (!host) throw new Error('missing #app root');

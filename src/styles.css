@@ -308,6 +308,11 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
   color: var(--ev-dim);
 }
 .ev-status-msg { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+/* app version pinned to the bottom-right corner (#status-version) */
+.ev-status-ver {
+  flex: none; color: var(--ev-dim); font-variant-numeric: tabular-nums;
+  padding-left: 12px; user-select: none;
+}
 .ev-status.ev-err .ev-status-msg { color: #d92d20; }
 
 /* device "no graphics" hint shown on the canvas instead of stale content */

@@ -64,6 +64,7 @@ const PAGE_SIZES: Record<string, [number, number]> = {
   A3: [1655, 1170],
   A4: [1170, 825],
   A5: [826, 582],
+  C: [2020, 1520],
 };
 const TB_LOGO: [number, number, number, number] = [960, 55, 193, 55]; // x, v(top), w, h
 const TB_RECT: [number, number, number, number] = [943, 190, 1645, 10]; // x1,v1,x2,v2
@@ -701,6 +702,24 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     return w > 0 && h > 0 ? { w, h } : null;
   }
 
+  /** extent of the symbol's actual drawable geometry, independent of PART.BBOX.
+   *  Page templates (`pageTemplate_C_2020x1520` 等) carry the whole sheet frame
+   *  as POLY art but no PART BBOX — this tells a real full-page frame from a
+   *  title-block-only symbol that still needs the synthesized border
+   *  (#page-template-dupe) */
+  function symbolArtSize(seg: DocSegment | undefined): { w: number; h: number } | null {
+    if (!seg) return null;
+    const sxf = xfOf(seg.canvas, isUpSegment(seg));
+    const pts: [number, number][] = [];
+    for (const r of seg.recs) {
+      if (!DRAWABLE_TYPES.includes(r.type)) continue;
+      const b = objBBox(r, sxf);
+      if (b) pts.push([b.minX, b.minY], [b.maxX, b.maxY]);
+    }
+    const bb = pts.length ? bboxFromPts(pts) : null;
+    return bb ? { w: bb.maxX - bb.minX, h: bb.maxY - bb.minY } : null;
+  }
+
   /**
    * Standard sheet symbol whose frame art is exactly W×H (Sheet-Symbol_A2/A3/A4/…
    * carry PART BBOX equal to the sheet size and a GROUP 'border' with the artwork).
@@ -866,8 +885,13 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const migratedBorder = isBorder && attrValue(attrs, 'Width') != null && attrValue(attrs, 'Height') != null;
     // the A4 frame symbol ships its own region artwork (GROUP 'border') — only
     // synthesize the page frame for symbols that don't carry it, otherwise the
-    // region labels/frame lines render twice with slightly different anchors
-    const hasBorderArt = !!sym?.recs.some((rr) => rr.type === 'GROUP' && String(rr.data.title ?? '') === 'border');
+    // region labels/frame lines render twice with slightly different anchors.
+    // Custom page templates (#page-template-dupe) have no 'border' group but
+    // their art already spans the whole sheet; treat any full-page-sized art
+    // as the frame too, otherwise a second parametric frame is drawn on top.
+    const artSize = isBorder ? symbolArtSize(sym) : null;
+    const hasBorderArt = !!sym?.recs.some((rr) => rr.type === 'GROUP' && String(rr.data.title ?? '') === 'border')
+      || (!!artSize && artSize.w >= 600 && artSize.h >= 400);
     // old-style frames (Sheet-Symbol_*) draw their title-block values at the
     // symbol's positioned ATTR slots; new-style frames carry a TABLE whose cells
     // resolve against pageAttrs inside drawSymbolPart — painting slots there too
@@ -960,15 +984,17 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       api.reportDiagnostics.push(`未解析符号 ${symUuid.slice(0, 10)} (line ${r.lineNo})`);
     }
     // 旋转非零的元件把四角外框交给选中框贴合渲染;0° 不标注,选中框保持
-    // 轴对齐矩形(现状),零回归(#select-box-rot)
-    const frame = isBorder ? null : componentWorldFrame(g, sym, String(d.partId ?? ''), d);
+    // 轴对齐矩形(现状),零回归(#select-box-rot)。带整页图框艺术的图框元件
+    // (自定义页面模板)用真实几何的包围盒,其原点可能在页面左上角、Y 方向
+    // 与 borderPageBBox 假定相反(#page-template-dupe)
+    const frame = isBorder && !hasBorderArt ? null : componentWorldFrame(g, sym, String(d.partId ?? ''), d);
     api.addObject({
       id: r.id, rec: r, node: g, label: `元件 ${r.id}`, kind: 'component',
       title: isBorder
         ? `图纸 ${attrValue(attrs, 'Page Size') ?? ''}`.trim()
         : (attrValue(attrs, 'Designator') ?? String((sym?.meta as any)?.title ?? d.attrs?.Designator ?? d.partId ?? r.id)),
       // the border component contributes the full page rect so camera fit shows the whole sheet
-      bbox: isBorder ? borderPageBBox(r, attrs) : (frame?.bbox ?? undefined),
+      bbox: isBorder ? (frame?.bbox ?? borderPageBBox(r, attrs)) : (frame?.bbox ?? undefined),
       selPoly: Number(d.rotation ?? 0) % 360 !== 0 ? frame?.poly : undefined,
     });
   }
