@@ -4,10 +4,10 @@
 
 提交级细节见 git log 与 [docs/PRD.md](PRD.md) 的需求条目(`#tag` 可在 PRD 内全文检索)。
 
-## [Unreleased]
+## [0.7.3] - 2026-11-11
 
 ### Added
-- **状态栏版本号**(#status-version):底部状态栏右下角固定显示查看器版本(`v0.7.2`),取自 `package.json` 经 `VITE_APP_VERSION` 注入,升版后构建自动同步,无需另行修改。
+- **状态栏版本号**(#status-version):底部状态栏右下角固定显示查看器版本(`v{version}`),取自 `package.json` 经 `VITE_APP_VERSION` 注入,升版后构建自动同步,无需另行修改。
 
 ### Fixed
 - **自定义页面模板不再重复画图框**(#page-template-dupe,用户反馈 MCD-FV8K 工程多出官方图纸 C):`pageTemplate_*` 图框符号自身已带整页 POLY 图框艺术(如 C 幅面 2020×1520),但检测只看 `border` 分组,导致又按 A4 默认尺寸叠画了一套参数化图框。现按符号实际几何范围识别整页图框(≥600×400),只画模板本身;图框元件的包围盒改用真实几何,Y-up 自定义模板不再因原点方向相反把画布撑偏。补充 C 幅面尺寸(2020×1520)。
