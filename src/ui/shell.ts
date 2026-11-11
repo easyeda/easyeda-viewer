@@ -166,9 +166,6 @@ export class Shell {
         <button class="ev-btn ev-btn-unit" data-act="unit" data-tip="tipUnit"><span class="ev-unit-code"></span></button>
         <button class="ev-btn ev-btn-icon ev-btn-lang" data-act="lang" data-tip="tipLang">${icon('globe')}<span class="ev-lang-code"></span></button>
         <button class="ev-btn ev-btn-icon" data-act="theme" data-tip="tipTheme">${icon('moon')}</button>
-        <button class="ev-btn ev-btn-icon" data-act="panelT" data-tip="tipPanelT">${icon('panelTop')}</button>
-        <button class="ev-btn ev-btn-icon" data-act="panelL" data-tip="tipPanelL">${icon('panelLeft')}</button>
-        <button class="ev-btn ev-btn-icon" data-act="panelR" data-tip="tipPanelR">${icon('panelRight')}</button>
       </div>
       <div class="ev-body">
         <aside class="ev-left">
