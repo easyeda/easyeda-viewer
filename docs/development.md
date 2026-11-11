@@ -129,3 +129,6 @@ await viewer.selectByDesignators(['R12', 'C3']);
 - 提交信息用中文,一次提交聚焦一件事。
 - 不提交 `samples/` 下的本地样例、`tmp/` 下的临时脚本与调试产物。
 - 功能或行为变化同步更新 `CHANGELOG.md`,需求级说明登记到 `docs/PRD.md`。
+- **版本号**:每次功能 / 修复变更把 patch 位 +1,并同步 `package.json`、`package-lock.json`、`desktop/versioninfo.rc` 与 PRD 文档版本。
+- **同日合并**:同一天内的多次变更合并为**当天唯一**的版本小节,更新记录并入该小节并以当天最新的版本号命名,不再保留同日旧版本小节;跨天再新增小节。
+- **发布**:推送到 `main` 且 `package.json` 变更时,Release 工作流自动构建并在版本尚未发布时创建 GitHub Release。

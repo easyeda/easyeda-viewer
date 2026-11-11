@@ -22,11 +22,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "easyeda-viewer (Apache-2.0)"
             VALUE "FileDescription", "EasyEDA 查看器 — 本地 .epro2/.eprj3 轻量查看器"
-            VALUE "FileVersion", "0.7.3"
+            VALUE "FileVersion", "0.7.4"
             VALUE "LegalCopyright", "Apache License 2.0"
-            VALUE "OriginalFilename", "easyeda-viewer_v0.7.3.exe"
+            VALUE "OriginalFilename", "easyeda-viewer_v0.7.4.exe"
             VALUE "ProductName", "EasyEDA Viewer"
-            VALUE "ProductVersion", "0.7.3"
+            VALUE "ProductVersion", "0.7.4"
             VALUE "Author", "summving"
         END
     END
