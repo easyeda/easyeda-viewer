@@ -9,8 +9,9 @@ const config = require('./config.cjs');
   const root = path.resolve(__dirname, '..');
   const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    if (req.url === '/viewer') res.end(fs.readFileSync(config.html));
-    else res.end('<!doctype html><html><body style="margin:0"><input id="files" type="file" webkitdirectory multiple hidden><iframe id="viewer" src="/viewer" style="border:0;width:100%;height:900px"></iframe></body></html>');
+    // 批注界面默认关闭(#annotations-default-off),iframe 显式开启
+    if (req.url.startsWith('/viewer')) res.end(fs.readFileSync(config.html));
+    else res.end('<!doctype html><html><body style="margin:0"><input id="files" type="file" webkitdirectory multiple hidden><iframe id="viewer" src="/viewer?annotations=1" style="border:0;width:100%;height:900px"></iframe></body></html>');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   let browser;

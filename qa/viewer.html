@@ -17,7 +17,7 @@ const opts = {};
 if (params.get('theme')) opts.theme = params.get('theme');
 if (params.get('lang')) opts.lang = params.get('lang');
 const chrome = {};
-for (const k of ['toolbar', 'left', 'right', 'status']) {
+for (const k of ['toolbar', 'left', 'right', 'status', 'annotations']) {
   const v = params.get(k);
   if (v != null) chrome[k] = v === '1' || v === 'true';
 }

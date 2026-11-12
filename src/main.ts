@@ -14,7 +14,7 @@ if (!host) throw new Error('missing #app root');
  *   ?toolbar=0|left=0|right=0|status=0   hide individual panes
  *   ?logo=0|open=0             hide the brand logo+title / open-project buttons
  *   ?annotationToolbar=0|annotationPanel=0  hide the review buttons / review panel
- *   ?annotations=0             hide the annotation toolbar group + right-panel tab (preview mode)
+ *   ?annotations=1             enable the review UI (toolbar group + right-panel tab; off by default)
  *   ?chrome=canvas             shortcut for toolbar/left/right/status/annotations all off
  */
 function parseOptions(q: URLSearchParams): { theme: Theme; lang: Lang; chrome: Partial<ChromeFlags> } {

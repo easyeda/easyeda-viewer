@@ -20,7 +20,7 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro** (嘉立创EDA专�
 - **Single-file build** — one `dist/index.html` with all JS/CSS inlined; open it directly or embed it in an iframe.
 - **Schematics, PCBs, panels, symbols and footprints** — project tree, object tree, properties panel and layer panel, with two-way selection between tree and canvas.
 - **Visual fidelity** — pixel-level regression against official client exports (sheet frames, title blocks, power symbols, net labels, PCB strokes, pour/drill stacking).
-- **Annotations** — text, rectangle and circle annotations with replies, status, editing and visibility; imported/exported through the JS API.
+- **Annotations** — text, rectangle and circle annotations with replies, status, editing and visibility; imported/exported through the JS API. The review UI is opt-in (`chrome: { annotations: true }` / `?annotations=1`).
 - **Windows desktop app** — install-free exe (Go + WebView2) with native file dialogs and drag-and-drop; a separate build keeps Windows 7 support.
 - **Bilingual UI** — Chinese / English interface, light / dark themes.
 
@@ -94,7 +94,7 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro** (嘉立创EDA专�
 - **单文件产物** —— `dist/index.html` 内联全部 JS/CSS，可双击打开或 iframe 嵌入。
 - **原理图 / PCB / 面板 / 符号 / 封装预览** —— 文档树、对象树、属性面板与图层面板，树与画布双向定位。
 - **视觉保真** —— 以官方客户端导出截图为基准做像素级对照（图框、标题栏、电源符号、网络标签、PCB 描边、铺铜与钻孔层序）。
-- **工程批注** —— 文字、矩形框、圆形框批注，支持回复、状态、编辑与显隐，通过 JS API 导入导出。
+- **工程批注** —— 文字、矩形框、圆形框批注，支持回复、状态、编辑与显隐，通过 JS API 导入导出；评审界面默认关闭，需要时传 `chrome: { annotations: true }` 或 `?annotations=1` 开启。
 - **Windows 桌面版** —— 免安装 exe（Go + WebView2），支持原生文件对话框与拖放打开；另提供保留 Windows 7 支持的版本。
 - **中英双语界面** —— 中文 / English 切换，深色 / 浅色主题。
 

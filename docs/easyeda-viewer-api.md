@@ -12,11 +12,11 @@
 | 文档管理 / PLM / PDM | 在线预览工程并挂接评审批注 | `loadProject` + 批注 API + `onChange` 保存 |
 | 评审 / 问题跟踪 | 在图纸上提问题、回复、跟踪状态 | 新建批注、回复、`pending/resolved`、定位 |
 | BOM / 物料 / 生产 | 从 BOM 行定位到 PCB 或原理图元件 | `selectByDesignators` + `clearSelection` |
-| 内网门户 / 知识库 | 只读预览，不展示批注入口 | `chrome.annotations:false` |
+| 内网门户 / 知识库 | 只读预览，不展示批注入口 | 默认配置（`annotations` 默认 `false`） |
 | 教学 / 演示页面 | 精简界面，只保留画布 | `?chrome=canvas` 或 `setChrome` |
 | 自有 Web 前端 | 直接把查看器嵌进现有页面 | 源码引入 `createViewer` |
 
-例如：评审系统在 `loadProject` 时传入已保存批注，用户操作通过 `onChange` 回存；BOM 系统加载 PCB 后调用 `selectByDesignators` 高亮物料位号；门户的只读预览设置 `annotations:false`。各场景的完整调用见后续章节。
+例如：评审系统在 `loadProject` 时传入已保存批注，用户操作通过 `onChange` 回存；BOM 系统加载 PCB 后调用 `selectByDesignators` 高亮物料位号。批注界面**默认不开启**，门户 / 知识库无需任何配置；需要评审的系统显式传入 `annotations:true`。各场景的完整调用见后续章节。
 
 两种接入方式：
 
@@ -246,7 +246,7 @@ const viewer = createViewer(host, {
     left: true,
     right: true,
     status: true,
-    annotations: true,        // 批注功能总开关（界面 + 画布交互；API 始终可用）
+    annotations: true,        // 批注界面总开关：默认 false，评审系统显式开启；数据 API 始终可用
     logo: false,              // 隐藏顶部品牌 logo 与「EasyEDA 查看器」标题，后续按钮自动左移
     open: false,              // 隐藏顶部「打开文件 / 打开文件夹」
     annotationToolbar: false, // 隐藏顶部评审按钮组（右侧评审页签仍保留）
@@ -261,13 +261,13 @@ const viewer = createViewer(host, {
 | `left` | 左侧文档树 / 元件树 |
 | `right` | 右侧属性 / 图层 / 批注面板 |
 | `status` | 底部状态栏 |
-| `annotations` | 批注功能总开关：工具栏按钮组 + 右栏批注页签 + 画布批注交互 |
+| `annotations` | 批注界面总开关（**默认 `false`**）：工具栏按钮组 + 右栏批注页签 + 画布批注交互 |
 | `logo` | 顶部品牌 logo 与「EasyEDA 查看器」标题（同一开关）；隐藏后其余图标左对齐，不留空位 |
 | `open` | 顶部的「打开文件」「打开文件夹」按钮 |
 | `annotationToolbar` | 顶部评审按钮组；面板开启时可通过右栏页签继续查看评审 |
 | `annotationPanel` | 右侧「批注记录」页签与面板；隐藏时评审按钮同步隐藏 |
 
-`annotations:false` 只隐藏批注界面，**批注数据 API 仍可用**，适合只读预览。
+`annotations` **默认 `false`**：批注界面（工具栏按钮、右栏页签、画布交互）不显示，**批注数据 API 始终可用**；评审系统传 `annotations:true` / `?annotations=1` 开启完整界面。
 `left` / `right` 省略时按需自动显示；显式传 `true/false` 可固定。
 
 ### 6.2 运行时控制
@@ -289,7 +289,7 @@ viewer.setChrome({ left: false, right: false });
 | `?toolbar=0` / `?left=0` / `?right=0` / `?status=0` | 单独隐藏对应区域 |
 | `?logo=0` | 隐藏顶部品牌 logo 与「EasyEDA 查看器」标题（其余图标左移） |
 | `?open=0` | 隐藏顶部「打开文件 / 打开文件夹」按钮 |
-| `?annotations=0` | 隐藏批注工具栏与右栏批注页签 |
+| `?annotations=1` | 开启批注界面（工具栏 + 右栏页签 + 画布交互；默认关闭） |
 | `?annotationToolbar=0` | 只隐藏顶部评审按钮组 |
 | `?annotationPanel=0` | 只隐藏右侧评审页签与面板 |
 | `?chrome=canvas` | 隐藏全部界面，仅保留画布 |
@@ -300,7 +300,7 @@ viewer.setChrome({ left: false, right: false });
 
 ```js
 const frame = document.querySelector('#viewer');
-frame.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'chrome', chrome: { annotations: false } }, '*');
+frame.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'chrome', chrome: { annotations: true } }, '*');
 frame.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'lang', lang: 'en' }, '*');
 frame.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'theme', theme: 'dark' }, '*');
 ```
@@ -309,12 +309,12 @@ frame.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'theme', theme:
 
 | 目标 | 配置 |
 | --- | --- |
-| 只读预览（保留工程浏览） | `chrome: { annotations:false }` 或 `?annotations=0` |
+| 只读预览（保留工程浏览） | 默认配置（批注界面默认关闭） |
 | 只留画布 / 投屏 | `?chrome=canvas` |
-| 教学页（无左栏，保留工具栏） | `chrome: { left:false, annotations:false }` |
+| 教学页（无左栏，保留工具栏） | `chrome: { left:false }` |
 | 精简工具栏（无品牌与打开按钮） | `chrome: { logo:false, open:false }` |
-| 只看批注（无评审入口） | `chrome: { annotationToolbar:false, annotationPanel:false }` |
-| 全功能评审 | 默认配置 |
+| 只看批注（无评审入口） | `chrome: { annotations:true, annotationToolbar:false, annotationPanel:false }` |
+| 全功能评审 | `chrome: { annotations:true }` 或 `?annotations=1` |
 
 批注**标记**的显隐另用 `setAnnotationsVisible(false)`：隐藏画布标记，但右栏记录仍可查看，数据不变。
 

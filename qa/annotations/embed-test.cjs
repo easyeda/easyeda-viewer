@@ -33,7 +33,8 @@ const config = require('./config.cjs');
         constructor(callback) { super(callback); annotationObservers.push(this); }
         disconnect() { this.disconnected = true; super.disconnect(); }
       };
-      window.embedded = createViewer(document.querySelector('#app'));
+      // 批注界面默认关闭(#annotations-default-off),源码集成用例显式开启
+      window.embedded = createViewer(document.querySelector('#app'), { chrome: { annotations: true } });
       window.ResizeObserver = NativeObserver;
       window.addEventListener = addListener;
       const input = document.createElement('input');

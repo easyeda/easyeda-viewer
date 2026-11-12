@@ -20,7 +20,8 @@ export interface CreateViewerOptions {
   /** UI chrome theme, default 'light'. Canvas always keeps document colors. */
   theme?: Theme;
   /** show/hide toolbar & side panels, e.g. {toolbar:false,left:false,right:false} for a pure canvas;
-   *  `annotations:false` hides the annotation toolbar group and right-panel tab (read-only previews) */
+   *  `annotations:true` enables the annotation toolbar group and right-panel tab
+   *  (off by default; the data API is always available) */
   chrome?: Partial<ChromeFlags>;
   /** UI language, default 'zh' */
   lang?: Lang;

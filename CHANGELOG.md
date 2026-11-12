@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-11-13
+
+### Changed
+- **批注界面默认关闭**(#annotations-default-off,用户需求):`chrome.annotations` 默认值改为 `false`,打开工程时不再显示评审工具栏、右栏批注页签与画布批注交互,右侧默认停留在「属性 / 图层」。评审系统显式传 `annotations: true` / `?annotations=1`(或 `setChrome`)即恢复完整界面;批注数据 API(`viewer.annotations`)始终可用。批注回归用例已改为显式开启评审界面。
+
 ## [0.7.5] - 2026-11-12
 
 ### Added

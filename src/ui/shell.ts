@@ -39,8 +39,10 @@ export interface ChromeFlags {
   left: boolean;
   right: boolean;
   status: boolean;
-  /** annotation UI master switch (toolbar buttons, right panel, overlay, API UI).
-   *  Read-only previews set this to false (`annotations: false`). */
+  /** annotation UI master switch (toolbar buttons, right panel, overlay).
+   *  **Off by default** (#annotations-default-off): hosts that want the review
+   *  UI opt in with `annotations: true` / `?annotations=1`. The data API
+   *  (`viewer.annotations`) works either way. */
   annotations: boolean;
   /** brand logo + app title in the top toolbar; hidden = the following buttons shift left */
   logo: boolean;
@@ -61,8 +63,12 @@ export interface ShellOptions extends ShellEvents {
   lang?: Lang;
 }
 
+// 批注界面默认关闭(#annotations-default-off):查看器以"看图"为主,评审入口由
+// 宿主显式开启(`annotations: true` / `?annotations=1`);批注数据 API 始终可用。
+// annotationToolbar / annotationPanel 默认 true,但都受 annotations 总开关门控,
+// 所以只要打开总开关就能拿回完整评审界面。
 const FULL_CHROME: ChromeFlags = {
-  toolbar: true, left: true, right: true, status: true, annotations: true,
+  toolbar: true, left: true, right: true, status: true, annotations: false,
   logo: true, open: true, annotationToolbar: true, annotationPanel: true,
 };
 
