@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-11-12
+
+### Added
+- **可隐藏的工具栏与评审元素**(#chrome-flags,用户需求):新增四个界面开关 —— `chrome.logo`(品牌 logo 与「EasyEDA 查看器」标题,同一开关)、`chrome.open`(打开文件 / 打开文件夹按钮)、`chrome.annotationToolbar`(顶部评审按钮组)、`chrome.annotationPanel`(右栏评审页签与面板)。四者均支持 `createViewer({ chrome })`、`setChrome()`、postMessage `chrome` 命令与 URL 参数(`?logo=0&open=0&annotationToolbar=0&annotationPanel=0`)。隐藏 logo 后其余工具栏图标左对齐、不留空位;隐藏评审面板时顶部评审按钮同步隐藏,批注数据 API 不受影响。
+
 ## [0.7.4] - 2026-11-11
 
 ### Added

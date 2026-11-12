@@ -28,9 +28,21 @@ export function installAnnotations(shell) {
   let busy = false;
   let opening = false;
   let notifying = false;
-  // preview hosts can switch the whole annotation UI off (`chrome.annotations`
-  // or `?annotations=0`); the data API keeps working
-  let enabled = shell.getChrome().annotations !== false;
+  // preview hosts can switch the annotation UI off (`chrome.annotations`
+  // or `?annotations=0`); the data API keeps working. Finer switches:
+  // `annotationPanel` hides the right-panel tab/panel, `annotationToolbar`
+  // hides the top review buttons (the tab stays if the panel is enabled).
+  let enabled = true;
+  let panelEnabled = true;
+  let toolbarEnabled = true;
+  function readChromeFlags() {
+    const c = shell.getChrome();
+    enabled = c.annotations !== false;
+    panelEnabled = enabled && c.annotationPanel !== false;
+    // the review buttons open the panel (the editor lives there), so hiding
+    // the panel hides them as well even when annotationToolbar stays true
+    toolbarEnabled = enabled && panelEnabled && c.annotationToolbar !== false;
+  }
 
   function element(tag, className, text) {
     const el = document.createElement(tag);
@@ -400,7 +412,7 @@ export function installAnnotations(shell) {
     if (error) shell.setStatus(message, true);
   }
   function showPanel() {
-    if (!enabled) return;
+    if (!enabled || !panelEnabled) return;
     shell.rightEl.classList.add('ann-open');
     notesTab.classList.add('ev-on');
     propsTab.classList.remove('ev-on');
@@ -806,20 +818,23 @@ export function installAnnotations(shell) {
     return `local:${(hash >>> 0).toString(16)}`;
   }
   const originalRightVisible = shell.rightVisible.bind(shell);
-  shell.rightVisible = () => enabled && shell.rightForced === null && currentDocument() ? true : originalRightVisible();
+  shell.rightVisible = () => panelEnabled && shell.rightForced === null && currentDocument() ? true : originalRightVisible();
   // `chrome.annotations=false` (preview mode) hides the toolbar group, the
-  // right-panel tab and the SVG overlay, and stops forcing the right panel open
+  // right-panel tab and the SVG overlay, and stops forcing the right panel open;
+  // `annotationToolbar` / `annotationPanel` narrow that down to the top buttons
+  // or the right panel
   let appliedEnabled = null;
   function syncAnnotationChrome() {
     const changed = appliedEnabled !== enabled;
     appliedEnabled = enabled;
-    toolbar.classList.toggle('ev-hidden', !enabled);
-    tabs.classList.toggle('ev-hidden', !enabled);
-    panel.classList.toggle('ev-hidden', !enabled);
+    toolbar.classList.toggle('ev-hidden', !toolbarEnabled);
+    tabs.classList.toggle('ev-hidden', !panelEnabled);
+    panel.classList.toggle('ev-hidden', !panelEnabled);
     svg.classList.toggle('ev-hidden', !enabled);
-    if (!enabled) {
+    if (!panelEnabled) {
       shell.rightEl.classList.remove('ann-open');
       notesTab.classList.remove('ev-on');
+      propsTab.classList.add('ev-on');
       closeMenu();
       if (state.editor || state.gesture) { cancelGesture(); cancelEditor(); }
       if (state.tool !== 'select') setTool('select');
@@ -831,7 +846,7 @@ export function installAnnotations(shell) {
   }
   const originalApplyChrome = shell.applyChrome.bind(shell);
   shell.applyChrome = () => {
-    enabled = shell.getChrome().annotations !== false;
+    readChromeFlags();
     originalApplyChrome();
     syncAnnotationChrome();
   };
@@ -961,6 +976,7 @@ export function installAnnotations(shell) {
   });
   // 默认停在「属性」页签(#ann-default-props):打开工程/文档不自动切到批注,
   // 只有用户点击批注页签或使用批注工具时才由 showPanel() 打开批注面板
+  readChromeFlags();
   setTool('select');
   syncAnnotationChrome();
   return { api, destroy() {

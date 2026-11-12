@@ -39,9 +39,17 @@ export interface ChromeFlags {
   left: boolean;
   right: boolean;
   status: boolean;
-  /** annotation toolbar group + the annotation tab in the right panel.
+  /** annotation UI master switch (toolbar buttons, right panel, overlay, API UI).
    *  Read-only previews set this to false (`annotations: false`). */
   annotations: boolean;
+  /** brand logo + app title in the top toolbar; hidden = the following buttons shift left */
+  logo: boolean;
+  /** open-project buttons in the toolbar (open files / open folder) */
+  open: boolean;
+  /** review buttons in the top toolbar (needs `annotations` + `annotationPanel`) */
+  annotationToolbar: boolean;
+  /** review tab + panel in the right sidebar (needs `annotations`) */
+  annotationPanel: boolean;
 }
 
 export interface ShellOptions extends ShellEvents {
@@ -49,11 +57,14 @@ export interface ShellOptions extends ShellEvents {
   theme?: Theme;
   /** pin toolbar & side panels; left/right default to auto (hidden until useful) */
   chrome?: Partial<ChromeFlags>;
-  /** UI language; default 'zh' */
+  /** UI language; default zh */
   lang?: Lang;
 }
 
-const FULL_CHROME: ChromeFlags = { toolbar: true, left: true, right: true, status: true, annotations: true };
+const FULL_CHROME: ChromeFlags = {
+  toolbar: true, left: true, right: true, status: true, annotations: true,
+  logo: true, open: true, annotationToolbar: true, annotationPanel: true,
+};
 
 export class Shell {
   readonly el: HTMLElement;
@@ -553,6 +564,11 @@ export class Shell {
 
   private applyChrome(): void {
     this.toolbarEl.classList.toggle('ev-hidden', !this.flags.toolbar);
+    // brand logo + title / open-project buttons are optional chrome; hiding the
+    // brand removes its box so the following buttons shift left with no gap
+    (this.el.querySelector('.ev-brand') as HTMLElement).classList.toggle('ev-hidden', !this.flags.logo);
+    this.el.querySelectorAll('[data-act="files"], [data-act="folder"]')
+      .forEach((b) => b.classList.toggle('ev-hidden', !this.flags.open));
     this.leftEl.classList.toggle('ev-hidden', !this.leftVisible());
     (this.el.querySelector('.ev-resize[data-side="left"]') as HTMLElement).classList.toggle('ev-hidden', !this.leftVisible());
     // library previews hide the empty component tree and its divider (#elibz2-tree)

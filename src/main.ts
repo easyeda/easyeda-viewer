@@ -12,6 +12,8 @@ if (!host) throw new Error('missing #app root');
  *   ?theme=light|dark          chrome theme, default light (canvas keeps document colors)
  *   ?lang=zh|en                UI language, default zh
  *   ?toolbar=0|left=0|right=0|status=0   hide individual panes
+ *   ?logo=0|open=0             hide the brand logo+title / open-project buttons
+ *   ?annotationToolbar=0|annotationPanel=0  hide the review buttons / review panel
  *   ?annotations=0             hide the annotation toolbar group + right-panel tab (preview mode)
  *   ?chrome=canvas             shortcut for toolbar/left/right/status/annotations all off
  */
@@ -28,7 +30,7 @@ function parseOptions(q: URLSearchParams): { theme: Theme; lang: Lang; chrome: P
     chrome.toolbar = false; chrome.left = false; chrome.right = false; chrome.status = false;
     chrome.annotations = false;
   }
-  for (const k of ['toolbar', 'left', 'right', 'status', 'annotations'] as const) {
+  for (const k of ['toolbar', 'left', 'right', 'status', 'annotations', 'logo', 'open', 'annotationToolbar', 'annotationPanel'] as const) {
     const v = flag(k);
     if (v !== undefined) chrome[k] = v;
   }

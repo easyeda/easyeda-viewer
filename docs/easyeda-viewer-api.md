@@ -246,7 +246,11 @@ const viewer = createViewer(host, {
     left: true,
     right: true,
     status: true,
-    annotations: false, // 隐藏批注工具栏按钮组与右栏批注页签
+    annotations: true,        // 批注功能总开关（界面 + 画布交互；API 始终可用）
+    logo: false,              // 隐藏顶部品牌 logo 与「EasyEDA 查看器」标题，后续按钮自动左移
+    open: false,              // 隐藏顶部「打开文件 / 打开文件夹」
+    annotationToolbar: false, // 隐藏顶部评审按钮组（右侧评审页签仍保留）
+    annotationPanel: false,   // 隐藏右侧评审页签与面板（评审按钮也随之隐藏）
   },
 });
 ```
@@ -257,7 +261,11 @@ const viewer = createViewer(host, {
 | `left` | 左侧文档树 / 元件树 |
 | `right` | 右侧属性 / 图层 / 批注面板 |
 | `status` | 底部状态栏 |
-| `annotations` | 批注工具栏按钮组 + 右栏批注页签 + 画布批注交互 |
+| `annotations` | 批注功能总开关：工具栏按钮组 + 右栏批注页签 + 画布批注交互 |
+| `logo` | 顶部品牌 logo 与「EasyEDA 查看器」标题（同一开关）；隐藏后其余图标左对齐，不留空位 |
+| `open` | 顶部的「打开文件」「打开文件夹」按钮 |
+| `annotationToolbar` | 顶部评审按钮组；面板开启时可通过右栏页签继续查看评审 |
+| `annotationPanel` | 右侧「批注记录」页签与面板；隐藏时评审按钮同步隐藏 |
 
 `annotations:false` 只隐藏批注界面，**批注数据 API 仍可用**，适合只读预览。
 `left` / `right` 省略时按需自动显示；显式传 `true/false` 可固定。
@@ -270,7 +278,7 @@ viewer.setChrome({ left: false, right: false });
 ```
 
 `setChrome` 只控制显示，不是权限控制。
-定位批注等操作可能重新打开右侧面板。
+定位批注等操作可能重新打开右侧面板；`annotationPanel:false` 时评审面板保持隐藏。
 
 ### 6.3 URL 参数
 
@@ -279,7 +287,11 @@ viewer.setChrome({ left: false, right: false });
 | `?theme=light\|dark` | 界面主题，默认 `light` |
 | `?lang=zh\|en` | 界面语言，默认 `zh` |
 | `?toolbar=0` / `?left=0` / `?right=0` / `?status=0` | 单独隐藏对应区域 |
+| `?logo=0` | 隐藏顶部品牌 logo 与「EasyEDA 查看器」标题（其余图标左移） |
+| `?open=0` | 隐藏顶部「打开文件 / 打开文件夹」按钮 |
 | `?annotations=0` | 隐藏批注工具栏与右栏批注页签 |
+| `?annotationToolbar=0` | 只隐藏顶部评审按钮组 |
+| `?annotationPanel=0` | 只隐藏右侧评审页签与面板 |
 | `?chrome=canvas` | 隐藏全部界面，仅保留画布 |
 
 关闭布尔参数也接受 `false` / `off`。
@@ -300,6 +312,8 @@ frame.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'theme', theme:
 | 只读预览（保留工程浏览） | `chrome: { annotations:false }` 或 `?annotations=0` |
 | 只留画布 / 投屏 | `?chrome=canvas` |
 | 教学页（无左栏，保留工具栏） | `chrome: { left:false, annotations:false }` |
+| 精简工具栏（无品牌与打开按钮） | `chrome: { logo:false, open:false }` |
+| 只看批注（无评审入口） | `chrome: { annotationToolbar:false, annotationPanel:false }` |
 | 全功能评审 | 默认配置 |
 
 批注**标记**的显隐另用 `setAnnotationsVisible(false)`：隐藏画布标记，但右栏记录仍可查看，数据不变。
@@ -351,7 +365,7 @@ iframe `load` 可能晚于 `ready`，直接检查 `easyedaViewer` 是否存在�
 | `select` | `designators: string[]` | `select-result { designators, matched, ok }` |
 | `theme` | `theme: 'light' \| 'dark'` | 无 |
 | `lang` | `lang: 'zh' \| 'en'` | 无 |
-| `chrome` | `chrome: { toolbar, left, right, status, annotations }` | 无 |
+| `chrome` | `chrome: { toolbar, left, right, status, annotations, logo, open, annotationToolbar, annotationPanel }` | 无 |
 
 `postMessage` 不提供批注增删改；需要批注 API 时请使用同源 JS 访问。
 
