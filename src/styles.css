@@ -32,9 +32,10 @@ html[data-theme="light"] {
   --ev-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.08);
   --ev-code-bg: #f6f7f9;
   /* floating panel glass + control contrast (#float-left-panel) */
-  --ev-glass: rgba(255, 255, 255, 0.76);
+  --ev-glass: rgba(255, 255, 255, 0.34);
   --ev-glass-strong: rgba(255, 255, 255, 0.92);
   --ev-float-border: rgba(16, 24, 40, 0.2);
+  --ev-halo: rgba(255, 255, 255, 0.9);
 }
 .ev-shell[data-theme="dark"],
 html[data-theme="dark"] {
@@ -51,9 +52,10 @@ html[data-theme="dark"] {
   --ev-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.45);
   --ev-code-bg: #14161a;
   /* 深色主题下悬浮面板与按钮在 PCB 黑底上要更亮一档 */
-  --ev-glass: rgba(30, 33, 38, 0.78);
+  --ev-glass: rgba(30, 33, 38, 0.44);
   --ev-glass-strong: rgba(38, 42, 49, 0.94);
   --ev-float-border: rgba(255, 255, 255, 0.28);
+  --ev-halo: rgba(20, 22, 26, 0.9);
 }
 
 * { box-sizing: border-box; }
@@ -121,9 +123,12 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
   background: var(--ev-glass);
   border: 1px solid var(--ev-border); border-radius: 10px;
   box-shadow: var(--ev-shadow); overflow: hidden;
-  backdrop-filter: blur(14px) saturate(1.15);
-  -webkit-backdrop-filter: blur(14px) saturate(1.15);
 }
+/* 面板高度透明,树/列表文字直接叠在画布上;同色晕影保证在杂色图纸上仍可读 */
+.ev-left .ev-pane-cap,
+.ev-left .ev-tree-row,
+.ev-left .ev-obj-row,
+.ev-left .ev-hint { text-shadow: 0 0 3px var(--ev-halo), 0 0 1px var(--ev-halo); }
 .ev-right {
   width: var(--ev-right-w, 296px); flex: none; display: flex; flex-direction: column; min-width: 0;
   background: var(--ev-panel); border-left: 1px solid var(--ev-border);

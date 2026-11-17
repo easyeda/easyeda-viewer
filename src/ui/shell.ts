@@ -19,7 +19,7 @@ import { setupDnd, pickFiles, pickFolder, type DndController } from './dnd';
 import { DocTreeView, ObjectListView, LayerListView, escapeHtml, type ObjectRow } from './tree';
 import { PropsView } from './props';
 import { MeasureController } from './measure';
-import { icon, easyedaMark } from './icons';
+import { icon, edaIcon, easyedaMark } from './icons';
 import { t, setLang as setI18nLang, getLang, layerLabel, type Lang } from './i18n';
 import { fmtCoord, getUnit, toggleUnit, unitSuffix, setDocScale, docScaleFor, onUnitChange } from './units';
 import { VIEWER_VERSION } from '../version';
@@ -198,7 +198,7 @@ export class Shell {
           <!-- 面板开关悬浮在画布上(#float-panel-toggles):顶部工具栏隐藏后仍有入口 -->
           <div class="ev-float-toggles ev-float-left">
             <button class="ev-btn ev-btn-icon ev-float-btn" data-act="panelL" data-tip="tipPanelL">${icon('panelLeft')}</button>
-            <button class="ev-btn ev-btn-icon ev-float-btn" data-act="components" data-tip="tipComponents">${icon('circuitBoard')}</button>
+            <button class="ev-btn ev-btn-icon ev-float-btn" data-act="components" data-tip="tipComponents">${edaIcon('symbol', 16)}</button>
           </div>
           <div class="ev-float-toggles ev-float-right">
             <button class="ev-btn ev-btn-icon ev-float-btn" data-act="panelT" data-tip="tipPanelT">${icon('panelTop')}</button>
