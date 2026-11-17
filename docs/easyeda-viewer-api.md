@@ -251,7 +251,7 @@ const viewer = createViewer(host, {
     open: false,              // 隐藏顶部「打开文件 / 打开文件夹」
     annotationToolbar: false, // 隐藏顶部评审按钮组（右侧评审页签仍保留）
     annotationPanel: false,   // 隐藏右侧评审页签与面板（评审按钮也随之隐藏）
-    components: false,        // 隐藏左侧元件树，文档树占满面板
+    components: false,        // 隐藏左侧元件树，仅保留文档树
   },
 });
 ```
@@ -267,7 +267,7 @@ const viewer = createViewer(host, {
 | `open` | 顶部的「打开文件」「打开文件夹」按钮 |
 | `annotationToolbar` | 顶部评审按钮组；面板开启时可通过右栏页签继续查看评审 |
 | `annotationPanel` | 右侧「批注记录」页签与面板；隐藏时评审按钮同步隐藏 |
-| `components` | 左侧元件树（默认 `true`）；隐藏后文档树占满悬浮左面板 |
+| `components` | 左侧元件树（默认 `true`）；隐藏后仅保留文档树 |
 
 `annotations` **默认 `false`**：批注界面（工具栏按钮、右栏页签、画布交互）不显示，**批注数据 API 始终可用**；评审系统传 `annotations:true` / `?annotations=1` 开启完整界面。
 `left` / `right` 省略时按需自动显示；显式传 `true/false` 可固定。
@@ -294,7 +294,7 @@ viewer.setChrome({ left: false, right: false });
 | `?annotations=1` | 开启批注界面（工具栏 + 右栏页签 + 画布交互；默认关闭） |
 | `?annotationToolbar=0` | 只隐藏顶部评审按钮组 |
 | `?annotationPanel=0` | 只隐藏右侧评审页签与面板 |
-| `?components=0` | 隐藏左侧元件树（文档树占满悬浮左面板） |
+| `?components=0` | 隐藏左侧元件树（仅保留文档树） |
 | `?chrome=canvas` | 隐藏全部界面，仅保留画布 |
 
 关闭布尔参数也接受 `false` / `off`。
