@@ -624,6 +624,10 @@ export class Shell {
     this.bgRect.width = Math.max(this.canvasHost.clientWidth, 1);
     this.bgRect.height = Math.max(this.canvasHost.clientHeight, 1);
     this.bgRect.fill = canvasBg(kind);
+    // 透明悬浮左栏与画布按钮的配色跟随画布明暗(#canvas-adaptive-chrome)
+    const dark = kind === 'pcb' || kind === 'footprint';
+    this.el.classList.toggle('ev-canvas-dark', dark);
+    this.el.classList.toggle('ev-canvas-light', !dark);
   }
 
   // ---------- loading ----------

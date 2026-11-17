@@ -27,12 +27,12 @@ html[data-theme="light"] {
   --ev-accent: #2563eb;
   --ev-accent-text: #ffffff;
   --ev-accent-weak: rgba(37, 99, 235, 0.12);
+  --ev-accent-line: rgba(37, 99, 235, 0.5);
   --ev-border: #e2e5ea;
   --ev-hover: rgba(35, 39, 46, 0.06);
   --ev-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.08);
   --ev-code-bg: #f6f7f9;
   /* floating panel glass + control contrast (#float-left-panel) */
-  --ev-glass: rgba(255, 255, 255, 0.34);
   --ev-glass-strong: rgba(255, 255, 255, 0.92);
   --ev-float-border: rgba(16, 24, 40, 0.2);
   --ev-halo: rgba(255, 255, 255, 0.9);
@@ -47,12 +47,12 @@ html[data-theme="dark"] {
   --ev-accent: #3b9bff;
   --ev-accent-text: #ffffff;
   --ev-accent-weak: rgba(59, 155, 255, 0.16);
+  --ev-accent-line: rgba(59, 155, 255, 0.65);
   --ev-border: #2e343d;
   --ev-hover: rgba(215, 219, 224, 0.08);
   --ev-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.45);
   --ev-code-bg: #14161a;
   /* 深色主题下悬浮面板与按钮在 PCB 黑底上要更亮一档 */
-  --ev-glass: rgba(30, 33, 38, 0.44);
   --ev-glass-strong: rgba(38, 42, 49, 0.94);
   --ev-float-border: rgba(255, 255, 255, 0.28);
   --ev-halo: rgba(20, 22, 26, 0.9);
@@ -120,15 +120,13 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 .ev-left {
   position: absolute; top: 8px; bottom: 8px; left: 8px; z-index: 7;
   width: var(--ev-left-w, 252px); display: flex; flex-direction: column; min-width: 0;
-  background: var(--ev-glass);
-  border: 1px solid var(--ev-border); border-radius: 10px;
-  box-shadow: var(--ev-shadow); overflow: hidden;
+  border: none; background: transparent; overflow: hidden;
 }
 /* 面板高度透明,树/列表文字直接叠在画布上;同色晕影保证在杂色图纸上仍可读 */
 .ev-left .ev-pane-cap,
 .ev-left .ev-tree-row,
 .ev-left .ev-obj-row,
-.ev-left .ev-hint { text-shadow: 0 0 3px var(--ev-halo), 0 0 1px var(--ev-halo); }
+.ev-left .ev-hint { text-shadow: 0 0 2px var(--ev-halo), 0 0 4px var(--ev-halo); }
 .ev-right {
   width: var(--ev-right-w, 296px); flex: none; display: flex; flex-direction: column; min-width: 0;
   background: var(--ev-panel); border-left: 1px solid var(--ev-border);
@@ -248,18 +246,41 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 .ev-float-left { left: 8px; flex-direction: column; }
 .ev-shell.ev-left-open .ev-float-left { left: calc(16px + var(--ev-left-w, 252px)); }
 .ev-float-right { right: 8px; }
-/* 悬浮按钮可能落在白色原理图或 PCB 黑底上:实底 + 描边 + 阴影保证可读,
-   激活态用实心强调色(而不是半透明底),深色 PCB 上也能一眼看清 */
+/* 悬浮按钮:无填充,只用轮廓 + 阴影定位;激活态 = 蓝色图标 + 浅蓝轮廓
+   (#float-btn-style);具体图标颜色随画布明暗自适应(见下方 ev-canvas-dark) */
 .ev-canvas .ev-float-btn {
-  background: var(--ev-glass-strong); border: 1px solid var(--ev-float-border);
+  background: transparent; border: 1px solid var(--ev-float-border);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(8px);
+  color: var(--ev-text);
 }
-.ev-canvas .ev-float-btn:hover { background: var(--ev-panel); }
+.ev-canvas .ev-float-btn:hover { background: var(--ev-hover); }
 .ev-canvas .ev-float-btn.ev-on {
-  background: var(--ev-accent); border-color: var(--ev-accent); color: var(--ev-accent-text);
+  background: transparent; border-color: var(--ev-accent-line); color: var(--ev-accent);
 }
-.ev-canvas .ev-float-btn.ev-on:hover { background: var(--ev-accent); filter: brightness(1.1); }
+.ev-canvas .ev-float-btn.ev-on:hover { background: var(--ev-accent-weak); }
+
+/* 透明左栏的配色跟随"画布底色"而不是 UI 主题(#canvas-adaptive-chrome):
+   白色图纸上用深色文字/浅色晕影,PCB 黑底上用浅色文字/深色晕影 */
+.ev-shell.ev-canvas-light .ev-left { color: #23272e; --ev-halo: rgba(255, 255, 255, 0.9); }
+.ev-shell.ev-canvas-light .ev-left .ev-pane-cap { color: #697079; }
+.ev-shell.ev-canvas-light .ev-left .ev-tree-row:not(.ev-active),
+.ev-shell.ev-canvas-light .ev-left .ev-obj-row:not(.ev-active),
+.ev-shell.ev-canvas-light .ev-left .ev-hint { color: #23272e; }
+.ev-shell.ev-canvas-light .ev-left .ev-search { background: rgba(255, 255, 255, 0.92); color: #23272e; border-color: rgba(16, 24, 40, 0.18); }
+.ev-shell.ev-canvas-light .ev-left .ev-search:focus { background: #ffffff; }
+.ev-shell.ev-canvas-light .ev-canvas .ev-float-btn { color: #23272e; border-color: rgba(16, 24, 40, 0.25); }
+.ev-shell.ev-canvas-light .ev-canvas .ev-float-btn.ev-on { color: #2563eb; border-color: rgba(37, 99, 235, 0.5); }
+
+.ev-shell.ev-canvas-dark .ev-left { color: #e8ebf0; --ev-halo: rgba(10, 12, 16, 0.85); }
+.ev-shell.ev-canvas-dark .ev-left .ev-pane-cap { color: #a7b0bc; }
+.ev-shell.ev-canvas-dark .ev-left .ev-tree-row:not(.ev-active),
+.ev-shell.ev-canvas-dark .ev-left .ev-obj-row:not(.ev-active),
+.ev-shell.ev-canvas-dark .ev-left .ev-hint { color: #e8ebf0; }
+.ev-shell.ev-canvas-dark .ev-left .ev-search { background: rgba(22, 25, 30, 0.92); color: #e8ebf0; border-color: rgba(255, 255, 255, 0.2); }
+.ev-shell.ev-canvas-dark .ev-left .ev-search:focus { background: rgba(28, 32, 38, 0.98); }
+.ev-shell.ev-canvas-dark .ev-left .ev-split::before { background: rgba(255, 255, 255, 0.16); }
+.ev-shell.ev-canvas-dark .ev-canvas .ev-float-btn { color: #e8ebf0; border-color: rgba(255, 255, 255, 0.3); }
+.ev-shell.ev-canvas-dark .ev-canvas .ev-float-btn.ev-on { color: #6fb6ff; border-color: rgba(111, 182, 255, 0.65); }
 /* document backgrounds (sch white / pcb dark) are painted by the leafer scene
    itself (leafer.fill, set on doc open) — see shell.ts openNode (#bg-flash) */
 
