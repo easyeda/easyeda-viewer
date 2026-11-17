@@ -211,4 +211,22 @@ describe('schematic placement rotations', () => {
     expect(texts).toContain('100nF');
     expect(texts).not.toContain('10uF');
   });
+
+  it('rotates bitmap objects around their top-left anchor', () => {
+    // TSchObj rotation pivots on (startX, startY); a 180° image must land on
+    // the opposite side of that corner, not stay centered on itself
+    const self = segment('sheet', 'SCH_PAGE', [
+      rec('OBJ', 'pic', {
+        startX: 930, startY: 295, width: 20, height: 20, rotation: 180,
+        content: 'data:image/png;base64,',
+      }),
+    ], true);
+    const { objects } = render(self, []);
+    const obj = objects.find((o) => o.id === 'pic')!;
+    expect(obj.node.x).toBeCloseTo(930);
+    expect(obj.node.y).toBeCloseTo(-295);
+    expect(obj.node.rotation).toBeCloseTo(-180);
+    // anchored AABB (expanded by the bbox margin): x∈[910,930], screen y∈[-315,-295]
+    expect(obj.bbox).toMatchObject({ minX: 907, maxX: 933, minY: -318, maxY: -292 });
+  });
 });

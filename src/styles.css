@@ -266,6 +266,18 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 .ev-shell.ev-canvas-light .ev-left .ev-tree-row:not(.ev-active),
 .ev-shell.ev-canvas-light .ev-left .ev-obj-row:not(.ev-active),
 .ev-shell.ev-canvas-light .ev-left .ev-hint { color: #23272e; }
+.ev-shell.ev-canvas-light .ev-left .ev-tree-row:not(.ev-active),
+.ev-shell.ev-canvas-light .ev-left .ev-obj-row:not(.ev-active),
+.ev-shell.ev-canvas-light .ev-left .ev-obj-group { background: rgba(255, 255, 255, 0.86); }
+.ev-shell.ev-canvas-light .ev-left .ev-tree-row:not(.ev-active):hover,
+.ev-shell.ev-canvas-light .ev-left .ev-obj-row:not(.ev-active):hover,
+.ev-shell.ev-canvas-light .ev-left .ev-obj-group:hover { background: rgba(255, 255, 255, 0.96); }
+.ev-shell.ev-canvas-dark .ev-left .ev-tree-row:not(.ev-active),
+.ev-shell.ev-canvas-dark .ev-left .ev-obj-row:not(.ev-active),
+.ev-shell.ev-canvas-dark .ev-left .ev-obj-group { background: rgba(20, 24, 30, 0.78); }
+.ev-shell.ev-canvas-dark .ev-left .ev-tree-row:not(.ev-active):hover,
+.ev-shell.ev-canvas-dark .ev-left .ev-obj-row:not(.ev-active):hover,
+.ev-shell.ev-canvas-dark .ev-left .ev-obj-group:hover { background: rgba(32, 38, 46, 0.9); }
 .ev-shell.ev-canvas-light .ev-left .ev-search { background: rgba(255, 255, 255, 0.92); color: #23272e; border-color: rgba(16, 24, 40, 0.18); }
 .ev-shell.ev-canvas-light .ev-left .ev-search:focus { background: #ffffff; }
 .ev-shell.ev-canvas-light .ev-canvas .ev-float-btn { color: #23272e; border-color: rgba(16, 24, 40, 0.25); }

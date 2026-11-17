@@ -469,22 +469,10 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
           break;
         }
         case 'OBJ': {
-          // embedded bitmap object: `content`/`path` may be a `blob:<id>` URI
-          // into the file's BLOB records, or an inline `data:image/...` URL
-          // (title-block logos are stored inline). (startX, startY) is the
-          // TOP-LEFT corner (verified on the PCB doc's dialog against the
-          // reference export), not the center.
-          const url = objImageUrl(r.data);
-          if (url) {
-            const w = Number(r.data.width) || 0, h = Number(r.data.height) || 0;
-            const pic = new LeaferImage({ url, width: w, height: h, x: -w / 2, y: -h / 2 });
-            if (r.data.isMirror ?? r.data.mirror) pic.scaleX = -1;
-            const pg = new Group({ x: X(Number(r.data.startX ?? 0), sxf) + w / 2, y: Y(Number(r.data.startY ?? 0), sxf) + h / 2 });
-            if (Number(r.data.rotation ?? 0)) pg.rotation = ang(Number(r.data.rotation), sxf);
-            pg.add(pic);
-            local.add(pg);
-            made = true;
-          }
+          // embedded bitmap object (blob: or inline data URL). Rotation pivots
+          // on the declared top-left corner, not the image center (#obj-rotation-anchor)
+          const pg = objGroup(r.data, sxf);
+          if (pg) { local.add(pg); made = true; }
           break;
         }
         case 'PART': case 'DOCHEAD': case 'CANVAS': case 'META': case 'GROUP':
@@ -502,6 +490,24 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
     const ref = typeof d.content === 'string' ? d.content : typeof d.path === 'string' ? d.path : '';
     if (ref.startsWith('blob:')) return opened.blobs.get(ref.slice(5));
     return /^data:image\//i.test(ref) ? ref : undefined;
+  }
+
+  /** 原理图 OBJ:左上角 (startX, startY) 是锚点,rotation 绕该角旋转(TSchObj
+   *  格式定义),不是在图片中心旋转——此前按中心旋转,180° 的图片会整体
+   *  偏移一个宽高(#obj-rotation-anchor,用户反馈 930/295 图标位置不对)。
+   *  mirror 在自身 w×h 盒内翻转,保持占用范围不变。 */
+  function objGroup(d: any, xfc: Xf): Group | null {
+    const url = objImageUrl(d);
+    if (!url) return null;
+    const w = Number(d.width) || 0, h = Number(d.height) || 0;
+    const mir = !!(d.isMirror ?? d.mirror);
+    const pic = new LeaferImage({ url, width: w, height: h, x: mir ? w : 0, y: 0 });
+    if (mir) pic.scaleX = -1;
+    const g = new Group({ x: X(Number(d.startX ?? 0), xfc), y: Y(Number(d.startY ?? 0), xfc) });
+    const rot = Number(d.rotation ?? d.angle ?? 0);
+    if (rot) g.rotation = ang(rot, xfc);
+    g.add(pic);
+    return g;
   }
 
   /** title-block table: grid lines from cumulative row/col sizes + cell values */
@@ -1295,18 +1301,10 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
         break;
       }
       case 'OBJ': {
-        // page-level bitmap object: `content`/`path` is a `blob:<id>` URI into
-        // the file's BLOB records or an inline `data:image/...` URL.
-        // (startX, startY) is the TOP-LEFT corner; the pic is centered on the
-        // group so mirror flips stay centered (same pattern as the PCB renderer).
-        const url = objImageUrl(d);
-        if (!url) return; // missing image — nothing to draw
-        const w = Number(d.width) || 0, h = Number(d.height) || 0;
-        const pic = new LeaferImage({ url, width: w, height: h, x: -w / 2, y: -h / 2 });
-        if (d.isMirror ?? d.mirror) pic.scaleX = -1;
-        node = new Group({ x: X(Number(d.startX ?? 0), xf) + w / 2, y: Y(Number(d.startY ?? 0), xf) + h / 2 });
-        if (Number(d.rotation ?? 0)) node.rotation = ang(Number(d.rotation), xf);
-        node.add(pic);
+        // page-level bitmap object (blob: or inline data URL), anchored and
+        // rotated on its top-left corner (#obj-rotation-anchor)
+        node = objGroup(d, xf);
+        if (!node) return; // missing image — nothing to draw
         break;
       }
       case 'COMPONENT': drawComponent(r); return;

@@ -299,15 +299,22 @@ export function objBBox(r: { type: string; data: any }, xf: Xf, local = false): 
       // screen y grows downward: the doc box (sy−bh .. sy) maps to (ay .. ay+bh)
       return bboxFromPts([[ax, ay], [ax + bw, ay], [ax + bw, ay + bh], [ax, ay + bh]]);
     }
-    case 'OBJ': // imported bitmap, top-left corner at (startX, startY) — startY is the top edge
-      if (typeof d.width === 'number' && isFinite(d.width)) {
-        const x1 = Number(d.startX), y0 = Number(d.startY), h = Number(d.height) || 0;
-        // y-up doc space (PCB): the body hangs below the top edge; y-down (SCH):
-        // it extends below in increasing y — the span flips with the axis (#obj-bbox)
-        raw.push([x1, xf.flip ? y0 - h : y0]);
-        raw.push([x1 + Number(d.width), xf.flip ? y0 : y0 + h]);
-      } else raw.push(pt(d.startX, d.startY));
+    case 'OBJ': {
+      // bitmap anchored at its declared top-left corner; rotation turns the
+      // box about that corner (#obj-rotation-anchor). Doc-space corners below,
+      // the common path applies the Y flip.
+      const w = Number(d.width) || 0, h = Number(d.height) || 0;
+      if (!(w > 0) || !(h > 0)) { raw.push(pt(d.startX, d.startY)); break; }
+      const x0 = Number(d.startX ?? 0), y0 = Number(d.startY ?? 0);
+      const dy = xf.flip ? -h : h; // body hangs below the top edge in doc space
+      const rot = Number(d.rotation ?? d.angle ?? 0) || 0;
+      const a = ((xf.flip ? rot : -rot) * Math.PI) / 180;
+      const c = Math.cos(a), s = Math.sin(a);
+      for (const [lx, ly] of [[0, 0], [w, 0], [w, dy], [0, dy]] as [number, number][]) {
+        raw.push([x0 + lx * c - ly * s, y0 + lx * s + ly * c]);
+      }
       break;
+    }
     case 'PIN': {
       // Schematic angles are clockwise; PCB angles are also clockwise but the Y-flip
       // already reverses the sense, so keep the raw trig for PCB.
