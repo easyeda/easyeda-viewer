@@ -251,6 +251,7 @@ const viewer = createViewer(host, {
     open: false,              // 隐藏顶部「打开文件 / 打开文件夹」
     annotationToolbar: false, // 隐藏顶部评审按钮组（右侧评审页签仍保留）
     annotationPanel: false,   // 隐藏右侧评审页签与面板（评审按钮也随之隐藏）
+    components: false,        // 隐藏左侧元件树，文档树占满面板
   },
 });
 ```
@@ -266,6 +267,7 @@ const viewer = createViewer(host, {
 | `open` | 顶部的「打开文件」「打开文件夹」按钮 |
 | `annotationToolbar` | 顶部评审按钮组；面板开启时可通过右栏页签继续查看评审 |
 | `annotationPanel` | 右侧「批注记录」页签与面板；隐藏时评审按钮同步隐藏 |
+| `components` | 左侧元件树（默认 `true`）；隐藏后文档树占满悬浮左面板 |
 
 `annotations` **默认 `false`**：批注界面（工具栏按钮、右栏页签、画布交互）不显示，**批注数据 API 始终可用**；评审系统传 `annotations:true` / `?annotations=1` 开启完整界面。
 `left` / `right` 省略时按需自动显示；显式传 `true/false` 可固定。
@@ -292,6 +294,7 @@ viewer.setChrome({ left: false, right: false });
 | `?annotations=1` | 开启批注界面（工具栏 + 右栏页签 + 画布交互；默认关闭） |
 | `?annotationToolbar=0` | 只隐藏顶部评审按钮组 |
 | `?annotationPanel=0` | 只隐藏右侧评审页签与面板 |
+| `?components=0` | 隐藏左侧元件树（文档树占满悬浮左面板） |
 | `?chrome=canvas` | 隐藏全部界面，仅保留画布 |
 
 关闭布尔参数也接受 `false` / `off`。
@@ -313,6 +316,7 @@ frame.contentWindow.postMessage({ source: 'easyeda-viewer', cmd: 'theme', theme:
 | 只留画布 / 投屏 | `?chrome=canvas` |
 | 教学页（无左栏，保留工具栏） | `chrome: { left:false }` |
 | 精简工具栏（无品牌与打开按钮） | `chrome: { logo:false, open:false }` |
+| 只保留文档树（隐藏元件树） | `chrome: { components:false }` 或 `?components=0` |
 | 只看批注（无评审入口） | `chrome: { annotations:true, annotationToolbar:false, annotationPanel:false }` |
 | 全功能评审 | `chrome: { annotations:true }` 或 `?annotations=1` |
 
@@ -365,7 +369,7 @@ iframe `load` 可能晚于 `ready`，直接检查 `easyedaViewer` 是否存在�
 | `select` | `designators: string[]` | `select-result { designators, matched, ok }` |
 | `theme` | `theme: 'light' \| 'dark'` | 无 |
 | `lang` | `lang: 'zh' \| 'en'` | 无 |
-| `chrome` | `chrome: { toolbar, left, right, status, annotations, logo, open, annotationToolbar, annotationPanel }` | 无 |
+| `chrome` | `chrome: { toolbar, left, right, status, annotations, logo, open, annotationToolbar, annotationPanel, components }` | 无 |
 
 `postMessage` 不提供批注增删改；需要批注 API 时请使用同源 JS 访问。
 

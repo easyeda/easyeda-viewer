@@ -52,6 +52,8 @@ export interface ChromeFlags {
   annotationToolbar: boolean;
   /** review tab + panel in the right sidebar (needs `annotations`) */
   annotationPanel: boolean;
+  /** component list under the document tree in the floating left panel */
+  components: boolean;
 }
 
 export interface ShellOptions extends ShellEvents {
@@ -70,6 +72,7 @@ export interface ShellOptions extends ShellEvents {
 const FULL_CHROME: ChromeFlags = {
   toolbar: true, left: true, right: true, status: true, annotations: false,
   logo: true, open: true, annotationToolbar: true, annotationPanel: true,
+  components: true,
 };
 
 export class Shell {
@@ -195,6 +198,7 @@ export class Shell {
           <!-- 面板开关悬浮在画布上(#float-panel-toggles):顶部工具栏隐藏后仍有入口 -->
           <div class="ev-float-toggles ev-float-left">
             <button class="ev-btn ev-btn-icon ev-float-btn" data-act="panelL" data-tip="tipPanelL">${icon('panelLeft')}</button>
+            <button class="ev-btn ev-btn-icon ev-float-btn" data-act="components" data-tip="tipComponents">${icon('circuitBoard')}</button>
           </div>
           <div class="ev-float-toggles ev-float-right">
             <button class="ev-btn ev-btn-icon ev-float-btn" data-act="panelT" data-tip="tipPanelT">${icon('panelTop')}</button>
@@ -404,14 +408,20 @@ export class Shell {
     this.el.querySelector('[data-act="unit"]')!.addEventListener('click', () => toggleUnit());
     this.themeBtn.addEventListener('click', () => this.setTheme(this.theme === 'dark' ? 'light' : 'dark'));
     // 面板开关在工具栏与画布悬浮按钮上各有一份,统一绑定(#float-panel-toggles)
-    this.el.querySelectorAll('[data-act="panelL"], [data-act="panelR"], [data-act="panelT"]').forEach((btn) => {
+    this.el.querySelectorAll('[data-act="panelL"], [data-act="panelR"], [data-act="panelT"], [data-act="components"]').forEach((btn) => {
       // 悬浮按钮位于画布内,阻止指针事件触发相机拖拽
       btn.addEventListener('pointerdown', (e) => e.stopPropagation());
       btn.addEventListener('click', () => {
         const act = (btn as HTMLElement).dataset.act;
         if (act === 'panelL') this.leftForced = !this.leftVisible();
         else if (act === 'panelR') this.rightForced = !this.rightVisible();
-        else this.flags.toolbar = !this.flags.toolbar;
+        else if (act === 'components') {
+          // 面板收起时,点元件按钮 = 展开左侧面板并显示元件树;展开时则切换列表
+          if (!this.leftVisible()) {
+            this.leftForced = true;
+            this.flags.components = true;
+          } else this.flags.components = !this.flags.components;
+        } else this.flags.toolbar = !this.flags.toolbar;
         this.applyChrome();
       });
     });
@@ -454,7 +464,8 @@ export class Shell {
       drag(h as HTMLElement, (e) => {
         const r = this.el.getBoundingClientRect();
         if (side === 'left') {
-          const w = Math.min(Math.max(e.clientX - r.left, 170), Math.min(560, r.width * 0.5));
+          // 左面板悬浮,距 shell 左缘 8px(#float-left-panel)
+          const w = Math.min(Math.max(e.clientX - r.left - 8, 170), Math.min(560, r.width * 0.5));
           this.el.style.setProperty('--ev-left-w', w + 'px');
         } else {
           const w = Math.min(Math.max(r.right - e.clientX, 200), Math.min(640, r.width * 0.55));
@@ -578,9 +589,13 @@ export class Shell {
     this.leftEl.classList.toggle('ev-hidden', !this.leftVisible());
     (this.el.querySelector('.ev-resize[data-side="left"]') as HTMLElement).classList.toggle('ev-hidden', !this.leftVisible());
     // library previews hide the empty component tree and its divider (#elibz2-tree)
+    // 元件树可由 chrome.components 控制;库包预览本来就没有工程级元件列表
     const libOnly = this.libraryPreview();
-    (this.el.querySelector('.ev-pane-objects') as HTMLElement).classList.toggle('ev-hidden', libOnly);
-    (this.el.querySelector('.ev-split[data-sp="left"]') as HTMLElement).classList.toggle('ev-hidden', libOnly);
+    const showComponents = !libOnly && this.flags.components;
+    (this.el.querySelector('.ev-pane-objects') as HTMLElement).classList.toggle('ev-hidden', !showComponents);
+    (this.el.querySelector('.ev-split[data-sp="left"]') as HTMLElement).classList.toggle('ev-hidden', !showComponents);
+    // 左面板悬浮后,悬浮开关随卡片右缘移动(#float-left-panel)
+    this.el.classList.toggle('ev-left-open', this.leftVisible());
     this.rightEl.classList.toggle('ev-hidden', !this.rightVisible());
     (this.el.querySelector('.ev-resize[data-side="right"]') as HTMLElement).classList.toggle('ev-hidden', !this.rightVisible());
     this.statusEl.classList.toggle('ev-hidden', !this.flags.status);
@@ -592,6 +607,11 @@ export class Shell {
     this.el.querySelectorAll('[data-act="panelL"]').forEach((b) => b.classList.toggle('ev-on', this.leftVisible()));
     this.el.querySelectorAll('[data-act="panelR"]').forEach((b) => b.classList.toggle('ev-on', this.rightVisible()));
     this.el.querySelectorAll('[data-act="panelT"]').forEach((b) => b.classList.toggle('ev-on', this.flags.toolbar));
+    this.el.querySelectorAll('[data-act="components"]').forEach((b) => {
+      // 库包预览没有元件树,开关一并隐藏;激活态表示"面板展开且列表可见"
+      b.classList.toggle('ev-hidden', libOnly);
+      b.classList.toggle('ev-on', this.leftVisible() && showComponents);
+    });
     // 悬浮开关始终留在画布上(#float-panel-toggles):左右面板只在有文档时才有意义,
     // 顶部工具栏开关则任何状态都保留,保证工具栏隐藏后仍能恢复
     (this.el.querySelector('.ev-float-left') as HTMLElement).classList.toggle('ev-hidden', !this.docLoaded);

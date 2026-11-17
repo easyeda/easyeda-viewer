@@ -14,6 +14,7 @@ if (!host) throw new Error('missing #app root');
  *   ?toolbar=0|left=0|right=0|status=0   hide individual panes
  *   ?logo=0|open=0             hide the brand logo+title / open-project buttons
  *   ?annotationToolbar=0|annotationPanel=0  hide the review buttons / review panel
+ *   ?components=0              hide the component list under the document tree
  *   ?annotations=1             enable the review UI (toolbar group + right-panel tab; off by default)
  *   ?chrome=canvas             shortcut for toolbar/left/right/status/annotations all off
  */
@@ -30,7 +31,7 @@ function parseOptions(q: URLSearchParams): { theme: Theme; lang: Lang; chrome: P
     chrome.toolbar = false; chrome.left = false; chrome.right = false; chrome.status = false;
     chrome.annotations = false;
   }
-  for (const k of ['toolbar', 'left', 'right', 'status', 'annotations', 'logo', 'open', 'annotationToolbar', 'annotationPanel'] as const) {
+  for (const k of ['toolbar', 'left', 'right', 'status', 'annotations', 'logo', 'open', 'annotationToolbar', 'annotationPanel', 'components'] as const) {
     const v = flag(k);
     if (v !== undefined) chrome[k] = v;
   }

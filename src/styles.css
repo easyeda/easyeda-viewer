@@ -31,6 +31,10 @@ html[data-theme="light"] {
   --ev-hover: rgba(35, 39, 46, 0.06);
   --ev-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.08);
   --ev-code-bg: #f6f7f9;
+  /* floating panel glass + control contrast (#float-left-panel) */
+  --ev-glass: rgba(255, 255, 255, 0.76);
+  --ev-glass-strong: rgba(255, 255, 255, 0.92);
+  --ev-float-border: rgba(16, 24, 40, 0.2);
 }
 .ev-shell[data-theme="dark"],
 html[data-theme="dark"] {
@@ -46,6 +50,10 @@ html[data-theme="dark"] {
   --ev-hover: rgba(215, 219, 224, 0.08);
   --ev-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.45);
   --ev-code-bg: #14161a;
+  /* 深色主题下悬浮面板与按钮在 PCB 黑底上要更亮一档 */
+  --ev-glass: rgba(30, 33, 38, 0.78);
+  --ev-glass-strong: rgba(38, 42, 49, 0.94);
+  --ev-float-border: rgba(255, 255, 255, 0.28);
 }
 
 * { box-sizing: border-box; }
@@ -103,11 +111,18 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 .ev-title b { color: var(--ev-text); font-weight: 600; }
 
 /* ---------- body / panels ---------- */
-.ev-body { display: flex; flex: 1; min-height: 0; }
+.ev-body { display: flex; flex: 1; min-height: 0; position: relative; }
 
+/* 左侧面板改为悬浮玻璃卡片(#float-left-panel):不再占用布局宽度,画布铺满其
+   下方,面板外的区域可以直接看到画布;树/元件列表内部背景透明 */
 .ev-left {
-  width: var(--ev-left-w, 252px); flex: none; display: flex; flex-direction: column; min-width: 0;
-  background: var(--ev-panel); border-right: 1px solid var(--ev-border);
+  position: absolute; top: 8px; bottom: 8px; left: 8px; z-index: 7;
+  width: var(--ev-left-w, 252px); display: flex; flex-direction: column; min-width: 0;
+  background: var(--ev-glass);
+  border: 1px solid var(--ev-border); border-radius: 10px;
+  box-shadow: var(--ev-shadow); overflow: hidden;
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
 }
 .ev-right {
   width: var(--ev-right-w, 296px); flex: none; display: flex; flex-direction: column; min-width: 0;
@@ -118,6 +133,13 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 .ev-resize { flex: none; width: 5px; cursor: col-resize; z-index: 5; touch-action: none; position: relative; background: transparent; }
 .ev-resize::before { content: ''; position: absolute; left: 2px; top: 0; width: 1px; height: 100%; background: var(--ev-border); pointer-events: none; }
 .ev-resize:hover::before, .ev-resize.ev-split-active::before { background: var(--ev-accent-weak); }
+/* 悬浮左面板的拖拽把手贴在卡片右缘(不占布局宽度,不画分隔线) */
+.ev-body > .ev-resize[data-side="left"] {
+  position: absolute; top: 8px; bottom: 8px; z-index: 8;
+  left: calc(8px + var(--ev-left-w, 252px) - 3px);
+  width: 8px;
+}
+.ev-body > .ev-resize[data-side="left"]::before { display: none; }
 
 /* stacked panes + horizontal divider (#5/#6) */
 .ev-pane { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
@@ -134,8 +156,9 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 
 .ev-search {
   width: 100%; height: 26px; margin: 2px 0 6px; padding: 0 8px; font-family: inherit; font-size: 12px;
-  color: var(--ev-text); background: var(--ev-panel); border: 1px solid var(--ev-border); border-radius: var(--ev-radius-sm);
+  color: var(--ev-text); background: var(--ev-glass-strong); border: 1px solid var(--ev-border); border-radius: var(--ev-radius-sm);
   position: sticky; top: 0; z-index: 2;
+  backdrop-filter: blur(6px);
 }
 .ev-search:focus { outline: none; border-color: var(--ev-accent); background: var(--ev-panel); }
 
@@ -214,16 +237,24 @@ input.ev-zoom:focus { outline: none; border-color: var(--ev-accent); background:
 .ev-canvas { flex: 1; min-width: 0; background: #f5f6f7; position: relative; touch-action: none; }
 
 /* 面板 / 工具栏开关悬浮在画布上(#float-panel-toggles):顶部工具栏或左右面板
-   隐藏后,这些按钮仍留在画布顶部两角,保证随时可以恢复显示 */
+   隐藏后,这些按钮仍留在画布顶部两角,保证随时可以恢复显示。
+   左面板展开时整组按钮跟随卡片右缘,不压住悬浮面板(#float-left-panel) */
 .ev-float-toggles { position: absolute; top: 8px; z-index: 8; display: flex; gap: 4px; }
-.ev-float-left { left: 8px; }
+.ev-float-left { left: 8px; flex-direction: column; }
+.ev-shell.ev-left-open .ev-float-left { left: calc(16px + var(--ev-left-w, 252px)); }
 .ev-float-right { right: 8px; }
+/* 悬浮按钮可能落在白色原理图或 PCB 黑底上:实底 + 描边 + 阴影保证可读,
+   激活态用实心强调色(而不是半透明底),深色 PCB 上也能一眼看清 */
 .ev-canvas .ev-float-btn {
-  background: var(--ev-panel); border: 1px solid var(--ev-border);
-  box-shadow: 0 1px 4px rgba(16, 24, 40, 0.14);
+  background: var(--ev-glass-strong); border: 1px solid var(--ev-float-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
 }
-.ev-canvas .ev-float-btn:hover { background: var(--ev-panel-2); }
-.ev-canvas .ev-float-btn.ev-on { background: var(--ev-accent-weak); color: var(--ev-accent); }
+.ev-canvas .ev-float-btn:hover { background: var(--ev-panel); }
+.ev-canvas .ev-float-btn.ev-on {
+  background: var(--ev-accent); border-color: var(--ev-accent); color: var(--ev-accent-text);
+}
+.ev-canvas .ev-float-btn.ev-on:hover { background: var(--ev-accent); filter: brightness(1.1); }
 /* document backgrounds (sch white / pcb dark) are painted by the leafer scene
    itself (leafer.fill, set on doc open) — see shell.ts openNode (#bg-flash) */
 
