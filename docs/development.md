@@ -21,6 +21,7 @@ npm test             # Vitest 单元测试(test/parse.spec.ts)
 npm run smoke        # 冒烟测试:headless 渲染全部样例文档
 npm run build        # 类型检查 + 构建单文件 dist/index.html
 npm run build:only   # 仅构建,不检查类型
+npm run export -- <工程> --list   # 无头导出 PNG/SVG(见 2.1)
 ```
 
 | 脚本 | 说明 |
@@ -31,6 +32,25 @@ npm run build:only   # 仅构建,不检查类型
 | `npm run smoke` | `vite-node -c vite.smoke.config.ts scripts/smoke.mjs`,校验全部样例文档可渲染 |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run build:only` | 只执行 `vite build` |
+| `npm run export -- <工程> …` | `node scripts/export.mjs`,无头 Chrome 导出 PNG / SVG(见 2.1) |
+
+### 2.1 导出图片(PNG / SVG)
+
+`scripts/export.mjs` 用无头 Chrome 打开已构建的 `dist/index.html`,调用查看器的
+`easyedaViewer.exportImage()` 离屏渲染并写盘——不弹出浏览器窗口,适合 CI、缩略图与批量归档。
+
+```bash
+npm run build                                   # 先生成 dist/index.html(或用 --dev 走源码)
+node scripts/export.mjs <工程> --list             # 列出可导出文档(序号 / 标题 / 类型 / nodeId)
+node scripts/export.mjs <工程> --doc 1 -o a.png  # 指定文档;格式按扩展名,也可 --format svg
+node scripts/export.mjs <工程> --all --out-dir export --format svg --width 2400
+```
+
+- `<工程>` 支持 `.epro2` / `.elibz2` / 单个文档,或 `.eprj3` 文件夹 / `.zip`。
+- 尺寸:`--width` / `--height` 等比适配;或 `--scale`(1 世界单位 = N 像素,默认 1);`--padding` 留白(默认 16)。
+- 背景:`--background <颜色>`;`--background transparent` 导出透明底。PNG 可用 `--pixel-ratio 2` 提高清晰度。
+- 浏览器/宿主内调用同一能力:`await viewer.exportImage({ nodeId?, format:'png'|'svg', width?, scale?, background? })`,返回 `{ blob, dataURL, width, height }`;详见 [集成 API](easyeda-viewer-api.md) §4.4。
+- 需要 Chrome / Edge;可用 `--chrome <路径>` 或环境变量 `CHROME_PATH` 指定,`--dev` 改用 Vite 源码页面。
 
 ## 3. 测试与视觉回归
 
@@ -67,6 +87,7 @@ easyeda-viewer/
 │   ├── build-desktop.mjs  # 桌面版构建(标准版 + Win7 版)
 │   ├── smoke.mjs          # 冒烟测试
 │   ├── ref-diff.mjs       # 视觉对照回归
+│   ├── export.mjs         # 无头导出 PNG / SVG(#image-export)
 │   └── gen-icons.mjs      # 图标生成
 ├── src/
 │   ├── main.ts            # 单文件应用入口(URL 参数 + postMessage)

@@ -230,3 +230,58 @@ describe('schematic placement rotations', () => {
     expect(obj.bbox).toMatchObject({ minX: 907, maxX: 933, minY: -318, maxY: -292 });
   });
 });
+
+describe('schematic junction dots', () => {
+  /** one WIRE with one LINE, so the segment belongs to its own wire group */
+  const wire = (id: string, x1: number, y1: number, x2: number, y2: number): Rec[] => [
+    rec('WIRE', id, { groupId: '', locked: false }),
+    rec('LINE', `${id}-l`, { lineGroup: id, startX: x1, startY: y1, endX: x2, endY: y2 }),
+  ];
+  const dots = (page: any): any[] => walk(page).filter((n) => n.fill === '#d40000');
+
+  it('draws a dot where a wire ends on another wire (separate WIRE records)', () => {
+    const self = segment('sheet', 'SCH_PAGE', [
+      ...wire('w1', 200, -395, 310, -395),
+      ...wire('w2', 310, -395, 405, -395),
+      ...wire('w3', 310, -380, 310, -395),
+    ], false);
+    const { page } = render(self, []);
+    const d = dots(page);
+    expect(d).toHaveLength(1);
+    expect(d[0].x).toBeCloseTo(307.5);
+    expect(d[0].y).toBeCloseTo(-397.5);
+  });
+
+  it('draws a dot when a wire end lands mid-span on an unsplit wire', () => {
+    const self = segment('sheet', 'SCH_PAGE', [
+      ...wire('w1', 0, 0, 20, 0),
+      ...wire('w2', 10, -10, 10, 0),
+    ], false);
+    const d = dots(render(self, []).page);
+    expect(d).toHaveLength(1);
+    expect(d[0].x).toBeCloseTo(7.5);
+    expect(d[0].y).toBeCloseTo(-2.5);
+  });
+
+  it('draws no dot for a two-wire corner or a crossing of separate wires', () => {
+    const corner = render(segment('sheet', 'SCH_PAGE', [
+      ...wire('w1', 0, 0, 10, 0),
+      ...wire('w2', 10, 0, 10, 10),
+    ], false), []);
+    expect(dots(corner.page)).toHaveLength(0);
+    const cross = render(segment('sheet', 'SCH_PAGE', [
+      ...wire('w1', 0, 0, 10, 10),
+      ...wire('w2', 0, 10, 10, 0),
+    ], false), []);
+    expect(dots(cross.page)).toHaveLength(0);
+  });
+
+  it('keeps the dot where one wire crosses itself', () => {
+    const self = segment('sheet', 'SCH_PAGE', [
+      rec('WIRE', 'w1', { groupId: '', locked: false }),
+      rec('LINE', 'a', { lineGroup: 'w1', startX: 0, startY: 0, endX: 10, endY: 10 }),
+      rec('LINE', 'b', { lineGroup: 'w1', startX: 0, startY: 10, endX: 10, endY: 0 }),
+    ], false);
+    expect(dots(render(self, []).page)).toHaveLength(1);
+  });
+});

@@ -10,8 +10,10 @@ import { Leafer, Group, Rect, Line } from 'leafer-ui';
 import '../styles.css';
 import type { ProjectModel, TreeNode, OpenedDoc, Rec } from '../core/types';
 import { loadFromFiles, loadFromMap } from '../core/parse/container';
+import { LIBRARY_ARCHIVE_RE } from '../core/parse/single';
 import { openDoc, collectAttrs, resolveAttrRef, resolveLibGraphics } from '../core/model';
 import { renderDoc, pcbStackKey, type RenderObject, type RenderLayer } from '../core/render/layers';
+import { sceneToSvg } from '../core/render/svg';
 import type { Text as LeaferText, Line as LeaferLine } from 'leafer-ui';
 import { Camera } from './camera';
 import { installAnnotations, type AnnotationController } from './annotations';
@@ -54,6 +56,35 @@ export interface ChromeFlags {
   annotationPanel: boolean;
   /** component list under the document tree in the floating left panel */
   components: boolean;
+}
+
+/** Document export (#image-export): render a doc offscreen as PNG or SVG. */
+export interface ExportImageOptions {
+  /** target document; default = the document currently open */
+  nodeId?: string;
+  /** output format, default `png` */
+  format?: 'png' | 'svg';
+  /** world units → image pixels; ignored when `width`/`height` is set (default 1) */
+  scale?: number;
+  /** fit the content into this pixel size (keeps aspect ratio) */
+  width?: number;
+  height?: number;
+  /** margin around the content, in output pixels (default 16) */
+  padding?: number;
+  /** page background colour; `null` = transparent (default: the doc's canvas colour) */
+  background?: string | null;
+  /** PNG only: additional raster multiplier for high-DPI output (default 1) */
+  pixelRatio?: number;
+}
+
+export interface ExportImageResult {
+  format: 'png' | 'svg';
+  /** output size in pixels (PNG: includes pixelRatio) */
+  width: number;
+  height: number;
+  blob: Blob;
+  /** ready-to-use data URL (PNG: base64; SVG: UTF-8 text) */
+  dataURL: string;
 }
 
 export interface ShellOptions extends ShellEvents {
@@ -640,10 +671,15 @@ export class Shell {
       this.events.onError?.(new Error(t('statusEmptyDrop')));
       return;
     }
+    // `.elibz2` libraries are a single small archive — parsing is instant, so
+    // the spinner would only flash (#elibz2-no-spinner); projects keep it
+    const instant = files.every((f) => LIBRARY_ARCHIVE_RE.test(f.name));
     // parsing a large project blocks the main thread for seconds — put the
     // busy overlay on screen (and let it paint) BEFORE that work starts (#loading)
-    this.showLoading(t('loadingProject'));
-    await this.nextPaint();
+    if (!instant) {
+      this.showLoading(t('loadingProject'));
+      await this.nextPaint();
+    }
     try {
       const model = await loadFromFiles(files);
       await this.setModel(model);
@@ -655,8 +691,11 @@ export class Shell {
   }
 
   async loadMap(map: Map<string, Uint8Array>): Promise<void> {
-    this.showLoading(t('loadingProject'));
-    await this.nextPaint();
+    const instant = [...map.keys()].every((p) => LIBRARY_ARCHIVE_RE.test(p));
+    if (!instant) {
+      this.showLoading(t('loadingProject'));
+      await this.nextPaint();
+    }
     try {
       await this.setModel(loadFromMap(map));
     } catch (err) {
@@ -733,11 +772,11 @@ export class Shell {
     // 一并清空,避免跨文档残留同 id 的层(不同 PCB 共用 1/2/11… 层号)
     this.activeLayerId = null;
     this.layerList.clearActive();
-    // doc open (a large PCB takes seconds) blocks the main thread — show the
-    // busy overlay and let it paint before that work starts (#loading);
-    // schematic pages open in ~100ms, there the overlay's double-rAF wait is
-    // pure latency on every page switch (#page-switch-jank)
-    if (docKind(node.docType ?? '') !== 'sch') {
+    // doc open: only a PCB can take seconds; schematics, panels, library
+    // symbols and footprints open in ~100ms, there the overlay's double-rAF
+    // wait is pure latency on every open (#page-switch-jank, #elibz2-no-spinner)
+    const kindNow = docKind(node.docType ?? '');
+    if (kindNow === 'pcb') {
       this.showLoading(t('loadingDoc'));
       await this.nextPaint();
     }
@@ -1349,6 +1388,107 @@ export class Shell {
     return this.model;
   }
 
+  /** every openable document (sheets, PCB, footprint, library symbol…), in tree order */
+  listDocuments(): { nodeId: string; title: string; docType: string }[] {
+    if (!this.model) return [];
+    return [...this.model.openables.entries()].map(([nodeId, n]) => ({
+      nodeId,
+      title: String(n.title ?? nodeId),
+      docType: String(n.docType ?? ''),
+    }));
+  }
+
+  /**
+   * Render a document **offscreen** and return it as PNG or SVG (#image-export).
+   * The visible canvas, the open document and the camera are left untouched, so
+   * hosts can generate thumbnails or attach images without showing the viewer.
+   */
+  async exportImage(options: ExportImageOptions = {}): Promise<ExportImageResult> {
+    if (!this.model) throw new Error('no project loaded');
+    const node = options.nodeId ? this.model.openables.get(options.nodeId) : this.curNode;
+    if (!node || !node.uuid || !node.fileKey) throw new Error('document not found');
+    const format: 'png' | 'svg' = options.format === 'svg' ? 'svg' : 'png';
+    const opened = openDoc(this.model, node);
+    const kind = docKind(node.docType ?? '');
+    const bg = options.background === null ? null : options.background ?? canvasBg(kind);
+    const result = renderDoc(opened, bg ?? canvasBg(kind));
+    const box = exportBox(result.objects, opened.bbox);
+    const padding = Math.max(0, Number(options.padding ?? 16));
+    const scale = exportScale(box, padding, options);
+    const width = Math.max(1, Math.ceil((box.maxX - box.minX) * scale + padding * 2));
+    const height = Math.max(1, Math.ceil((box.maxY - box.minY) * scale + padding * 2));
+
+    // hidden host: Leafer needs a DOM view to lay out text / rasterise, but the
+    // element sits far off-screen and is removed as soon as the image is read
+    const host = document.createElement('div');
+    host.style.cssText = `position:fixed;left:-1e6px;top:0;width:${width}px;height:${height}px;pointer-events:none;`;
+    document.body.append(host);
+    const leafer = new Leafer({ view: host, type: 'draw', width, height, pixelRatio: options.pixelRatio || 1 });
+    try {
+      if (bg) leafer.add(new Rect({ x: 0, y: 0, width, height, fill: bg }));
+      const world = new Group({
+        x: padding - box.minX * scale,
+        y: padding - box.minY * scale,
+        scaleX: scale,
+        scaleY: scale,
+      });
+      world.add(result.root);
+      leafer.add(world);
+      // fixed-pixel overlays follow the live canvas: their screen size is constant
+      for (const ct of result.constantTexts) (ct.node as any).fontSize = ct.basePx / scale;
+      for (const cs of result.constantStrokes) cs.node.strokeWidth = cs.baseW / scale;
+      await this.waitExportPaint(leafer, result.root);
+      if (format === 'svg') {
+        const svg = sceneToSvg(result.root, {
+          width,
+          height,
+          viewBox: {
+            x: box.minX - padding / scale,
+            y: box.minY - padding / scale,
+            width: width / scale,
+            height: height / scale,
+          },
+          background: bg,
+        });
+        return {
+          format,
+          width,
+          height,
+          blob: new Blob([svg], { type: 'image/svg+xml' }),
+          dataURL: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+        };
+      }
+      const view = leafer.canvas.view as HTMLCanvasElement;
+      const blob = await new Promise<Blob | null>((resolve) => view.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('canvas export failed');
+      return { format, width: view.width, height: view.height, blob, dataURL: view.toDataURL('image/png') };
+    } finally {
+      try { leafer.destroy(); } catch { /* already destroyed */ }
+      host.remove();
+    }
+  }
+
+  /** wait until the offscreen scene painted and all images decoded */
+  private async waitExportPaint(leafer: Leafer, root: Group): Promise<void> {
+    const images: { ready?: boolean }[] = [];
+    const collect = (n: any) => {
+      if (n?.tag === 'Image') images.push(n);
+      for (const c of n?.children ?? []) collect(c);
+    };
+    collect(root);
+    await new Promise<void>((resolve) => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      leafer.once('render.end', finish);
+      setTimeout(finish, 1200);
+    });
+    for (let i = 0; i < 100 && images.some((im) => !im.ready); i++) {
+      await new Promise((r) => setTimeout(r, 15));
+    }
+    await this.nextPaint();
+    await this.nextPaint();
+  }
+
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
@@ -1375,6 +1515,32 @@ function canvasBg(kind: 'sch' | 'pcb' | 'panel' | 'footprint' | 'other'): string
   if (kind === 'pcb' || kind === 'footprint') return '#14161a';
   if (kind === 'sch' || kind === 'panel') return '#ffffff';
   return '#f5f6f7';
+}
+
+/** export bounds: what actually rendered (matches the viewer's own fit), else
+ *  the document box — `opened.bbox` alone can include far-away library extents */
+function exportBox(objects: RenderObject[], fallback: { minX: number; minY: number; maxX: number; maxY: number }) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const o of objects) {
+    if (!o.bbox) continue;
+    minX = Math.min(minX, o.bbox.minX);
+    minY = Math.min(minY, o.bbox.minY);
+    maxX = Math.max(maxX, o.bbox.maxX);
+    maxY = Math.max(maxY, o.bbox.maxY);
+  }
+  return maxX > minX && maxY > minY ? { minX, minY, maxX, maxY } : fallback;
+}
+
+/** world→pixel scale for an export: width/height fit first, then `scale`, then 1 */
+function exportScale(box: { minX: number; minY: number; maxX: number; maxY: number }, padding: number, options: ExportImageOptions): number {
+  const bw = Math.max(1e-6, box.maxX - box.minX), bh = Math.max(1e-6, box.maxY - box.minY);
+  const fits: number[] = [];
+  const tw = Number(options.width), th = Number(options.height);
+  if (Number.isFinite(tw) && tw > 0) fits.push((tw - padding * 2) / bw);
+  if (Number.isFinite(th) && th > 0) fits.push((th - padding * 2) / bh);
+  if (fits.length) return Math.max(1e-4, Math.min(...fits));
+  const s = Number(options.scale);
+  return Number.isFinite(s) && s > 0 ? s : 1;
 }
 
 /** 图层面板的分组桶(#layer-group):与客户端一致 —— 顶层(TOP 系)/底层(BOTTOM

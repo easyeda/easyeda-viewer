@@ -1,6 +1,6 @@
 {
   "name": "easyeda-viewer",
-  "version": "0.7.10",
+  "version": "0.7.12",
   "description": "Lightweight single-file viewer for EasyEDA Pro .epro2/.eprj3 projects (local parse & render with LeaferJS)",
   "type": "module",
   "license": "Apache-2.0",
@@ -11,7 +11,8 @@
     "test": "vitest run",
     "smoke": "vite-node -c vite.smoke.config.ts scripts/smoke.mjs",
     "check": "tsc --noEmit",
-    "test:annotations": "node qa/annotations/run.cjs"
+    "test:annotations": "node qa/annotations/run.cjs",
+    "export": "node scripts/export.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.2",

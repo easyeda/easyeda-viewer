@@ -166,52 +166,96 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
       pageAttrs.set(k, v);
     }
   }
-  // wire groups for synthesizing junction dots at same-net intersections
-  type WireSeg = { x1: number; y1: number; x2: number; y2: number };
-  const wireGroups = new Map<string, WireSeg[]>();
+  // all wire segments on the page, for synthesizing junction dots. Junction
+  // connectivity is geometric and crosses wire records: a wire ending on
+  // another wire (T) is a junction even though the two wires are separate
+  // WIRE/LINE groups (#junction-cross-wire)
+  type WireSeg = { g: string; x1: number; y1: number; x2: number; y2: number };
+  const wireSegs: WireSeg[] = [];
 
-  function drawJunctions(groups: Map<string, WireSeg[]>) {
+  function drawJunctions(segs: WireSeg[]) {
+    if (segs.length < 2) return;
     const eps = 0.5;
-    const nearP = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y) <= eps;
-    const onSeg = (x: number, y: number, s: WireSeg) => {
+    const near = (ax: number, ay: number, bx: number, by: number) => Math.hypot(ax - bx, ay - by) <= eps;
+    // strict interior: the point lies on the segment but at neither end
+    const interiorOf = (x: number, y: number, s: WireSeg) => {
+      if (near(x, y, s.x1, s.y1) || near(x, y, s.x2, s.y2)) return false;
       const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
       const len2 = dx * dx + dy * dy;
-      if (!len2) return Math.hypot(x - s.x1, y - s.y1) <= eps;
-      const t = Math.max(0, Math.min(1, ((x - s.x1) * dx + (y - s.y1) * dy) / len2));
+      if (!len2) return false;
+      const t = ((x - s.x1) * dx + (y - s.y1) * dy) / len2;
+      if (t <= 0 || t >= 1) return false;
       return Math.hypot(x - (s.x1 + t * dx), y - (s.y1 + t * dy)) <= eps;
     };
-    const segIntersection = (a: WireSeg, b: WireSeg): { x: number; y: number } | null => {
-      const d = (a.x2 - a.x1) * (b.y2 - b.y1) - (a.y2 - a.y1) * (b.x2 - b.x1);
-      if (Math.abs(d) < 1e-9) return null;
-      const ua = ((b.x2 - b.x1) * (a.y1 - b.y1) - (b.y2 - b.y1) * (a.x1 - b.x1)) / d;
-      const ub = ((a.x2 - a.x1) * (a.y1 - b.y1) - (a.y2 - a.y1) * (a.x1 - b.x1)) / d;
-      if (ua < -eps || ua > 1 + eps || ub < -eps || ub > 1 + eps) return null;
-      return { x: a.x1 + ua * (a.x2 - a.x1), y: a.y1 + ua * (a.y2 - a.y1) };
+    // candidates start from segment endpoints: a dot needs at least one wire
+    // end; plain mid-span crossings of two separate wires are not connected
+    // in EDA (same-wire self-crossings keep their dot — see below)
+    const candidates: { x: number; y: number }[] = [];
+    const seen = new Set<string>();
+    const addCand = (x: number, y: number) => {
+      const k = `${Math.round(x * 2)},${Math.round(y * 2)}`;
+      if (seen.has(k)) return;
+      seen.add(k);
+      candidates.push({ x, y });
     };
-    for (const segs of groups.values()) {
-      if (segs.length < 2) continue;
-      const candidates: { x: number; y: number }[] = [];
-      const addCand = (x: number, y: number) => {
-        const p = { x, y };
-        if (!candidates.some((c) => nearP(c, p))) candidates.push(p);
-      };
-      for (const s of segs) { addCand(s.x1, s.y1); addCand(s.x2, s.y2); }
-      for (let i = 0; i < segs.length; i++) {
-        for (let j = i + 1; j < segs.length; j++) {
-          const p = segIntersection(segs[i], segs[j]);
-          if (p) addCand(p.x, p.y);
+    for (const s of segs) { addCand(s.x1, s.y1); addCand(s.x2, s.y2); }
+    // a wire crossing itself: its segments share the lineGroup, and the
+    // crossing point is a junction even though it is nobody's endpoint
+    const byGroup = new Map<string, WireSeg[]>();
+    for (const s of segs) {
+      if (!s.g) continue;
+      const arr = byGroup.get(s.g);
+      if (arr) arr.push(s); else byGroup.set(s.g, [s]);
+    }
+    for (const group of byGroup.values()) {
+      for (let i = 0; i < group.length; i++) {
+        for (let j = i + 1; j < group.length; j++) {
+          const a = group[i], b = group[j];
+          const dxa = a.x2 - a.x1, dya = a.y2 - a.y1;
+          const dxb = b.x2 - b.x1, dyb = b.y2 - b.y1;
+          const den = dxa * dyb - dya * dxb;
+          if (Math.abs(den) < 1e-9) continue;
+          const ta = ((b.x1 - a.x1) * dyb - (b.y1 - a.y1) * dxb) / den;
+          const tb = ((b.x1 - a.x1) * dya - (b.y1 - a.y1) * dxa) / den;
+          if (ta <= 0 || ta >= 1 || tb <= 0 || tb >= 1) continue;
+          addCand(a.x1 + ta * dxa, a.y1 + ta * dya);
         }
       }
-      for (const p of candidates) {
-        let count = 0, interior = false;
-        for (const s of segs) {
-          if (!onSeg(p.x, p.y, s)) continue;
-          count++;
-          if (!nearP(p, { x: s.x1, y: s.y1 }) && !nearP(p, { x: s.x2, y: s.y2 })) interior = true;
+    }
+    // spatial hash so each candidate only inspects nearby segments; pages can
+    // carry thousands of wires and an all-pairs scan dominated render time
+    const CELL = 64;
+    const cellKey = (cx: number, cy: number) => `${cx},${cy}`;
+    const grid = new Map<string, number[]>();
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i];
+      const x0 = Math.floor((Math.min(s.x1, s.x2) - eps) / CELL);
+      const x1 = Math.floor((Math.max(s.x1, s.x2) + eps) / CELL);
+      const y0 = Math.floor((Math.min(s.y1, s.y2) - eps) / CELL);
+      const y1 = Math.floor((Math.max(s.y1, s.y2) + eps) / CELL);
+      for (let cx = x0; cx <= x1; cx++) {
+        for (let cy = y0; cy <= y1; cy++) {
+          const k = cellKey(cx, cy);
+          const arr = grid.get(k);
+          if (arr) arr.push(i); else grid.set(k, [i]);
         }
-        if (count >= 3 || (count === 2 && interior)) {
-          page.add(new Ellipse({ x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5, fill: '#d40000', hittable: false }));
-        }
+      }
+    }
+    for (const p of candidates) {
+      const near0 = grid.get(cellKey(Math.floor(p.x / CELL), Math.floor(p.y / CELL))) ?? [];
+      let ends = 0;
+      const inner: WireSeg[] = [];
+      for (const i of near0) {
+        const s = segs[i];
+        if (near(p.x, p.y, s.x1, s.y1) || near(p.x, p.y, s.x2, s.y2)) ends++;
+        else if (interiorOf(p.x, p.y, s)) inner.push(s);
+      }
+      // ≥3 wire ends meet (T with split legs, 4-way star), or one wire end
+      // touches another wire's middle (unsplit T); two segments of the same
+      // wire crossing mid-span are electrically connected and keep the dot
+      const sameWireCross = inner.some((a, i) => inner.some((b, j) => j > i && a.g !== '' && a.g === b.g));
+      if (ends >= 3 || (ends >= 1 && inner.length >= 1) || sameWireCross) {
+        page.add(new Ellipse({ x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5, fill: '#d40000', hittable: false }));
       }
     }
   }
@@ -1171,11 +1215,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
             dashPattern: dashArrayOf(d.strokeStyle),
             hitStroke: 'all',
           }));
-          if (gk) {
-            const arr = wireGroups.get(gk) ?? [];
-            arr.push({ x1, y1, x2, y2 });
-            wireGroups.set(gk, arr);
-          }
+          if (gk) wireSegs.push({ g: gk, x1, y1, x2, y2 });
         }
         break;
       }
@@ -1330,7 +1370,7 @@ export function renderSch(opened: OpenedDoc, api: RenderApi): void {
   }
 
   for (const r of sortZ(seg.recs)) drawPrimitive(r);
-  drawJunctions(wireGroups);
+  drawJunctions(wireSegs);
   // no-connect flags: page ATTRs keyed NO_CONNECT on "{component}-{pin}" parents.
   // value "yes" marks the pin as intentionally unconnected — the client draws a
   // green × at the pin tip; any other value ("no") stays invisible. The attr

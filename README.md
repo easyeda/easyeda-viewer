@@ -23,6 +23,7 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro** (嘉立创EDA专�
 - **Annotations** — text, rectangle and circle annotations with replies, status, editing and visibility; imported/exported through the JS API. The review UI is opt-in (`chrome: { annotations: true }` / `?annotations=1`).
 - **Windows desktop app** — install-free exe (Go + WebView2) with native file dialogs and drag-and-drop; a separate build keeps Windows 7 support.
 - **Bilingual UI** — Chinese / English interface, light / dark themes.
+- **PNG / SVG export** — render any document off-screen through the JS API, or batch-export from the command line with headless Chrome (`scripts/export.mjs`) — no browser window involved.
 
 ### Screenshots
 
@@ -53,6 +54,17 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro** (嘉立创EDA专�
 | `easyeda-viewer_win7_v*.exe` | Windows 7 SP1 x64 / 10 / 11 | Requires the Universal C Runtime (KB2999226) and **WebView2 109** (the last version supporting Win7) |
 
 **Browser** — open `dist/index.html` in Chrome / Edge / Firefox and drag an `.eprj3` folder, `.epro2`, `.zip`, `.elibz2` or a single document onto the canvas. On Windows 7 without WebView2, use Chrome 109 or Firefox 115 ESR.
+
+**PNG / SVG export** — with Node.js installed, render documents headlessly (no browser window):
+
+```bash
+npm ci && npm run build
+node scripts/export.mjs path/to/project.epro2 --list
+node scripts/export.mjs path/to/project.epro2 --doc 1 -o sheet.png --width 2400
+node scripts/export.mjs path/to/project.epro2 --all --out-dir export --format svg
+```
+
+Embedding? Call `viewer.exportImage({ format: 'png' })` (`easyedaViewer.exportImage` in the standalone page); it renders off-screen and leaves the visible canvas untouched.
 
 **Viewer basics**
 
@@ -97,6 +109,7 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro** (嘉立创EDA专�
 - **工程批注** —— 文字、矩形框、圆形框批注，支持回复、状态、编辑与显隐，通过 JS API 导入导出；评审界面默认关闭，需要时传 `chrome: { annotations: true }` 或 `?annotations=1` 开启。
 - **Windows 桌面版** —— 免安装 exe（Go + WebView2），支持原生文件对话框与拖放打开；另提供保留 Windows 7 支持的版本。
 - **中英双语界面** —— 中文 / English 切换，深色 / 浅色主题。
+- **PNG / SVG 导出** —— 通过 JS API 离屏渲染任意文档；也可用命令行 `scripts/export.mjs` 配合无头 Chrome 批量导出，全程不弹出浏览器窗口。
 
 > 界面截图见上方 [Screenshots](#screenshots)。
 
@@ -121,6 +134,17 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro** (嘉立创EDA专�
 | `easyeda-viewer_win7_v*.exe` | Windows 7 SP1 x64 / 10 / 11 | 需要通用 C 运行时（KB2999226）与 **WebView2 109**（最后一个支持 Win7 的版本） |
 
 **浏览器** —— 用 Chrome / Edge / Firefox 打开 `dist/index.html`，把 `.eprj3` 文件夹、`.epro2`、`.zip`、`.elibz2` 或单个文档拖入画布即可。Windows 7 无 WebView2 时，请使用 Chrome 109 或 Firefox 115 ESR。
+
+**导出 PNG / SVG** —— 已安装 Node.js 时，可在无头 Chrome 中批量导出，不弹出浏览器窗口：
+
+```bash
+npm ci && npm run build
+node scripts/export.mjs path/to/project.epro2 --list
+node scripts/export.mjs path/to/project.epro2 --doc 1 -o sheet.png --width 2400
+node scripts/export.mjs path/to/project.epro2 --all --out-dir export --format svg
+```
+
+嵌入宿主时也可直接调用 `viewer.exportImage({ format: 'png' })`（独立页面为 `easyedaViewer.exportImage`），离屏渲染，不影响当前画布。
 
 **界面操作**
 

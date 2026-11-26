@@ -6,6 +6,20 @@
 
 ## [Unreleased]
 
+## [0.7.12] - 2026-11-26
+
+### Added
+- **图片导出 API 与命令行导出**(#image-export,用户需求):新增 `exportImage({ nodeId?, format: 'png'|'svg', scale?, width?, height?, padding?, background?, pixelRatio? })`,在**离屏** Leafer 场景中渲染任意已加载文档并返回 `{ format, width, height, blob, dataURL }`——不切换当前文档、不影响可见画布,宿主可在后台生成缩略图或评审截图。PNG 由离屏 canvas 栅格化(支持透明底与 `pixelRatio`);SVG 由场景图序列化,矩形 / 线条 / 路径 / 文字均为矢量,图片以 data URL 内嵌,文字按 Leafer 排版后的行坐标输出,对齐与基线同画布一致。新增 `listDocuments()` 列出全部可导出文档(含库符号 / 封装);接口版本 1.2.0 → 1.3.0。配套命令行 `node scripts/export.mjs <工程> [--doc …|--all --out-dir …]`:用无头 Chrome 调用同一 API,**不弹出浏览器窗口**,支持 `.epro2` / `.elibz2` / 单文档 / `.eprj3` 文件夹与 `.zip`,可 `--list`、批量导出、按 `--width` / `--height` / `--scale` / `--padding` / `--background` / `--pixel-ratio` 控制输出,适合 CI 与服务端批处理。
+- **文件夹选择改用 File System Access API**(#folder-picker-fsa,用户需求):浏览器端「打开文件夹」优先调用 `showDirectoryPicker()` 直接读取目录树,不再弹出浏览器“上传此文件夹中的全部文件”确认框;不支持该 API 的浏览器(Firefox/Safari)、被 iframe 权限策略拦截或非安全上下文时自动回退到 `webkitdirectory` 选择框,用户取消不触发回退。桌面版仍使用原生对话框。
+
+### Changed
+- **加载遮罩只在必要时出现**(#elibz2-no-spinner,用户反馈):`.elibz2` 库包体量小、解析瞬时,加载库包以及打开符号 / 封装文档时不再弹出忙碌遮罩;**文档打开时仅 PCB 显示遮罩**——原理图、面板、符号 / 封装体量小、打开瞬时,不再出现转圈;工程加载仍保留遮罩。
+
+## [0.7.11] - 2026-11-25
+
+### Fixed
+- **原理图 junction 结点缺失**(#junction-cross-wire,用户反馈 C19415-REF3040AIDBZR 工程):结点圆点此前只在同一个 `WIRE` / `lineGroup` 的多段导线内部合成,而 epro2 常把 T 型连接拆成多条独立导线,结点于是全部不显示。改为按**页面全部导线几何**判定:**≥3 个线端汇聚**(T 型、四向星形)或**线端落在另一条导线中段**时画点;两条独立导线仅中段十字交叉不算连接、不画点;同一导线自交仍保留圆点。候选点去重并对导线做空间哈希分桶,全样例 smoke 渲染耗时 6.7s → 4.9s。
+
 ## [0.7.10] - 2026-11-17
 
 ### Changed

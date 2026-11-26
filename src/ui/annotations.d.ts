@@ -1,4 +1,4 @@
-import type { Shell, Theme, ChromeFlags } from './shell';
+import type { Shell, Theme, ChromeFlags, ExportImageOptions, ExportImageResult } from './shell';
 import type { Lang } from './i18n';
 
 export type AnnotationGroup = 'schematic' | 'pcb';
@@ -48,8 +48,9 @@ export interface AnnotationChange {
   sequence: number;
   data: AnnotationSnapshot;
 }
+export interface ExportedDocument { nodeId: string; title: string; docType: string }
 export interface AnnotationApi {
-  readonly version: '1.2.0';
+  readonly version: '1.3.0';
   loadProject(files: FileList | File[], options?: {
     projectId?: string; revision?: string; user?: AnnotationUser;
     annotations?: AnnotationSnapshot | string;
@@ -79,6 +80,10 @@ export interface AnnotationApi {
   setLang(lang: Lang): void;
   setTheme(theme: Theme): void;
   setChrome(flags: Partial<ChromeFlags>): void;
+  /** render any loaded document offscreen as PNG/SVG without switching the open doc */
+  exportImage(options?: ExportImageOptions): Promise<ExportImageResult>;
+  /** every openable document (sheets, PCB, library symbols…) in tree order */
+  listDocuments(): ExportedDocument[];
 }
 export interface AnnotationController { api: AnnotationApi; destroy(): void }
 export function installAnnotations(shell: Shell): AnnotationController;

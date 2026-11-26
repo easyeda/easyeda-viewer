@@ -947,7 +947,7 @@ export function installAnnotations(shell) {
     };
   }
   const api = Object.freeze({
-    version: '1.2.0', loadProject,
+    version: '1.3.0', loadProject,
     setAnnotationsVisible,
     getAnnotationsVisible: () => state.visible,
     getContext: () => clone({ projectId: state.projectId, revision: state.revision, documents: state.documents, currentDocument: currentDocument() }),
@@ -956,6 +956,9 @@ export function installAnnotations(shell) {
     createAnnotation, updateAnnotation, deleteAnnotation, addReply, focusAnnotation,
     selectByDesignators: designators => shell.selectByDesignators(designators),
     clearSelection: () => shell.clearSelection(),
+    // document export (#image-export): offscreen PNG/SVG of any loaded doc
+    exportImage: options => shell.exportImage(options),
+    listDocuments: () => shell.listDocuments(),
     undo: () => history('undo'), redo: () => history('redo'),
     onChange: callback => {
       if (typeof callback !== 'function') throw new TypeError(t('annCallbackMustBeFunction'));

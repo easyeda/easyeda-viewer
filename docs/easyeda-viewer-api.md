@@ -1,6 +1,6 @@
 # EasyEDA Viewer 集成 API
 
-适用于 `npm run build` 生成的 `dist/index.html`，批注接口版本 `1.2.0`，数据版本 `schemaVersion: 1`。
+适用于 `npm run build` 生成的 `dist/index.html`，批注接口版本 `1.3.0`，数据版本 `schemaVersion: 1`。
 
 查看器负责**解析、渲染和批注交互**；宿主系统负责**提供文件、用户身份、权限和持久化**。
 查看器不发起网络请求、不写回工程文件、不自动保存批注。
@@ -68,7 +68,8 @@ const iframe = document.querySelector('#viewer');
 await new Promise((resolve) => iframe.addEventListener('load', resolve, { once: true }));
 
 const api = iframe.contentWindow.easyedaViewer;
-if (!api || api.version !== '1.2.0') throw new Error('查看器 API 不可用或版本不匹配');
+// 按主版本判断兼容性，新增能力只会提升次版本号(1.2 → 1.3)
+if (!api || !String(api.version).startsWith('1.')) throw new Error('查看器 API 不可用或版本不匹配');
 
 await api.loadProject(files, options);
 api.onChange(({ data }) => saveAnnotations(data));
@@ -105,7 +106,7 @@ const { documents, currentDocument } = api.getContext();
 await api.open(documents[0].nodeId);
 ```
 
-## 4. 批注 API
+## 4. 批注与导出 API
 
 ### 4.1 数据结构
 
@@ -142,7 +143,7 @@ await api.open(documents[0].nodeId);
 
 | 接口 | 说明 |
 | --- | --- |
-| `version` | 接口版本，当前 `1.2.0` |
+| `version` | 接口版本，当前 `1.3.0` |
 | `loadProject(files, options)` | 加载工程，可恢复批注 |
 | `getContext()` | 读取工程、图纸列表和当前图纸 |
 | `open(nodeId)` | 打开指定图纸（异步） |
@@ -163,6 +164,8 @@ await api.open(documents[0].nodeId);
 | `setTheme('light' \| 'dark')` | 切换界面主题 |
 | `setChrome(flags)` | 显示 / 隐藏工具栏和面板 |
 | `fit()` | 当前图纸适配画布 |
+| `exportImage(options)` | 离屏渲染文档为 PNG / SVG（异步，不切换当前文档） |
+| `listDocuments()` | 全部可导出文档 `{ nodeId, title, docType }` |
 
 除标注“异步”的方法外均为同步方法；同步方法可能抛异常。
 
@@ -210,6 +213,36 @@ try {
 | 坐标 | 有限数字，绝对值 ≤1e9；框宽高 >0；圆宽高相等 |
 
 导入失败不会改动现有批注。未知字段不会保留；宿主自定义元数据请另存。
+
+### 4.4 导出图片（PNG / SVG）
+
+`exportImage()` 在**离屏**场景中渲染指定文档：不切换当前图纸、不改变缩放，也不影响可见画布，因此宿主可以在后台生成缩略图或评审截图。
+
+```js
+const docs = api.listDocuments();                       // [{ nodeId, title, docType }]
+const sheet = docs.find((d) => d.docType === 'SCH_PAGE');
+const png = await api.exportImage({ nodeId: sheet.nodeId, format: 'png', width: 2400 });
+const imageUrl = URL.createObjectURL(png.blob);         // 或直接用 png.dataURL
+
+const svg = await api.exportImage({ format: 'svg' });   // 当前文档；SVG 为矢量文本
+```
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `nodeId` | 当前文档 | `listDocuments()` 返回的任意文档（含符号 / 封装） |
+| `format` | `png` | `png` 或 `svg` |
+| `scale` | `1` | 1 世界单位 = N 像素；给出 `width` / `height` 时忽略 |
+| `width` / `height` | — | 按像素等比适配内容（同时给出时取更小的缩放） |
+| `padding` | `16` | 内容四周留白（像素） |
+| `background` | 文档底色 | 背景色；`null` = 透明背景 |
+| `pixelRatio` | `1` | 仅 PNG：额外栅格倍率（2 = 两倍清晰度） |
+
+返回 `{ format, width, height, blob, dataURL }`。说明：
+
+- 导出范围取**实际渲染内容**（与「适应窗口」一致），不含选中框、高亮和批注覆盖层。
+- PNG 由离屏 canvas 栅格化；SVG 由场景图序列化，矩形 / 线条 / 路径 / 文字均为矢量，图片以 data URL 内嵌，可脱离查看器单独使用。
+- SVG 文字使用记录中的字体名（缺省 `Arial, sans-serif`）；接收方缺少该字体时由系统回退，字形宽度可能略有差异。
+- 大批量导出请串行调用；一次导出会创建临时离屏渲染器，完成后自动释放。
 
 ## 5. 按位号批量选中
 
@@ -371,7 +404,7 @@ iframe `load` 可能晚于 `ready`，直接检查 `easyedaViewer` 是否存在�
 | `lang` | `lang: 'zh' \| 'en'` | 无 |
 | `chrome` | `chrome: { toolbar, left, right, status, annotations, logo, open, annotationToolbar, annotationPanel, components }` | 无 |
 
-`postMessage` 不提供批注增删改；需要批注 API 时请使用同源 JS 访问。
+`postMessage` 不提供批注增删改，也不提供图片导出；需要这些能力时请使用同源 JS 访问 `exportImage()`，或使用命令行导出（见 `docs/development.md`）。
 
 ## 8. 语言与主题
 
@@ -412,7 +445,7 @@ api.setTheme('dark');
 
 ## 11. 集成检查清单
 
-1. 同源 iframe 或源码集成可正常初始化，`api.version === '1.2.0'`。
+1. 同源 iframe 或源码集成可正常初始化，`api.version` 主版本为 `1`（当前 `1.3.0`）。
 2. 工程加载后 `getContext().documents` 与 `currentDocument` 正确。
 3. 传入稳定的 `projectId` / `revision` / `user`。
 4. 新建、回复、解决、删除、撤销 / 重做均只触发一次保存通知。
@@ -422,6 +455,7 @@ api.setTheme('dark');
 8. 只读场景确认批注 UI 已隐藏且 API 仍可用。
 9. 刷新 iframe 后重新加载并恢复数据。
 10. 模拟保存失败与并发保存，宿主显示未保存状态并提供重试。
+11. `listDocuments()` 能列出全部文档，`exportImage()` 能导出 PNG / SVG 且当前画布不变。
 
 仓库内自动化用例：`qa/annotations/`（冒烟、对抗、同源 iframe、边界、滚轮对齐）。
 这些用例不等同于宿主系统的认证、CSP、后端保存和多用户冲突验收。

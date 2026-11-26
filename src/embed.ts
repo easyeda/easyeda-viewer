@@ -8,7 +8,7 @@
  *   v.open('nodeId');
  *   v.destroy();
  */
-import { Shell, type Theme, type ChromeFlags } from './ui/shell';
+import { Shell, type Theme, type ChromeFlags, type ExportImageOptions, type ExportImageResult } from './ui/shell';
 import type { Lang } from './ui/i18n';
 import type { ProjectModel, TreeNode } from './core/types';
 import type { RenderObject } from './core/render/layers';
@@ -52,6 +52,10 @@ export interface EextViewer {
   /** show/hide toolbar & side panels at runtime */
   setChrome(flags: Partial<ChromeFlags>): void;
   getModel(): ProjectModel | null;
+  /** render a loaded document offscreen as PNG/SVG (no need to open it on screen) */
+  exportImage(options?: ExportImageOptions): Promise<ExportImageResult>;
+  /** every openable document (sheets, PCB, library symbols…) in tree order */
+  listDocuments(): { nodeId: string; title: string; docType: string }[];
   destroy(): void;
 }
 
@@ -77,9 +81,11 @@ export function createViewer(host: HTMLElement, opts: CreateViewerOptions = {}):
     setLang: (lang) => shell.setLang(lang),
     setChrome: (flags) => shell.setChrome(flags),
     getModel: () => shell.getModel(),
+    exportImage: (options) => shell.exportImage(options),
+    listDocuments: () => shell.listDocuments(),
     destroy: () => shell.destroy(),
   };
 }
 
-export type { ProjectModel, TreeNode, RenderObject, Theme, ChromeFlags, Lang };
+export type { ProjectModel, TreeNode, RenderObject, Theme, ChromeFlags, Lang, ExportImageOptions, ExportImageResult };
 export type { AnnotationApi, Annotation, AnnotationSnapshot } from './ui/annotations';

@@ -179,9 +179,62 @@ export function pickFiles(accept = '.epro2,.elibz2,.esch2,.epcb2,.epan2,.elib2,.
   });
 }
 
-/** open folder picker via webkitdirectory input; resolves with every file under the folder */
+/** open folder picker. The File System Access API (`showDirectoryPicker`)
+ *  avoids the browser's "upload all files in this folder?" confirmation and
+ *  streams the files directly; browsers without it (Firefox/Safari) and
+ *  contexts that block it (cross-origin iframe without permission policy,
+ *  insecure origin) keep the classic `webkitdirectory` input (#folder-picker-fsa) */
 export function pickFolder(): Promise<File[]> {
   if (desktopBridge()) return bridgeLoad('openFolderDialog');
+  const picker = (window as unknown as { showDirectoryPicker?: (options?: object) => Promise<unknown> }).showDirectoryPicker;
+  if (typeof picker === 'function') {
+    return (async () => {
+      let dir: FileSystemDirectoryHandle;
+      try {
+        dir = await picker.call(window, { mode: 'read', id: 'easyeda-viewer-project' }) as FileSystemDirectoryHandle;
+      } catch (err) {
+        // user dismissed the picker: not an error, and no fallback dialog
+        if ((err as DOMException)?.name === 'AbortError') return [];
+        // blocked (iframe policy / insecure context) — fall back to <input>
+        return inputFolder();
+      }
+      try {
+        return await collectDirectory(dir, '');
+      } catch {
+        return inputFolder();
+      }
+    })();
+  }
+  return inputFolder();
+}
+
+/** read a directory handle (and its subfolders) into Files that keep their
+ *  relative path, so the folder-form `.eprj3` parser sees the same tree as a
+ *  drag-and-drop or `webkitdirectory` upload */
+async function collectDirectory(dir: FileSystemDirectoryHandle, prefix: string): Promise<File[]> {
+  const entries: { name: string; handle: FileSystemHandle }[] = [];
+  for await (const entry of (dir as unknown as { values(): AsyncIterable<FileSystemHandle> }).values()) {
+    entries.push({ name: entry.name, handle: entry });
+  }
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  const out: File[] = [];
+  for (const { name, handle } of entries) {
+    const rel = prefix ? `${prefix}/${name}` : name;
+    if (handle.kind === 'directory') {
+      out.push(...await collectDirectory(handle as FileSystemDirectoryHandle, rel));
+    } else {
+      const file = await (handle as FileSystemFileHandle).getFile();
+      const f = new File([file], file.name, { type: file.type, lastModified: file.lastModified });
+      try {
+        Object.defineProperty(f, 'webkitRelativePath', { value: rel });
+      } catch { /* frozen in some engines; the parser can still use the name */ }
+      out.push(f);
+    }
+  }
+  return out;
+}
+
+function inputFolder(): Promise<File[]> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
