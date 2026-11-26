@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | easyeda-viewer(嘉立创EDA专业版工程轻量查看器) |
-| 文档版本 | v0.7.12(与代码同步) |
+| 文档版本 | v0.7.13(与代码同步) |
 | 日期 | 2026-09-20 |
 | 状态 | 核心 P0 已实现,渲染保真持续打磨 |
 | 格式参考 | [easyeda/easyeda-eprj3-skill](https://github.com/easyeda/easyeda-eprj3-skill)(本地 `easyeda-pro-eprj3-format/`)、[easyeda/easyeda-pro-format-skill](https://github.com/easyeda/easyeda-pro-format-skill)(本地 `easyeda-pro-format-skill/`) |
@@ -304,6 +304,7 @@ iframe/postMessage 协议(`src/main.ts` 内置桥,**已实现**;消息均带 `so
 | FR-9.7 | **WebView2 运行时缺失提示**(v0.2.3):启动时按官方检测方式查 EdgeUpdate\Clients\{F3017226-…} 注册表键(HKLM×2 视图 / HKCU)的 `pv` 值;缺失时弹原生对话框——「确定(下载)」经 ShellExecute 用系统浏览器打开微软官方 Evergreen Bootstrapper 地址(fwlink 2124703);**Win7**(GetVersion 6.1)改为提示安装 WebView2 109(最后一个支持 Win7 的版本)并打开 WebView2 下载页,「取消」关闭弹窗;两条路径均退出程序(装好后重跑) | P0 |
 | FR-9.8 | **启动提速**(v0.2.4):宿主窗口在 webview.NewWindow(阻塞的 WebView2 环境/控制器创建,冷启动 ~4s)之前即按 DPI 换算的最终尺寸居中显示,背景刷与界面 `--ev-bg` 同色(空窗口可见,渲染就绪后由 webview_widget 覆盖);WebView2 用户数据目录固定到 `%LOCALAPPDATA%\EasyEDAViewer\WebView2`(WEBVIEW2_USER_DATA_FOLDER,避免加载器默认 exe 旁目录被杀软逐次重扫,profile 跨启动复用);注入 `--no-first-run --no-default-browser-check --disable-background-networking`(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS);NewWindow 关闭 debug(不启用 DevTools);启动链各阶段打 `[t+…]` 计时日志 | P0 |
 | FR-9.9 | **Windows 7 兼容**(v0.7.1 #win7):Win7 版 `easyeda-viewer_win7_v{version}.exe` 用 Go 1.20.14 构建(Go 1.21 起不再支持 Win7);Win10 专属 API(`SetThreadDpiAwarenessContext` / `GetDpiForWindow`)运行时探测,缺失时回退 `GetDeviceCaps(LOGPIXELSX)`;目标机 Win7 SP1 x64 + KB2999226(UCRT)+ WebView2 109 | P0 |
+| FR-9.10 | **GitHub Pages 在线预览**(v0.7.13 #github-pages):`.github/workflows/pages.yml` 在 push 到 `main`(或手动触发)时构建单文件 `dist/index.html` 并部署到 `https://easyeda.github.io/easyeda-viewer/`;首次启用需在 Settings → Pages 将 Source 设为「GitHub Actions」;与 Release 流水线独立,不创建 tag/Release;页面为纯静态,工程文件仍由访问者浏览器本地解析,不上传 | P1 |
 
 ---
 

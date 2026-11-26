@@ -55,6 +55,8 @@ A lightweight, offline, embeddable viewer for **EasyEDA Pro** (嘉立创EDA专�
 
 **Browser** — open `dist/index.html` in Chrome / Edge / Firefox and drag an `.eprj3` folder, `.epro2`, `.zip`, `.elibz2` or a single document onto the canvas. On Windows 7 without WebView2, use Chrome 109 or Firefox 115 ESR.
 
+**Online version** — https://easyeda.github.io/easyeda-viewer/ serves the same single-file build from GitHub Pages: open it in any modern browser and drop a project in; parsing and rendering stay in your browser, nothing is uploaded.
+
 **PNG / SVG export** — with Node.js installed, render documents headlessly (no browser window):
 
 ```bash
@@ -134,6 +136,8 @@ Embedding? Call `viewer.exportImage({ format: 'png' })` (`easyedaViewer.exportIm
 | `easyeda-viewer_win7_v*.exe` | Windows 7 SP1 x64 / 10 / 11 | 需要通用 C 运行时（KB2999226）与 **WebView2 109**（最后一个支持 Win7 的版本） |
 
 **浏览器** —— 用 Chrome / Edge / Firefox 打开 `dist/index.html`，把 `.eprj3` 文件夹、`.epro2`、`.zip`、`.elibz2` 或单个文档拖入画布即可。Windows 7 无 WebView2 时，请使用 Chrome 109 或 Firefox 115 ESR。
+
+**在线版** —— https://easyeda.github.io/easyeda-viewer/ 由 GitHub Pages 提供同一份单文件构建：用任意现代浏览器打开后拖入工程即可，解析与渲染全在本地，不上传任何文件。
 
 **导出 PNG / SVG** —— 已安装 Node.js 时，可在无头 Chrome 中批量导出，不弹出浏览器窗口：
 

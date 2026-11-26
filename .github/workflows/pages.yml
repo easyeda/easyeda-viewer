@@ -1,0 +1,54 @@
+# GitHub Pages:把单文件查看器发布到 https://easyeda.github.io/easyeda-viewer/
+#
+# 与 Release 流水线互不影响:这里只构建 dist/index.html 并部署为静态站点,
+# 不创建 tag / Release。push 到 main 即更新在线版;也可在 Actions 页手动触发。
+#
+# 首次启用:仓库 Settings → Pages → Source 选择 “GitHub Actions”
+# (deploy-pages 会发布到该 Pages 站点;未启用时部署步骤会报错并给出提示)。
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只部署最新一次 main;新的推送取消排队中的旧部署
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 构建单文件查看器(含类型检查)
+        run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

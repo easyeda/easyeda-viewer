@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+## [0.7.13] - 2026-11-26
+
+### Added
+- **GitHub Pages 在线预览**(#github-pages,用户需求):新增 `.github/workflows/pages.yml`,push 到 `main` 时自动构建单文件 `dist/index.html` 并部署到 https://easyeda.github.io/easyeda-viewer/ ;首次启用需在仓库 Settings → Pages 将 Source 设为「GitHub Actions」。在线版与 Release 流水线相互独立(不创建 tag / Release),工程仍由浏览器本地解析渲染、不发起上传。README 与开发指南补充入口与说明。
+
 ## [0.7.12] - 2026-11-26
 
 ### Added

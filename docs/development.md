@@ -124,7 +124,17 @@ node scripts/build-desktop.mjs
 - `SetThreadDpiAwarenessContext` / `GetDpiForWindow` 等 Win10 专属 API 在代码中做了运行时探测,缺失时回退 `GetDeviceCaps(LOGPIXELSX)`。
 - 版本号变动时同步 `desktop/versioninfo.rc`(FileVersion / ProductVersion / OriginalFilename)。
 
-## 6. 嵌入与集成
+## 6. GitHub Pages 在线预览
+
+`.github/workflows/pages.yml` 在每次 push 到 main(或手动 `workflow_dispatch`)时构建单文件
+`dist/index.html` 并部署到 **https://easyeda.github.io/easyeda-viewer/**。产物是纯静态页面,
+工程文件仍由访问者在浏览器本地加载,不上传。
+
+- 首次启用:仓库 **Settings → Pages → Source** 选择 **GitHub Actions**(之后由 `deploy-pages` 自动发布)。
+- 与 Release 流水线相互独立:Pages 只更新在线版,不创建 tag / Release;`release.yml` 仍按 `package.json` 版本号发布 exe 与 html 附件。
+- 手动重发:在 Actions 页选择 **Pages** → Run workflow。
+
+## 7. 嵌入与集成
 
 查看器提供两种嵌入方式,完整说明(加载、选中、批注、事件、语言主题、错误处理与安全注意事项)见 [集成 API](easyeda-viewer-api.md):
 
@@ -145,7 +155,7 @@ await viewer.loadFiles(Array.from(input.files));
 await viewer.selectByDesignators(['R12', 'C3']);
 ```
 
-## 7. 提交约定
+## 8. 提交约定
 
 - 提交信息用中文,一次提交聚焦一件事。
 - 不提交 `samples/` 下的本地样例、`tmp/` 下的临时脚本与调试产物。
